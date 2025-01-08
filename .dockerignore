@@ -1,0 +1,67 @@
+# Version control
+.git
+.gitignore
+
+# Build artifacts
+bin/
+tmp/
+dist/
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Test files
+*.test
+*.out
+coverage.html
+test/
+
+# Development tools
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# Docker files
+Dockerfile
+docker-compose.yml
+.dockerignore
+
+# Documentation
+README.md
+LICENSE
+docs/
+
+# Debug files
+debug/
+
+# Environment files
+.env*
+*.local
+
+# Log files
+*.log
+logs/
+
+# Database files
+*.db
+*.sqlite
+
+# Air live reload
+.air.toml
+tmp/
+
+# Dependencies
+vendor/
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db 
