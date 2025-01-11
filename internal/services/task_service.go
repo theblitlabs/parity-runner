@@ -1,3 +1,4 @@
+// This package contains helper functions for the task service to get parameters from the request
 package services
 
 import (
@@ -86,4 +87,12 @@ func (s *TaskService) AssignTaskToRunner(ctx context.Context, taskID, runnerID s
 	task.UpdatedAt = time.Now()
 
 	return s.repo.Update(ctx, task)
+}
+
+func (s *TaskService) GetTaskReward(ctx context.Context, taskID string) (float64, error) {
+	task, err := s.repo.Get(ctx, taskID)
+	if err != nil {
+		return 0, err
+	}
+	return task.Reward, nil
 }

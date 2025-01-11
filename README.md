@@ -29,6 +29,10 @@ make deps
 3. Start PostgreSQL (if using Docker):
 
 ```bash
+# Remove existing container if it exists
+docker rm -f parity-db || true
+
+# Start new PostgreSQL container
 docker run --name parity-db -e POSTGRES_PASSWORD=postgres -p 5432:5432 -d postgres
 ```
 

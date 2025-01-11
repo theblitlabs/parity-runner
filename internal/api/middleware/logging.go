@@ -70,6 +70,10 @@ func Logging(next http.Handler) http.Handler {
 			logEvent := log.Info()
 			if rw.status >= 400 {
 				logEvent = log.Error()
+			} else if rw.status >= 300 {
+				logEvent = log.Warn()
+			} else if rw.status >= 200 {
+				logEvent = log.Info()
 			}
 
 			// Log request completion

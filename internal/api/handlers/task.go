@@ -88,3 +88,15 @@ func (h *TaskHandler) ListTasks(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(tasks)
 }
+
+func (h *TaskHandler) GetTaskReward(w http.ResponseWriter, r *http.Request) {
+	taskID := mux.Vars(r)["id"]
+	reward, err := h.taskService.GetTaskReward(r.Context(), taskID)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(reward)
+}

@@ -20,7 +20,7 @@ func main() {
 		log.Fatal().Err(err).Msg("Failed to load config")
 	}
 
-	// Build connection string from config
+	// connection string for postgres
 	dsn := fmt.Sprintf("postgres://%s:%s@%s:%d/%s?sslmode=%s",
 		cfg.Database.User,
 		cfg.Database.Password,
@@ -36,17 +36,30 @@ func main() {
 	}
 	defer db.Close()
 
-	// Read the migration file
-	upSQL, err := os.ReadFile("internal/database/migrations/000001_create_tasks_table.up.sql")
+	// Determine if this is an up or down migration
+	migrationType := "up"
+	if len(os.Args) > 1 && os.Args[1] == "down" {
+		migrationType = "down"
+	}
+
+	// Read the appropriate migration file
+	var sqlFile string
+	if migrationType == "up" {
+		sqlFile = "internal/database/migrations/000001_create_tasks_table.up.sql"
+	} else {
+		sqlFile = "internal/database/migrations/000001_create_tasks_table.down.sql"
+	}
+
+	migrationSQL, err := os.ReadFile(sqlFile)
 	if err != nil {
 		log.Fatal().Err(err).Msg("Failed to read migration file")
 	}
 
 	// Execute the migration
-	_, err = db.Exec(string(upSQL))
+	_, err = db.Exec(string(migrationSQL))
 	if err != nil {
 		log.Fatal().Err(err).Msg("Failed to execute migration")
 	}
 
-	log.Info().Msg("Migration completed successfully")
+	log.Info().Msgf("Migration (%s) completed successfully", migrationType)
 }
