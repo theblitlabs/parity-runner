@@ -6,7 +6,7 @@ GOTEST=$(GOCMD) test
 GOGET=$(GOCMD) get
 GOMOD=$(GOCMD) mod
 GOFMT=$(GOCMD) fmt
-BINARY_NAME=parity-protocol
+BINARY_NAME=parity
 MAIN_PATH=cmd/server/main.go
 AIR_VERSION=v1.49.0
 GOPATH=$(shell go env GOPATH)
@@ -14,7 +14,7 @@ AIR=$(GOPATH)/bin/air
 
 # Docker parameters
 DOCKER_COMPOSE=docker-compose
-DOCKER_IMAGE_NAME=parity-protocol
+DOCKER_IMAGE_NAME=parity
 DOCKER_IMAGE_TAG=latest
 
 # Build flags

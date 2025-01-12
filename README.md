@@ -87,7 +87,7 @@ make test
 - Create a task:
 
 ```bash
-curl -X POST http://localhost:8080/api/tasks \
+curl -X POST http://localhost:8080/tasks \
   -H "Content-Type: application/json" \
   -d '{
     "title": "Test Task",
@@ -97,24 +97,42 @@ curl -X POST http://localhost:8080/api/tasks \
   }'
 ```
 
-- List tasks:
+- List all tasks:
 
 ```bash
-curl http://localhost:8080/api/tasks
+curl http://localhost:8080/tasks
 ```
 
 - Get task by ID:
 
 ```bash
-curl http://localhost:8080/api/tasks/{task_id}
+curl http://localhost:8080/tasks/{id}
 ```
+
+- Get task reward:
+
+```bash
+curl http://localhost:8080/tasks/{id}/reward
+```
+
+All endpoints require appropriate authentication headers. The following endpoints are available:
+
+| Method | Endpoint           | Description       |
+| ------ | ------------------ | ----------------- |
+| GET    | /tasks             | List all tasks    |
+| POST   | /tasks             | Create a new task |
+| GET    | /tasks/{id}        | Get task by ID    |
+| GET    | /tasks/{id}/reward | Get task reward   |
 
 ## Project Structure
 
 ```
 parity-protocol/
-├── cmd/                    # Entry points
-├── config/                 # Configuration files
+├── cmd/                    # Application entry points
+│   ├── migrate/           # Database migration tool
+│   └── server/            # Main application server
+├── config/                # Configuration files
+│   └── config.yaml        # Application
 ├── internal/              # Private application code
 │   ├── api/               # API layer
 │   ├── services/          # Business logic
@@ -126,14 +144,33 @@ parity-protocol/
 
 ## Available Make Commands
 
+- `make build`: Build the application
 - `make run`: Run the application
-- `make watch`: Run with hot reload
-- `make test`: Run tests
+- `make test`: Run tests with race detection and coverage
+- `make clean`: Clean build files and test artifacts
+- `make deps`: Download and tidy dependencies
+- `make fmt`: Format code
+- `make watch`: Run the application with hot reload
+- `make install-air`: Install air for hot reloading
+
+### Docker Commands
+
+- `make docker-build`: Build Docker image
 - `make docker-up`: Start Docker containers
 - `make docker-down`: Stop Docker containers
-- `make migrate-up`: Run database migrations
-- `make migrate-down`: Rollback migrations
-- `make help`: Show all available commands
+- `make docker-logs`: View Docker container logs
+- `make docker-clean`: Clean Docker resources and remove orphans
+
+### Database Commands
+
+- `make migrate-up`: Run database migrations up
+- `make migrate-down`: Run database migrations down
+
+### Helper Commands
+
+- `make help`: Display help screen with all available commands
+
+All commands support verbose output and include appropriate flags for development and production use.
 
 ## Contributing
 
