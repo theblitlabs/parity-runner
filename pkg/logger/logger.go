@@ -1,6 +1,8 @@
 package logger
 
 import (
+	"encoding/json"
+	"fmt"
 	"os"
 	"time"
 
@@ -24,7 +26,15 @@ func Init() {
 			return colorize(i.(string)+":", gray)
 		},
 		FormatFieldValue: func(i interface{}) string {
-			return colorize(i.(string), blue)
+			// Handle different types of field values
+			switch v := i.(type) {
+			case string:
+				return colorize(v, blue)
+			case json.Number:
+				return colorize(v.String(), blue)
+			default:
+				return colorize(fmt.Sprint(v), blue)
+			}
 		},
 	}
 

@@ -11,11 +11,11 @@ import (
 )
 
 type TaskHandler struct {
-	taskService *services.TaskService
+	service services.ITaskService
 }
 
-func NewTaskHandler(taskService *services.TaskService) *TaskHandler {
-	return &TaskHandler{taskService: taskService}
+func NewTaskHandler(service services.ITaskService) *TaskHandler {
+	return &TaskHandler{service: service}
 }
 
 type CreateTaskRequest struct {
@@ -48,8 +48,12 @@ func (h *TaskHandler) CreateTask(w http.ResponseWriter, r *http.Request) {
 		Float64("reward", task.Reward).
 		Msg("Creating new task")
 
-	if err := h.taskService.CreateTask(r.Context(), task); err != nil {
+	if err := h.service.CreateTask(r.Context(), task); err != nil {
 		log.Error().Err(err).Msg("Failed to create task")
+		if err == services.ErrInvalidTask {
+			http.Error(w, "Invalid task data", http.StatusBadRequest)
+			return
+		}
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -58,13 +62,14 @@ func (h *TaskHandler) CreateTask(w http.ResponseWriter, r *http.Request) {
 		Str("task_id", task.ID).
 		Msg("Task created successfully")
 
+	w.WriteHeader(http.StatusCreated)
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(task)
 }
 
 func (h *TaskHandler) GetTask(w http.ResponseWriter, r *http.Request) {
 	taskID := mux.Vars(r)["id"]
-	task, err := h.taskService.GetTask(r.Context(), taskID)
+	task, err := h.service.GetTask(r.Context(), taskID)
 	if err != nil {
 		if err == services.ErrTaskNotFound {
 			http.Error(w, "Task not found", http.StatusNotFound)
@@ -79,7 +84,7 @@ func (h *TaskHandler) GetTask(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *TaskHandler) ListTasks(w http.ResponseWriter, r *http.Request) {
-	tasks, err := h.taskService.ListAvailableTasks(r.Context())
+	tasks, err := h.service.ListAvailableTasks(r.Context())
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -91,7 +96,7 @@ func (h *TaskHandler) ListTasks(w http.ResponseWriter, r *http.Request) {
 
 func (h *TaskHandler) GetTaskReward(w http.ResponseWriter, r *http.Request) {
 	taskID := mux.Vars(r)["id"]
-	reward, err := h.taskService.GetTaskReward(r.Context(), taskID)
+	reward, err := h.service.GetTaskReward(r.Context(), taskID)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -99,4 +104,45 @@ func (h *TaskHandler) GetTaskReward(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(reward)
+}
+
+func (h *TaskHandler) GetTasks(w http.ResponseWriter, r *http.Request) {
+	tasks, err := h.service.GetTasks(r.Context())
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(tasks)
+}
+
+type AssignTaskRequest struct {
+	RunnerID string `json:"runner_id"`
+}
+
+func (h *TaskHandler) AssignTask(w http.ResponseWriter, r *http.Request) {
+	var req AssignTaskRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	if req.RunnerID == "" {
+		http.Error(w, "Runner ID is required", http.StatusBadRequest)
+		return
+	}
+
+	taskID := mux.Vars(r)["id"]
+	err := h.service.AssignTaskToRunner(r.Context(), taskID, req.RunnerID)
+	if err != nil {
+		if err == services.ErrTaskNotFound {
+			http.Error(w, "Task not found", http.StatusNotFound)
+			return
+		}
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.WriteHeader(http.StatusOK)
 }

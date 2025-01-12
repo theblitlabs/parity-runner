@@ -23,6 +23,7 @@ type TaskRepository interface {
 	Update(ctx context.Context, task *models.Task) error
 	List(ctx context.Context, limit, offset int) ([]*models.Task, error)
 	ListByStatus(ctx context.Context, status models.TaskStatus) ([]*models.Task, error)
+	GetAll(ctx context.Context) ([]models.Task, error)
 }
 
 type TaskService struct {
@@ -68,8 +69,17 @@ func (s *TaskService) GetTask(ctx context.Context, id string) (*models.Task, err
 	return s.repo.Get(ctx, id)
 }
 
-func (s *TaskService) ListAvailableTasks(ctx context.Context) ([]*models.Task, error) {
-	return s.repo.ListByStatus(ctx, models.TaskStatusPending)
+func (s *TaskService) ListAvailableTasks(ctx context.Context) ([]models.Task, error) {
+	tasks, err := s.repo.ListByStatus(ctx, models.TaskStatusPending)
+	if err != nil {
+		return nil, err
+	}
+	// Convert []*models.Task to []models.Task
+	result := make([]models.Task, len(tasks))
+	for i, task := range tasks {
+		result[i] = *task
+	}
+	return result, nil
 }
 
 func (s *TaskService) AssignTaskToRunner(ctx context.Context, taskID, runnerID string) error {
@@ -95,4 +105,8 @@ func (s *TaskService) GetTaskReward(ctx context.Context, taskID string) (float64
 		return 0, err
 	}
 	return task.Reward, nil
+}
+
+func (s *TaskService) GetTasks(ctx context.Context) ([]models.Task, error) {
+	return s.repo.GetAll(ctx)
 }

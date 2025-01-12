@@ -8,91 +8,55 @@ import (
 	"github.com/virajbhartiya/parity-protocol/pkg/logger"
 )
 
-// responseWriter is a custom ResponseWriter that captures the status code
-type responseWriter struct {
-	http.ResponseWriter
-	status      int
-	wroteHeader bool
-	size        int64
-}
-
-func newResponseWriter(w http.ResponseWriter) *responseWriter {
-	return &responseWriter{ResponseWriter: w, status: http.StatusOK}
-}
-
-func (rw *responseWriter) WriteHeader(code int) {
-	if !rw.wroteHeader {
-		rw.status = code
-		rw.wroteHeader = true
-		rw.ResponseWriter.WriteHeader(code)
-	}
-}
-
-func (rw *responseWriter) Write(b []byte) (int, error) {
-	if !rw.wroteHeader {
-		rw.WriteHeader(http.StatusOK)
-	}
-	size, err := rw.ResponseWriter.Write(b)
-	rw.size += int64(size)
-	return size, err
-}
-
 func Logging(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
-		log := logger.Get()
-		rw := newResponseWriter(w)
 
-		// Extract request ID or generate new one
-		requestID := r.Header.Get("X-Request-ID")
-		if requestID == "" {
-			requestID = generateRequestID()
-		}
-
-		// Log incoming request
-		log.Info().
-			Str("request_id", requestID).
+		// Create a logger with request context
+		log := logger.Get().With().
+			Str("request_id", uuid.New().String()).
 			Str("method", r.Method).
 			Str("path", r.URL.Path).
 			Str("query", r.URL.RawQuery).
 			Str("remote_addr", r.RemoteAddr).
 			Str("user_agent", r.UserAgent()).
 			Str("referer", r.Referer()).
-			Msg("Request started")
+			Logger()
 
-		// Add request ID to response headers
-		w.Header().Set("X-Request-ID", requestID)
+		// Log the request
+		log.Info().Msg("Request started")
 
-		defer func() {
-			duration := time.Since(start)
+		// Create response wrapper to capture status code
+		ww := &responseWriter{w: w, status: http.StatusOK}
 
-			// Determine log level based on status code
-			logEvent := log.Info()
-			if rw.status >= 400 {
-				logEvent = log.Error()
-			} else if rw.status >= 300 {
-				logEvent = log.Warn()
-			} else if rw.status >= 200 {
-				logEvent = log.Info()
-			}
+		// Call the next handler
+		next.ServeHTTP(ww, r)
 
-			// Log request completion
-			logEvent.
-				Str("request_id", requestID).
-				Str("method", r.Method).
-				Str("path", r.URL.Path).
-				Int("status", rw.status).
-				Int64("size", rw.size).
-				Str("duration", duration.String()).
-				Float64("duration_ms", float64(duration.Microseconds())/1000).
-				Msg("Request completed")
-		}()
-
-		next.ServeHTTP(rw, r)
+		// Log the response
+		duration := time.Since(start)
+		log.Info().
+			Int("status", ww.status).
+			Dur("duration", duration).
+			Str("duration_human", duration.String()).
+			Msg("Request completed")
 	})
 }
 
-// generateRequestID creates a unique request ID
-func generateRequestID() string {
-	return uuid.New().String()
+// responseWriter is a wrapper for http.ResponseWriter that captures the status code
+type responseWriter struct {
+	w      http.ResponseWriter
+	status int
+}
+
+func (rw *responseWriter) Header() http.Header {
+	return rw.w.Header()
+}
+
+func (rw *responseWriter) Write(b []byte) (int, error) {
+	return rw.w.Write(b)
+}
+
+func (rw *responseWriter) WriteHeader(statusCode int) {
+	rw.status = statusCode
+	rw.w.WriteHeader(statusCode)
 }

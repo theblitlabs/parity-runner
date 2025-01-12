@@ -102,3 +102,9 @@ func (r *TaskRepository) List(ctx context.Context, limit, offset int) ([]*models
 
 	return tasks, nil
 }
+
+func (r *TaskRepository) GetAll(ctx context.Context) ([]models.Task, error) {
+	var tasks []models.Task
+	err := r.db.SelectContext(ctx, &tasks, "SELECT * FROM tasks")
+	return tasks, err
+}

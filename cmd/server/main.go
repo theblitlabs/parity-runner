@@ -78,12 +78,19 @@ func runServer() {
 	taskHandler := handlers.NewTaskHandler(taskService)
 
 	// Initialize API handlers and start server
-	router := api.NewRouter(taskHandler)
+	router := api.NewRouter(
+		taskHandler,
+		cfg.Server.Endpoint,
+	)
 
-	addr := fmt.Sprintf("%s:%s", cfg.Server.Host, cfg.Server.Port)
-	log.Info().Msgf("Server starting on %s", addr)
+	server := &http.Server{
+		Addr:    fmt.Sprintf("%s:%s", cfg.Server.Host, cfg.Server.Port),
+		Handler: router,
+	}
 
-	if err := http.ListenAndServe(addr, router); err != nil {
+	log.Info().Msgf("Server starting on %s", fmt.Sprintf("%s:%s", cfg.Server.Host, cfg.Server.Port))
+
+	if err := server.ListenAndServe(); err != nil {
 		log.Fatal().Err(err).Msg("Server failed to start")
 	}
 }

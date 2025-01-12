@@ -13,8 +13,9 @@ type Config struct {
 }
 
 type ServerConfig struct {
-	Port string `mapstructure:"port"`
-	Host string `mapstructure:"host"`
+	Host     string `yaml:"host"`
+	Port     string `yaml:"port"`
+	Endpoint string `yaml:"endpoint"`
 }
 
 type DatabaseConfig struct {

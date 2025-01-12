@@ -10,20 +10,21 @@ import (
 type Router struct {
 	*mux.Router
 	middleware []mux.MiddlewareFunc
+	endpoint   string
 }
 
 // NewRouter creates and configures a new router with all dependencies
 func NewRouter(
 	taskHandler *handlers.TaskHandler,
-	// Add new handlers here as needed:
+	endpoint string,
 ) *Router {
 	r := &Router{
 		Router: mux.NewRouter(),
 		middleware: []mux.MiddlewareFunc{
 			middleware.Logging,
 			middleware.Auth,
-			// Add more global middleware here
 		},
+		endpoint: endpoint,
 	}
 
 	// Initialize the router
@@ -55,7 +56,8 @@ func (r *Router) registerRoutes(
 
 // registerTaskRoutes registers all task-related routes
 func (r *Router) registerTaskRoutes(h *handlers.TaskHandler) {
-	tasks := r.PathPrefix("/tasks").Subrouter()
+	// Create subrouter with endpoint prefix
+	tasks := r.PathPrefix(r.endpoint + "/tasks").Subrouter()
 
 	// Task routes
 	tasks.HandleFunc("", h.ListTasks).Methods("GET")
