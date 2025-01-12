@@ -1,19 +1,22 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
 	"net/http"
 	"os"
+	"time"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/crypto"
+	"github.com/jmoiron/sqlx"
 	"github.com/virajbhartiya/parity-protocol/internal/api"
 	"github.com/virajbhartiya/parity-protocol/internal/api/handlers"
 	"github.com/virajbhartiya/parity-protocol/internal/config"
-	"github.com/virajbhartiya/parity-protocol/internal/database"
 	"github.com/virajbhartiya/parity-protocol/internal/database/repositories"
 	"github.com/virajbhartiya/parity-protocol/internal/services"
+	"github.com/virajbhartiya/parity-protocol/pkg/database"
 	"github.com/virajbhartiya/parity-protocol/pkg/helper"
 	"github.com/virajbhartiya/parity-protocol/pkg/keystore"
 	"github.com/virajbhartiya/parity-protocol/pkg/logger"
@@ -34,11 +37,11 @@ func main() {
 			runServer()
 			return
 		default:
-			log.Fatal().Msg("Unknown command. Use 'auth' or 'daemon'")
+			log.Error().Msg("Unknown command. Use 'auth' or 'daemon'")
 		}
 	}
 
-	log.Fatal().Msg("No command specified. Use 'parity auth' or 'parity daemon'")
+	log.Error().Msg("No command specified. Use 'parity auth' or 'parity daemon'")
 }
 
 func runServer() {
@@ -47,33 +50,47 @@ func runServer() {
 
 	cfg, err := config.LoadConfig("config/config.yaml")
 	if err != nil {
-		log.Fatal().Err(err).Msg("Failed to load config")
+		log.Error().Err(err).Msg("Failed to load config")
 	}
 
 	// Check if wallet is connected
 	if err := helper.CheckWalletConnection(cfg); err != nil {
 		switch {
 		case err == helper.ErrInvalidInfuraKey:
-			log.Fatal().Msg("Invalid Infura Project ID. Please update your config.yaml with a valid ID")
+			log.Error().Msg("Invalid Infura Project ID. Please update your config.yaml with a valid ID")
 		case err == helper.ErrNoAuthToken:
-			log.Fatal().Msg("Authentication required. Run 'parity auth --private-key YOUR_KEY' to connect your wallet")
+			log.Error().Msg("Authentication required. Run 'parity auth --private-key YOUR_KEY' to connect your wallet")
 		case err == helper.ErrInvalidAuthToken:
-			log.Fatal().Msg("Invalid authentication token. Please re-authenticate with 'parity auth --private-key YOUR_KEY'")
+			log.Error().Msg("Invalid authentication token. Please re-authenticate with 'parity auth --private-key YOUR_KEY'")
 		default:
-			log.Fatal().Err(err).Msg("Failed to connect wallet")
+			log.Error().Err(err).Msg("Failed to connect wallet")
 		}
 		os.Exit(1)
 	}
 
-	// Initialize database
-	db, err := database.NewDB(&cfg.Database)
-	if err != nil {
-		log.Fatal().Err(err).Msg("Failed to connect to database")
-	}
-	defer db.Close()
+	// Create database connection with timeout context
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
 
-	// Initialize services
-	taskRepo := repositories.NewTaskRepository(db)
+	db, err := database.Connect(ctx, cfg.Database.URL)
+	if err != nil {
+		log.Error().Err(err).Msg("Failed to connect to database")
+		os.Exit(1)
+	}
+
+	// Convert sql.DB to sqlx.DB
+	dbx := sqlx.NewDb(db, "postgres")
+
+	// Ping database to verify connection
+	if err := db.PingContext(ctx); err != nil {
+		log.Error().Err(err).Msg("Database connection check failed")
+		os.Exit(1)
+	}
+
+	log.Info().Msg("Successfully connected to database")
+
+	// Initialize database
+	taskRepo := repositories.NewTaskRepository(dbx)
 	taskService := services.NewTaskService(taskRepo)
 	taskHandler := handlers.NewTaskHandler(taskService)
 
@@ -91,7 +108,7 @@ func runServer() {
 	log.Info().Msgf("Server starting on %s", fmt.Sprintf("%s:%s", cfg.Server.Host, cfg.Server.Port))
 
 	if err := server.ListenAndServe(); err != nil {
-		log.Fatal().Err(err).Msg("Server failed to start")
+		log.Error().Err(err).Msg("Server failed to start")
 	}
 }
 
@@ -104,24 +121,24 @@ func runAuth() {
 
 	// Parse auth command flags
 	if err := authFlags.Parse(os.Args[2:]); err != nil {
-		log.Fatal().Err(err).Msg("Failed to parse flags")
+		log.Error().Err(err).Msg("Failed to parse flags")
 	}
 
 	if *privateKeyFlag == "" {
-		log.Fatal().Msg("Private key is required. Use --private-key flag")
+		log.Error().Msg("Private key is required. Use --private-key flag")
 		os.Exit(1)
 	}
 
 	// Load configuration
 	cfg, err := config.LoadConfig("config/config.yaml")
 	if err != nil {
-		log.Fatal().Err(err).Msg("Failed to load config")
+		log.Error().Err(err).Msg("Failed to load config")
 	}
 
 	// Initialize wallet
 	privateKey, err := crypto.HexToECDSA(*privateKeyFlag)
 	if err != nil {
-		log.Fatal().Msg("Invalid private key format")
+		log.Error().Msg("Invalid private key format")
 		os.Exit(1)
 	}
 
@@ -129,9 +146,9 @@ func runAuth() {
 	client, err := wallet.NewClient(cfg.Ethereum.RPC, cfg.Ethereum.ChainID)
 	if err != nil {
 		if err.Error() == "401 Unauthorized: invalid project id" {
-			log.Fatal().Msg("Invalid Infura Project ID. Please update your config.yaml with a valid ID")
+			log.Error().Msg("Invalid Infura Project ID. Please update your config.yaml with a valid ID")
 		} else {
-			log.Fatal().Err(err).Msg("Failed to connect to Ethereum network")
+			log.Error().Err(err).Msg("Failed to connect to Ethereum network")
 		}
 		os.Exit(1)
 	}
@@ -143,37 +160,32 @@ func runAuth() {
 	tokenContract := common.HexToAddress(cfg.Ethereum.TokenAddress)
 	balance, err := client.GetERC20Balance(tokenContract, address)
 	if err != nil {
-		log.Fatal().Msg("Failed to connect to token contract. Please check your network connection")
+		log.Error().Msg("Failed to connect to token contract. Please check your network connection")
 		os.Exit(1)
 	}
 
 	if balance.Sign() <= 0 {
-		log.Fatal().Msg("No tokens found in wallet. Please ensure you have Parity tokens in your wallet")
+		log.Error().Msg("No tokens found in wallet. Please ensure you have Parity tokens in your wallet")
 		os.Exit(1)
 	}
 
 	// Generate authentication token
 	token, err := wallet.GenerateToken(address.Hex(), privateKey)
 	if err != nil {
-		log.Fatal().Err(err).Msg("Failed to generate authentication token")
+		log.Error().Err(err).Msg("Failed to generate authentication token")
 		os.Exit(1)
 	}
 
 	// Save token to keystore instead of printing export command
 	if err := keystore.SaveToken(token); err != nil {
-		log.Fatal().Err(err).Msg("Failed to save authentication token")
+		log.Error().Err(err).Msg("Failed to save authentication token")
 		os.Exit(1)
 	}
 
 	fmt.Printf("\n✅ Authentication successful!\n\n")
 	keystorePath, _ := keystore.GetKeystorePath()
 	fmt.Printf("Token saved to: %s\n\n", keystorePath)
-}
 
-// Add this helper function
-func isAuthCommand() bool {
-	if len(os.Args) > 1 {
-		return os.Args[1] == "auth"
-	}
-	return false
+	keystorePath, _ = keystore.GetKeystorePath()
+	log.Info().Str("path", keystorePath).Msg("Authentication successful. Token saved")
 }

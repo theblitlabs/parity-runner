@@ -7,7 +7,6 @@ Parity Protocol is a decentralized compute network where runners can execute com
 ### Prerequisites
 
 - Go 1.20 or higher
-- Docker
 - PostgreSQL
 - Make
 
@@ -56,21 +55,7 @@ make watch
 make run
 ```
 
-#### Using Docker
-
-```bash
-# Build the Docker image
-make docker-build
-
-# Start the application
-make docker-up
-
-# View logs
-make docker-logs
-
-# Stop the application
-make docker-down
-```
+````
 
 ### Testing
 
@@ -78,7 +63,7 @@ Run all tests:
 
 ```bash
 make test
-```
+````
 
 ## API Endpoints
 

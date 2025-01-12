@@ -21,20 +21,20 @@ func main() {
 	flag.Parse()
 
 	if *privateKeyFlag == "" {
-		log.Fatal().Msg("Private key is required. Use --private-key flag")
+		log.Error().Msg("Private key is required. Use --private-key flag")
 		os.Exit(1)
 	}
 
 	// Load configuration
 	cfg, err := config.LoadConfig("config/config.yaml")
 	if err != nil {
-		log.Fatal().Err(err).Msg("Failed to load config")
+		log.Error().Err(err).Msg("Failed to load config")
 	}
 
 	// Initialize wallet
 	privateKey, err := crypto.HexToECDSA(*privateKeyFlag)
 	if err != nil {
-		log.Fatal().Msg("Invalid private key format")
+		log.Error().Msg("Invalid private key format")
 		os.Exit(1)
 	}
 
@@ -42,9 +42,9 @@ func main() {
 	client, err := wallet.NewClient(cfg.Ethereum.RPC, cfg.Ethereum.ChainID)
 	if err != nil {
 		if err.Error() == "401 Unauthorized: invalid project id" {
-			log.Fatal().Msg("Invalid Infura Project ID. Please update your config.yaml with a valid ID")
+			log.Error().Msg("Invalid Infura Project ID. Please update your config.yaml with a valid ID")
 		} else {
-			log.Fatal().Err(err).Msg("Failed to connect to Ethereum network")
+			log.Error().Err(err).Msg("Failed to connect to Ethereum network")
 		}
 		os.Exit(1)
 	}
@@ -56,19 +56,19 @@ func main() {
 	tokenContract := common.HexToAddress(cfg.Ethereum.TokenAddress)
 	balance, err := client.GetERC20Balance(tokenContract, address)
 	if err != nil {
-		log.Fatal().Msg("Failed to connect to token contract. Please check your network connection")
+		log.Error().Msg("Failed to connect to token contract. Please check your network connection")
 		os.Exit(1)
 	}
 
 	if balance.Sign() <= 0 {
-		log.Fatal().Msg("No tokens found in wallet. Please ensure you have Parity tokens in your wallet")
+		log.Error().Msg("No tokens found in wallet. Please ensure you have Parity tokens in your wallet")
 		os.Exit(1)
 	}
 
 	// Generate authentication token
 	token, err := wallet.GenerateToken(address.Hex(), privateKey)
 	if err != nil {
-		log.Fatal().Err(err).Msg("Failed to generate authentication token")
+		log.Error().Err(err).Msg("Failed to generate authentication token")
 		os.Exit(1)
 	}
 

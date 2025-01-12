@@ -21,8 +21,7 @@ func GenerateToken(address string, privateKey *ecdsa.PrivateKey) (string, error)
 	claims := Claims{
 		Address: address,
 		StandardClaims: jwt.StandardClaims{
-			ExpiresAt: time.Now().Add(time.Hour * 24).Unix(),
-			IssuedAt:  time.Now().Unix(),
+			IssuedAt: time.Now().Unix(),
 		},
 	}
 

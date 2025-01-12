@@ -19,11 +19,6 @@ COVERAGE_HTML=$(COVERAGE_DIR)/coverage.html
 TEST_FLAGS=-race -coverprofile=$(COVERAGE_PROFILE) -covermode=atomic
 TEST_PATH=./test/...
 
-# Docker parameters
-DOCKER_COMPOSE=docker-compose
-DOCKER_IMAGE_NAME=parity
-DOCKER_IMAGE_TAG=latest
-
 # Build flags
 BUILD_FLAGS=-v
 
@@ -63,21 +58,6 @@ deps: ## Download dependencies
 
 fmt: ## Format code
 	$(GOFMT) ./...
-
-docker-up: ## Start Docker containers
-	$(DOCKER_COMPOSE) up -d --build
-
-docker-down: ## Stop Docker containers
-	$(DOCKER_COMPOSE) down
-
-docker-logs: ## View Docker container logs
-	$(DOCKER_COMPOSE) logs -f
-
-docker-build: ## Build Docker image
-	docker build -t $(DOCKER_IMAGE_NAME):$(DOCKER_IMAGE_TAG) .
-
-docker-clean: ## Clean Docker resources
-	$(DOCKER_COMPOSE) down -v --remove-orphans
 
 install-air: ## Install air for hot reloading
 	@if ! command -v air > /dev/null; then \

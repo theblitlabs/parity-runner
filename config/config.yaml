@@ -13,6 +13,7 @@ database:
   max_open_conns: 25
   max_idle_conns: 25
   conn_max_lifetime: "15m"
+  url: "postgres://postgres:postgres@localhost:5432/postgres?sslmode=disable"
 
 ethereum:
   rpc: "https://sepolia.infura.io/v3/09e9e581f3fd47e8b590c0a627f96eed"
