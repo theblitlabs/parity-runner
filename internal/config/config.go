@@ -9,6 +9,7 @@ import (
 type Config struct {
 	Server   ServerConfig   `mapstructure:"server"`
 	Database DatabaseConfig `mapstructure:"database"`
+	Ethereum EthereumConfig `mapstructure:"ethereum"`
 }
 
 type ServerConfig struct {
@@ -26,6 +27,12 @@ type DatabaseConfig struct {
 	MaxOpenConns    int           `mapstructure:"max_open_conns"`
 	MaxIdleConns    int           `mapstructure:"max_idle_conns"`
 	ConnMaxLifetime time.Duration `mapstructure:"conn_max_lifetime"`
+}
+
+type EthereumConfig struct {
+	RPC          string `mapstructure:"rpc"`
+	ChainID      int64  `mapstructure:"chain_id"`
+	TokenAddress string `mapstructure:"token_address"`
 }
 
 func LoadConfig(path string) (*Config, error) {

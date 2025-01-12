@@ -12,6 +12,13 @@ AIR_VERSION=v1.49.0
 GOPATH=$(shell go env GOPATH)
 AIR=$(GOPATH)/bin/air
 
+# Test related variables
+COVERAGE_DIR=coverage
+COVERAGE_PROFILE=$(COVERAGE_DIR)/coverage.out
+COVERAGE_HTML=$(COVERAGE_DIR)/coverage.html
+TEST_FLAGS=-race -coverprofile=$(COVERAGE_PROFILE) -covermode=atomic
+TEST_PATH=./test/...
+
 # Docker parameters
 DOCKER_COMPOSE=docker-compose
 DOCKER_IMAGE_NAME=parity
@@ -20,24 +27,36 @@ DOCKER_IMAGE_TAG=latest
 # Build flags
 BUILD_FLAGS=-v
 
-# Test flags
-TEST_FLAGS=-v -race -cover
+# Add these lines after the existing parameters
+INSTALL_PATH=/usr/local/bin
 
-.PHONY: all build run test clean deps fmt lint help docker-up docker-down docker-logs docker-build docker-clean install-air watch migrate-up migrate-down tools
+.PHONY: all build run test clean deps fmt lint help docker-up docker-down docker-logs docker-build docker-clean install-air watch migrate-up migrate-down tools install uninstall
 
 all: clean build
 
 build: ## Build the application
-	$(GOBUILD) $(BUILD_FLAGS) -o $(BINARY_NAME) $(MAIN_PATH)
+	$(GOBUILD) $(BUILD_FLAGS) -o $(BINARY_NAME) cmd/server/main.go
 
 run: ## Run the application
-	$(GORUN) $(MAIN_PATH)
+	$(GORUN) cmd/server/main.go daemon
 
-test: ## Run tests
-	$(GOTEST) $(TEST_FLAGS) ./...
+test: setup-coverage ## Run tests with coverage
+	$(GOTEST) $(TEST_FLAGS) $(TEST_PATH)
+	$(GOCMD) tool cover -html=$(COVERAGE_PROFILE) -o $(COVERAGE_HTML)
+	@echo "Coverage report generated at $(COVERAGE_HTML)"
+
+test-verbose: setup-coverage ## Run tests with verbose output coverage
+	$(GOTEST) $(TEST_FLAGS) -v $(TEST_PATH)
+
+test-short: ## Run tests in short mode
+	$(GOTEST) -short $(TEST_PATH)
+
+setup-coverage: ## Create coverage directory
+	@mkdir -p $(COVERAGE_DIR)
 
 clean: ## Clean build files
 	rm -f $(BINARY_NAME)
+	rm -rf $(COVERAGE_DIR)
 	find . -type f -name '*.test' -delete
 	find . -type f -name '*.out' -delete
 	rm -rf tmp/
@@ -81,5 +100,16 @@ migrate-down: ## Run database migrations down
 
 help: ## Display this help screen
 	@grep -h -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "\033[36m%-30s\033[0m %s\n", $$1, $$2}'
+
+install: build ## Install parity command globally
+	@echo "Installing parity to $(INSTALL_PATH)..."
+	@sudo mv $(BINARY_NAME) $(INSTALL_PATH)/$(BINARY_NAME)
+	@echo "Installation complete. Run 'parity auth --private-key YOUR_KEY' to authenticate"
+
+uninstall: ## Remove parity command from system
+	@echo "Uninstalling parity from $(INSTALL_PATH)..."
+	@sudo rm -f $(INSTALL_PATH)/$(BINARY_NAME)
+	@echo "Uninstallation complete"
+
 
 .DEFAULT_GOAL := help
