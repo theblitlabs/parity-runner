@@ -40,16 +40,12 @@ build: ## Build the application
 run: ## Run the application
 	$(GORUN) cmd/server/main.go daemon
 
-test: setup-coverage ## Run tests with coverage
-	$(GOTEST) $(TEST_FLAGS) $(TEST_PATH)
-	$(GOCMD) tool cover -html=$(COVERAGE_PROFILE) -o $(COVERAGE_HTML)
-	@echo "Coverage report generated at $(COVERAGE_HTML)"
+test: setup-coverage ## Run tests without logs
+	@$(GOTEST) $(TEST_FLAGS) $(TEST_PATH) 
 
-test-verbose: setup-coverage ## Run tests with verbose output coverage
+test-verbose: setup-coverage ## Run tests with verbose output and logs
 	$(GOTEST) $(TEST_FLAGS) -v $(TEST_PATH)
 
-test-short: ## Run tests in short mode
-	$(GOTEST) -short $(TEST_PATH)
 
 setup-coverage: ## Create coverage directory
 	@mkdir -p $(COVERAGE_DIR)

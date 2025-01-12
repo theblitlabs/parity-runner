@@ -5,6 +5,7 @@ import (
 	"net/http"
 
 	"github.com/gorilla/mux"
+	"github.com/virajbhartiya/parity-protocol/internal/api/middleware"
 	"github.com/virajbhartiya/parity-protocol/internal/models"
 	"github.com/virajbhartiya/parity-protocol/internal/services"
 	"github.com/virajbhartiya/parity-protocol/pkg/logger"
@@ -35,12 +36,18 @@ func (h *TaskHandler) CreateTask(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	userID, ok := r.Context().Value(middleware.UserIDKey).(string)
+	if !ok {
+		http.Error(w, "User ID not found in context", http.StatusUnauthorized)
+		return
+	}
+
 	task := &models.Task{
 		Title:       req.Title,
 		Description: req.Description,
 		FileURL:     req.FileURL,
 		Reward:      req.Reward,
-		CreatorID:   r.Context().Value("user_id").(string),
+		CreatorID:   userID,
 	}
 
 	log.Debug().
@@ -98,6 +105,10 @@ func (h *TaskHandler) GetTaskReward(w http.ResponseWriter, r *http.Request) {
 	taskID := mux.Vars(r)["id"]
 	reward, err := h.service.GetTaskReward(r.Context(), taskID)
 	if err != nil {
+		if err == services.ErrTaskNotFound {
+			http.Error(w, "Task not found", http.StatusNotFound)
+			return
+		}
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}

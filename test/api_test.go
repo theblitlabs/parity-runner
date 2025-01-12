@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/virajbhartiya/parity-protocol/internal/api/handlers"
+	"github.com/virajbhartiya/parity-protocol/internal/api/middleware"
 	"github.com/virajbhartiya/parity-protocol/internal/mocks"
 	"github.com/virajbhartiya/parity-protocol/internal/models"
 	"github.com/virajbhartiya/parity-protocol/internal/services"
@@ -24,11 +25,13 @@ func setupRouter(taskService *mocks.MockTaskService) *mux.Router {
 
 	taskHandler := handlers.NewTaskHandler(taskService)
 
-	// Register routes
+	// Register routes - specific routes before parameterized ones
+	router.HandleFunc("/api/v1/tasks/available", taskHandler.ListTasks).Methods("GET")
 	router.HandleFunc("/api/v1/tasks", taskHandler.CreateTask).Methods("POST")
 	router.HandleFunc("/api/v1/tasks", taskHandler.GetTasks).Methods("GET")
-	router.HandleFunc("/api/v1/tasks/{id}", taskHandler.GetTask).Methods("GET")
+	router.HandleFunc("/api/v1/tasks/{id}/reward", taskHandler.GetTaskReward).Methods("GET")
 	router.HandleFunc("/api/v1/tasks/{id}/assign", taskHandler.AssignTask).Methods("POST")
+	router.HandleFunc("/api/v1/tasks/{id}", taskHandler.GetTask).Methods("GET")
 
 	return router
 }
@@ -77,7 +80,7 @@ func TestCreateTaskAPI(t *testing.T) {
 
 			payloadBytes, _ := json.Marshal(tt.payload)
 			req := httptest.NewRequest("POST", "/api/v1/tasks", bytes.NewBuffer(payloadBytes))
-			ctx := context.WithValue(req.Context(), "user_id", "test_user_123")
+			ctx := context.WithValue(req.Context(), middleware.UserIDKey, "test_user_123")
 			req = req.WithContext(ctx)
 			req.Header.Set("Content-Type", "application/json")
 
@@ -249,6 +252,87 @@ func TestAssignTaskAPI(t *testing.T) {
 
 			assert.Equal(t, tt.expectedStatus, rr.Code)
 			if tt.expectedStatus == http.StatusOK {
+				mockService.AssertExpectations(t)
+			}
+		})
+	}
+}
+
+func TestListTasksAPI(t *testing.T) {
+	mockService := new(mocks.MockTaskService)
+	router := setupRouter(mockService)
+
+	mockTasks := []models.Task{
+		{
+			ID:          "task1",
+			Title:       "Task 1",
+			Description: "Description 1",
+			Status:      models.TaskStatusPending,
+		},
+	}
+
+	mockService.On("ListAvailableTasks", mock.Anything).Return(mockTasks, nil)
+
+	req := httptest.NewRequest("GET", "/api/v1/tasks/available", nil)
+	rr := httptest.NewRecorder()
+
+	router.ServeHTTP(rr, req)
+
+	assert.Equal(t, http.StatusOK, rr.Code)
+	var response []models.Task
+	err := json.NewDecoder(rr.Body).Decode(&response)
+	assert.NoError(t, err)
+	assert.Len(t, response, 1)
+	mockService.AssertExpectations(t)
+}
+
+func TestGetTaskRewardAPI(t *testing.T) {
+	mockService := new(mocks.MockTaskService)
+	router := setupRouter(mockService)
+
+	tests := []struct {
+		name           string
+		taskID         string
+		setupMock      func()
+		expectedStatus int
+		expectedReward float64
+	}{
+		{
+			name:   "valid task",
+			taskID: "task1",
+			setupMock: func() {
+				mockService.On("GetTaskReward", mock.Anything, "task1").Return(100.0, nil)
+			},
+			expectedStatus: http.StatusOK,
+			expectedReward: 100.0,
+		},
+		{
+			name:   "task not found",
+			taskID: "nonexistent",
+			setupMock: func() {
+				mockService.On("GetTaskReward", mock.Anything, "nonexistent").Return(0.0, services.ErrTaskNotFound)
+			},
+			expectedStatus: http.StatusNotFound,
+			expectedReward: 0.0,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			mockService.ExpectedCalls = nil
+			tt.setupMock()
+
+			req := httptest.NewRequest("GET", "/api/v1/tasks/"+tt.taskID+"/reward", nil)
+			rr := httptest.NewRecorder()
+
+			router.ServeHTTP(rr, req)
+
+			assert.Equal(t, tt.expectedStatus, rr.Code)
+			if tt.expectedStatus == http.StatusOK {
+				var reward float64
+				err := json.NewDecoder(rr.Body).Decode(&reward)
+				assert.NoError(t, err)
+				assert.Equal(t, tt.expectedReward, reward)
 				mockService.AssertExpectations(t)
 			}
 		})

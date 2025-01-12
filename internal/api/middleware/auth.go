@@ -10,7 +10,7 @@ import (
 
 type contextKey string
 
-const userAddressKey contextKey = "user_address"
+const UserIDKey contextKey = "user_id"
 
 func Auth(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -36,7 +36,7 @@ func Auth(next http.Handler) http.Handler {
 		}
 
 		// Updated context value setting with custom key type
-		ctx := context.WithValue(r.Context(), userAddressKey, claims.Address)
+		ctx := context.WithValue(r.Context(), UserIDKey, claims.Address)
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})
 }
