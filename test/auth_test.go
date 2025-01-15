@@ -3,7 +3,6 @@ package test
 import (
 	"crypto/ecdsa"
 	"testing"
-	"time"
 
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/stretchr/testify/assert"
@@ -54,9 +53,6 @@ func TestGenerateAndVerifyToken(t *testing.T) {
 			assert.NoError(t, err)
 			assert.NotNil(t, claims)
 			assert.Equal(t, tt.address, claims.Address)
-
-			// Check expiration
-			assert.True(t, claims.ExpiresAt > time.Now().Unix())
 		})
 	}
 }

@@ -68,6 +68,8 @@ func colorizeLevel(level string) string {
 		return colorize("WRN", cyan)
 	case "error":
 		return colorize("ERR", red)
+	case "fatal":
+		return colorize("FTL", red)
 	default:
 		return colorize(level, blue)
 	}

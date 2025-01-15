@@ -14,11 +14,20 @@ import (
 	"github.com/virajbhartiya/parity-protocol/internal/database/repositories"
 	"github.com/virajbhartiya/parity-protocol/internal/services"
 	"github.com/virajbhartiya/parity-protocol/pkg/database"
+	"github.com/virajbhartiya/parity-protocol/pkg/device"
 	"github.com/virajbhartiya/parity-protocol/pkg/logger"
 )
 
 func Run() {
 	log := logger.Get()
+
+	// Verify device ID
+	deviceID, err := device.VerifyDeviceID()
+	if err != nil {
+		log.Fatal().Err(err).Msg("Failed to verify device ID")
+		os.Exit(1)
+	}
+	log.Info().Str("device_id", deviceID).Msg("Device verified")
 
 	cfg, err := config.LoadConfig("config/config.yaml")
 	if err != nil {

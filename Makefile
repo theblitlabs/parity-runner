@@ -17,6 +17,7 @@ COVERAGE_DIR=coverage
 COVERAGE_PROFILE=$(COVERAGE_DIR)/coverage.out
 COVERAGE_HTML=$(COVERAGE_DIR)/coverage.html
 TEST_FLAGS=-race -coverprofile=$(COVERAGE_PROFILE) -covermode=atomic
+TEST_PACKAGES=./...  # This will test all packages
 TEST_PATH=./test/...
 
 # Build flags
@@ -31,15 +32,20 @@ all: clean build
 
 build: ## Build the application
 	$(GOBUILD) $(BUILD_FLAGS) -o $(BINARY_NAME) cmd/main.go
+	chmod +x $(BINARY_NAME)
 
 run: ## Run the application
 	$(GORUN) cmd/main.go daemon
 
-test: setup-coverage ## Run tests without logs
-	@$(GOTEST) $(TEST_FLAGS) $(TEST_PATH) 
+test: setup-coverage ## Run tests with coverage
+	$(GOTEST) $(TEST_FLAGS) $(TEST_PACKAGES)
+	@go tool cover -func=$(COVERAGE_PROFILE)
+	@go tool cover -html=$(COVERAGE_PROFILE) -o $(COVERAGE_HTML)
 
-test-verbose: setup-coverage ## Run tests with verbose output and logs
-	$(GOTEST) $(TEST_FLAGS) -v $(TEST_PATH)
+test-verbose: setup-coverage ## Run tests with verbose output and coverage
+	$(GOTEST) $(TEST_FLAGS) -v $(TEST_PACKAGES)
+	@go tool cover -func=$(COVERAGE_PROFILE)
+	@go tool cover -html=$(COVERAGE_PROFILE) -o $(COVERAGE_HTML)
 
 
 setup-coverage: ## Create coverage directory
