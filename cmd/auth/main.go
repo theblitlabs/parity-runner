@@ -149,9 +149,9 @@ func Run() {
 		os.Exit(1)
 	}
 
-	fmt.Printf("\n✅ Authentication successful!\n\n")
+	log.Info().Msg("Authentication successful. Token saved")
 	keystorePath, _ := keystore.GetKeystorePath()
-	fmt.Printf("Token saved to: %s\n\n", keystorePath)
+	log.Info().Str("path", keystorePath).Msg("Token saved")
 
 	keystorePath, _ = keystore.GetKeystorePath()
 	log.Info().Str("path", keystorePath).Msg("Authentication successful. Token saved")
