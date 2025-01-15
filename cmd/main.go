@@ -4,7 +4,7 @@ import (
 	"os"
 
 	"github.com/virajbhartiya/parity-protocol/cmd/auth"
-	daemon "github.com/virajbhartiya/parity-protocol/cmd/server"
+	server "github.com/virajbhartiya/parity-protocol/cmd/server"
 	"github.com/virajbhartiya/parity-protocol/pkg/logger"
 )
 
@@ -18,13 +18,13 @@ func main() {
 		case "auth":
 			auth.Run()
 			return
-		case "daemon":
-			daemon.Run()
+		case "server":
+			server.Run()
 			return
 		default:
-			log.Error().Msg("Unknown command. Use 'auth' or 'daemon'")
+			log.Error().Msg("Unknown command. Use 'auth' or 'server'")
 		}
 	}
 
-	log.Error().Msg("No command specified. Use 'parity auth' or 'parity daemon'")
+	log.Error().Msg("No command specified. Use 'parity auth' or 'parity server'")
 }

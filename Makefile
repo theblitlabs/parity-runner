@@ -35,7 +35,7 @@ build: ## Build the application
 	chmod +x $(BINARY_NAME)
 
 run: ## Run the application
-	$(GORUN) cmd/main.go daemon
+	$(GORUN) cmd/main.go server
 
 test: setup-coverage ## Run tests with coverage
 	$(GOTEST) $(TEST_FLAGS) $(TEST_PACKAGES)
