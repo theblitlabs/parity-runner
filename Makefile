@@ -86,7 +86,7 @@ help: ## Display this help screen
 install: build ## Install parity command globally
 	@echo "Installing parity to $(INSTALL_PATH)..."
 	@sudo mv $(BINARY_NAME) $(INSTALL_PATH)/$(BINARY_NAME)
-	@echo "Installation complete. Run 'parity auth --private-key YOUR_KEY' to authenticate"
+	@echo "Installation complete"
 
 uninstall: ## Remove parity command from system
 	@echo "Uninstalling parity from $(INSTALL_PATH)..."

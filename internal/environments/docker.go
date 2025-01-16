@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"io"
 
+	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/container"
-	"github.com/docker/docker/api/types/image"
 	"github.com/docker/docker/client"
 	"github.com/virajbhartiya/parity-protocol/internal/models"
 )
@@ -44,7 +44,7 @@ func NewDockerEnvironment(config map[string]interface{}) (*DockerEnvironment, er
 func (d *DockerEnvironment) Setup() error {
 	ctx := context.Background()
 
-	reader, err := d.client.ImagePull(ctx, d.config.Image, image.PullOptions{})
+	reader, err := d.client.ImagePull(ctx, d.config.Image, types.ImagePullOptions{})
 	if err != nil {
 		return fmt.Errorf("failed to pull Docker image: %w", err)
 	}
@@ -78,7 +78,7 @@ func (d *DockerEnvironment) Run(task *models.Task) error {
 	d.containerId = resp.ID
 
 	// Start container
-	if err := d.client.ContainerStart(ctx, d.containerId, container.StartOptions{}); err != nil {
+	if err := d.client.ContainerStart(ctx, d.containerId, types.ContainerStartOptions{}); err != nil {
 		return fmt.Errorf("failed to start container: %w", err)
 	}
 
@@ -88,7 +88,7 @@ func (d *DockerEnvironment) Run(task *models.Task) error {
 func (d *DockerEnvironment) Cleanup() error {
 	if d.containerId != "" {
 		ctx := context.Background()
-		return d.client.ContainerRemove(ctx, d.containerId, container.RemoveOptions{
+		return d.client.ContainerRemove(ctx, d.containerId, types.ContainerRemoveOptions{
 			Force: true,
 		})
 	}

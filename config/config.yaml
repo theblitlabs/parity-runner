@@ -19,3 +19,12 @@ ethereum:
   rpc: "https://sepolia.infura.io/v3/09e9e581f3fd47e8b590c0a627f96eed"
   chain_id: 11155111
   token_address: "0xe06343731baf7aA1c0dB9056FAe6969D4252B8d1"
+
+runner:
+  server_url: "http://localhost:8080/api"
+  api_prefix: "/api"
+  poll_interval: "1s"
+  docker:
+    memory_limit: "512m"
+    cpu_limit: "1.0"
+    timeout: "5m"

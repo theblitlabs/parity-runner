@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/jmoiron/sqlx"
 	"github.com/virajbhartiya/parity-protocol/internal/models"
 )
@@ -80,7 +81,7 @@ type dbTask struct {
 	Config      []byte            `db:"config"`
 	Status      models.TaskStatus `db:"status"`
 	Reward      float64           `db:"reward"`
-	RunnerID    *string           `db:"runner_id"`
+	RunnerID    *uuid.UUID        `db:"runner_id"`
 	CreatedAt   time.Time         `db:"created_at"`
 	UpdatedAt   time.Time         `db:"updated_at"`
 	CompletedAt *time.Time        `db:"completed_at"`
@@ -129,31 +130,20 @@ func (r *TaskRepository) Get(ctx context.Context, id string) (*models.Task, erro
 
 func (r *TaskRepository) Update(ctx context.Context, task *models.Task) error {
 	query := `
-		UPDATE tasks SET 
-			status = :status,
-			runner_id = :runner_id,
-			updated_at = :updated_at,
-			completed_at = :completed_at,
-			config = :config,
-			environment = :environment
-		WHERE id = :id
+		UPDATE tasks 
+		SET status = $1, runner_id = $2, updated_at = $3, config = $4
+		WHERE id = $5
 	`
 
-	result, err := r.db.NamedExecContext(ctx, query, task)
-	if err != nil {
-		return err
-	}
+	_, err := r.db.ExecContext(ctx, query,
+		task.Status,
+		task.RunnerID,
+		task.UpdatedAt,
+		task.Config,
+		task.ID,
+	)
 
-	rows, err := result.RowsAffected()
-	if err != nil {
-		return err
-	}
-
-	if rows == 0 {
-		return ErrTaskNotFound
-	}
-
-	return nil
+	return err
 }
 
 func (r *TaskRepository) ListByStatus(ctx context.Context, status models.TaskStatus) ([]*models.Task, error) {

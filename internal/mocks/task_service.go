@@ -34,12 +34,25 @@ func (m *MockTaskService) AssignTaskToRunner(ctx context.Context, taskID, runner
 	return args.Error(0)
 }
 
-func (m *MockTaskService) ListAvailableTasks(ctx context.Context) ([]models.Task, error) {
+func (m *MockTaskService) ListAvailableTasks(ctx context.Context) ([]*models.Task, error) {
 	args := m.Called(ctx)
-	return args.Get(0).([]models.Task), args.Error(1)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).([]*models.Task), args.Error(1)
 }
 
 func (m *MockTaskService) GetTaskReward(ctx context.Context, taskID string) (float64, error) {
 	args := m.Called(ctx, taskID)
 	return args.Get(0).(float64), args.Error(1)
+}
+
+func (m *MockTaskService) StartTask(ctx context.Context, id string) error {
+	args := m.Called(ctx, id)
+	return args.Error(0)
+}
+
+func (m *MockTaskService) CompleteTask(ctx context.Context, id string) error {
+	args := m.Called(ctx, id)
+	return args.Error(0)
 }

@@ -50,25 +50,24 @@ func (r *Router) registerRoutes(
 	taskHandler *handlers.TaskHandler,
 	// Add new handlers here as parameters when needed:
 ) {
-	// Tasks
-	r.registerTaskRoutes(taskHandler)
-
-}
-
-// registerTaskRoutes registers all task-related routes
-func (r *Router) registerTaskRoutes(h *handlers.TaskHandler) {
 	// Create API version subrouter
 	api := r.PathPrefix(r.endpoint).Subrouter()
 
-	// Create tasks subrouter under the API version
+	// Create separate subrouters for tasks and runners
 	tasks := api.PathPrefix("/tasks").Subrouter()
+	runners := api.PathPrefix("/runners").Subrouter()
 
-	// Task routes
-	tasks.HandleFunc("", h.CreateTask).Methods("POST")
-	tasks.HandleFunc("/{id}", h.GetTask).Methods("GET")
-	tasks.HandleFunc("", h.ListTasks).Methods("GET")
-	tasks.HandleFunc("/{id}/assign", h.AssignTask).Methods("POST")
-	tasks.HandleFunc("/{id}/reward", h.GetTaskReward).Methods("GET")
+	// Task routes (for task creators)
+	tasks.HandleFunc("", taskHandler.CreateTask).Methods("POST")
+	tasks.HandleFunc("", taskHandler.ListTasks).Methods("GET")
+	tasks.HandleFunc("/{id}", taskHandler.GetTask).Methods("GET")
+	tasks.HandleFunc("/{id}/assign", taskHandler.AssignTask).Methods("POST")
+	tasks.HandleFunc("/{id}/reward", taskHandler.GetTaskReward).Methods("GET")
+
+	// Runner routes (for task executors)
+	runners.HandleFunc("/tasks/available", taskHandler.ListAvailableTasks).Methods("GET")
+	runners.HandleFunc("/tasks/{id}/start", taskHandler.StartTask).Methods("POST")
+	runners.HandleFunc("/tasks/{id}/complete", taskHandler.CompleteTask).Methods("POST")
 }
 
 // AddMiddleware adds a new middleware to the router

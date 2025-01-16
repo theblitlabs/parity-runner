@@ -2,6 +2,7 @@ package test
 
 import (
 	"context"
+	"encoding/json"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -10,6 +11,12 @@ import (
 	"github.com/virajbhartiya/parity-protocol/internal/models"
 	"github.com/virajbhartiya/parity-protocol/internal/services"
 )
+
+func configToJSON(t *testing.T, config models.TaskConfig) json.RawMessage {
+	data, err := json.Marshal(config)
+	assert.NoError(t, err)
+	return data
+}
 
 func TestCreateTask(t *testing.T) {
 	mockRepo := new(mocks.MockTaskRepository)
@@ -27,9 +34,9 @@ func TestCreateTask(t *testing.T) {
 				Title:       "Test Task",
 				Description: "Test Description",
 				Type:        models.TaskTypeFile,
-				Config: models.TaskConfig{
+				Config: configToJSON(t, models.TaskConfig{
 					FileURL: "https://example.com/task.zip",
-				},
+				}),
 				Reward:    100,
 				CreatorID: "creator123",
 			},
@@ -41,9 +48,9 @@ func TestCreateTask(t *testing.T) {
 				Title:       "Docker Task",
 				Description: "Test Docker Task",
 				Type:        models.TaskTypeDocker,
-				Config: models.TaskConfig{
+				Config: configToJSON(t, models.TaskConfig{
 					Command: []string{"echo", "hello"},
-				},
+				}),
 				Environment: &models.EnvironmentConfig{
 					Type: "docker",
 					Config: map[string]interface{}{
@@ -60,9 +67,9 @@ func TestCreateTask(t *testing.T) {
 			task: &models.Task{
 				Description: "Test Description",
 				Type:        models.TaskTypeFile,
-				Config: models.TaskConfig{
+				Config: configToJSON(t, models.TaskConfig{
 					FileURL: "https://example.com/task.zip",
-				},
+				}),
 				Reward: 100,
 			},
 			wantErr: true,
@@ -73,9 +80,9 @@ func TestCreateTask(t *testing.T) {
 				Title:       "Test Task",
 				Description: "Test Description",
 				Type:        models.TaskTypeFile,
-				Config: models.TaskConfig{
+				Config: configToJSON(t, models.TaskConfig{
 					FileURL: "https://example.com/task.zip",
-				},
+				}),
 				Reward: 0,
 			},
 			wantErr: true,
@@ -86,9 +93,9 @@ func TestCreateTask(t *testing.T) {
 				Title:       "Docker Task",
 				Description: "Test Docker Task",
 				Type:        models.TaskTypeDocker,
-				Config: models.TaskConfig{
+				Config: configToJSON(t, models.TaskConfig{
 					Command: []string{"echo", "hello"},
-				},
+				}),
 				Reward: 100,
 			},
 			wantErr: true,
@@ -124,7 +131,7 @@ func TestAssignTaskToRunner(t *testing.T) {
 	ctx := context.Background()
 
 	taskID := "task123"
-	runnerID := "runner123"
+	runnerID := "550e8400-e29b-41d4-a716-446655440000"
 
 	tests := []struct {
 		name    string

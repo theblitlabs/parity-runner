@@ -44,11 +44,18 @@ func (h *TaskHandler) CreateTask(w http.ResponseWriter, r *http.Request) {
 		userID = id
 	}
 
+	configJSON, err := json.Marshal(req.Config)
+	if err != nil {
+		log.Error().Err(err).Msg("Failed to marshal task config")
+		http.Error(w, "Invalid task configuration", http.StatusBadRequest)
+		return
+	}
+
 	task := &models.Task{
 		Title:       req.Title,
 		Description: req.Description,
 		Type:        req.Type,
-		Config:      req.Config,
+		Config:      configJSON,
 		Environment: req.Environment,
 		Reward:      req.Reward,
 		CreatorID:   userID,
@@ -160,4 +167,78 @@ func (h *TaskHandler) AssignTask(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.WriteHeader(http.StatusOK)
+}
+
+func (h *TaskHandler) StartTask(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	log := logger.Get()
+
+	vars := mux.Vars(r)
+	taskID := vars["id"]
+	if taskID == "" {
+		http.Error(w, "task ID is required", http.StatusBadRequest)
+		return
+	}
+
+	runnerID := r.Header.Get("X-Runner-ID")
+	if runnerID == "" {
+		http.Error(w, "X-Runner-ID header is required", http.StatusBadRequest)
+		return
+	}
+
+	// First assign the task to the runner
+	if err := h.service.AssignTaskToRunner(ctx, taskID, runnerID); err != nil {
+		log.Error().Err(err).Str("task_id", taskID).Msg("Failed to assign task")
+		if err == services.ErrTaskNotFound {
+			http.Error(w, "Task not found", http.StatusNotFound)
+			return
+		}
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	// Then start the task
+	if err := h.service.StartTask(ctx, taskID); err != nil {
+		log.Error().Err(err).Str("task_id", taskID).Msg("Failed to start task")
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.WriteHeader(http.StatusOK)
+}
+
+func (h *TaskHandler) CompleteTask(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	log := logger.Get()
+
+	vars := mux.Vars(r)
+	taskID := vars["id"]
+	if taskID == "" {
+		http.Error(w, "task ID is required", http.StatusBadRequest)
+		return
+	}
+
+	err := h.service.CompleteTask(ctx, taskID)
+	if err != nil {
+		log.Error().Err(err).Str("task_id", taskID).Msg("Failed to complete task")
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.WriteHeader(http.StatusOK)
+}
+
+func (h *TaskHandler) ListAvailableTasks(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	log := logger.Get()
+
+	tasks, err := h.service.ListAvailableTasks(ctx)
+	if err != nil {
+		log.Error().Err(err).Msg("Failed to list available tasks")
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(tasks)
 }

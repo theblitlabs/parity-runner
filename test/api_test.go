@@ -22,16 +22,21 @@ import (
 func setupRouter(taskService *mocks.MockTaskService) *mux.Router {
 	logger.Init()
 	router := mux.NewRouter()
-
 	taskHandler := handlers.NewTaskHandler(taskService)
 
-	// Register routes - specific routes before parameterized ones
-	router.HandleFunc("/api/v1/tasks/available", taskHandler.ListTasks).Methods("GET")
-	router.HandleFunc("/api/v1/tasks", taskHandler.CreateTask).Methods("POST")
-	router.HandleFunc("/api/v1/tasks", taskHandler.GetTasks).Methods("GET")
-	router.HandleFunc("/api/v1/tasks/{id}/reward", taskHandler.GetTaskReward).Methods("GET")
-	router.HandleFunc("/api/v1/tasks/{id}/assign", taskHandler.AssignTask).Methods("POST")
-	router.HandleFunc("/api/v1/tasks/{id}", taskHandler.GetTask).Methods("GET")
+	// Task routes (for task creators)
+	tasks := router.PathPrefix("/api/tasks").Subrouter()
+	tasks.HandleFunc("", taskHandler.CreateTask).Methods("POST")
+	tasks.HandleFunc("", taskHandler.ListTasks).Methods("GET")
+	tasks.HandleFunc("/{id}", taskHandler.GetTask).Methods("GET")
+	tasks.HandleFunc("/{id}/assign", taskHandler.AssignTask).Methods("POST")
+	tasks.HandleFunc("/{id}/reward", taskHandler.GetTaskReward).Methods("GET")
+
+	// Runner routes (for task executors)
+	runners := router.PathPrefix("/api/runners").Subrouter()
+	runners.HandleFunc("/tasks/available", taskHandler.ListAvailableTasks).Methods("GET")
+	runners.HandleFunc("/tasks/{id}/start", taskHandler.StartTask).Methods("POST")
+	runners.HandleFunc("/tasks/{id}/complete", taskHandler.CompleteTask).Methods("POST")
 
 	return router
 }
@@ -79,7 +84,7 @@ func TestCreateTaskAPI(t *testing.T) {
 			tt.setupMock()
 
 			payloadBytes, _ := json.Marshal(tt.payload)
-			req := httptest.NewRequest("POST", "/api/v1/tasks", bytes.NewBuffer(payloadBytes))
+			req := httptest.NewRequest("POST", "/api/tasks", bytes.NewBuffer(payloadBytes))
 			ctx := context.WithValue(req.Context(), middleware.UserIDKey, "test_user_123")
 			req = req.WithContext(ctx)
 			req.Header.Set("Content-Type", "application/json")
@@ -99,7 +104,7 @@ func TestGetTasksAPI(t *testing.T) {
 	mockService := new(mocks.MockTaskService)
 	router := setupRouter(mockService)
 
-	mockTasks := []models.Task{
+	mockTasks := []*models.Task{
 		{
 			ID:          "task1",
 			Title:       "Task 1",
@@ -114,21 +119,22 @@ func TestGetTasksAPI(t *testing.T) {
 		},
 	}
 
-	mockService.On("GetTasks", mock.Anything).Return(mockTasks, nil)
+	mockService.On("ListAvailableTasks", mock.Anything).Return(mockTasks, nil)
 
-	req := httptest.NewRequest("GET", "/api/v1/tasks", nil)
+	req := httptest.NewRequest("GET", "/api/tasks", nil)
 	rr := httptest.NewRecorder()
 
 	router.ServeHTTP(rr, req)
 
 	assert.Equal(t, http.StatusOK, rr.Code)
 
-	var response []models.Task
+	var response []*models.Task
 	err := json.NewDecoder(rr.Body).Decode(&response)
 	assert.NoError(t, err)
-	assert.Len(t, response, 2)
-	assert.Equal(t, mockTasks[0].ID, response[0].ID)
-	assert.Equal(t, mockTasks[1].ID, response[1].ID)
+	if assert.Len(t, response, 2) {
+		assert.Equal(t, mockTasks[0].ID, response[0].ID)
+		assert.Equal(t, mockTasks[1].ID, response[1].ID)
+	}
 
 	mockService.AssertExpectations(t)
 }
@@ -173,14 +179,14 @@ func TestGetTaskByIDAPI(t *testing.T) {
 			mockService.ExpectedCalls = nil
 			tt.setupMock()
 
-			req := httptest.NewRequest("GET", "/api/v1/tasks/"+tt.taskID, nil)
+			req := httptest.NewRequest("GET", "/api/tasks/"+tt.taskID, nil)
 			rr := httptest.NewRecorder()
 
 			router.ServeHTTP(rr, req)
 
 			assert.Equal(t, tt.expectedStatus, rr.Code)
 			if tt.expectedStatus == http.StatusOK {
-				var response models.Task
+				var response *models.Task
 				err := json.NewDecoder(rr.Body).Decode(&response)
 				assert.NoError(t, err)
 				assert.Equal(t, mockTask.ID, response.ID)
@@ -244,7 +250,7 @@ func TestAssignTaskAPI(t *testing.T) {
 			tt.setupMock()
 
 			payloadBytes, _ := json.Marshal(tt.payload)
-			req := httptest.NewRequest("POST", "/api/v1/tasks/"+tt.taskID+"/assign", bytes.NewBuffer(payloadBytes))
+			req := httptest.NewRequest("POST", "/api/tasks/"+tt.taskID+"/assign", bytes.NewBuffer(payloadBytes))
 			req.Header.Set("Content-Type", "application/json")
 
 			rr := httptest.NewRecorder()
@@ -262,7 +268,7 @@ func TestListTasksAPI(t *testing.T) {
 	mockService := new(mocks.MockTaskService)
 	router := setupRouter(mockService)
 
-	mockTasks := []models.Task{
+	mockTasks := []*models.Task{
 		{
 			ID:          "task1",
 			Title:       "Task 1",
@@ -273,13 +279,13 @@ func TestListTasksAPI(t *testing.T) {
 
 	mockService.On("ListAvailableTasks", mock.Anything).Return(mockTasks, nil)
 
-	req := httptest.NewRequest("GET", "/api/v1/tasks/available", nil)
+	req := httptest.NewRequest("GET", "/api/runners/tasks/available", nil)
 	rr := httptest.NewRecorder()
 
 	router.ServeHTTP(rr, req)
 
 	assert.Equal(t, http.StatusOK, rr.Code)
-	var response []models.Task
+	var response []*models.Task
 	err := json.NewDecoder(rr.Body).Decode(&response)
 	assert.NoError(t, err)
 	assert.Len(t, response, 1)
@@ -322,7 +328,7 @@ func TestGetTaskRewardAPI(t *testing.T) {
 			mockService.ExpectedCalls = nil
 			tt.setupMock()
 
-			req := httptest.NewRequest("GET", "/api/v1/tasks/"+tt.taskID+"/reward", nil)
+			req := httptest.NewRequest("GET", "/api/tasks/"+tt.taskID+"/reward", nil)
 			rr := httptest.NewRecorder()
 
 			router.ServeHTTP(rr, req)
@@ -335,6 +341,78 @@ func TestGetTaskRewardAPI(t *testing.T) {
 				assert.Equal(t, tt.expectedReward, reward)
 				mockService.AssertExpectations(t)
 			}
+		})
+	}
+}
+
+func TestRunnerRoutes(t *testing.T) {
+	mockService := new(mocks.MockTaskService)
+	router := setupRouter(mockService)
+
+	tests := []struct {
+		name           string
+		method         string
+		path           string
+		runnerID       string
+		setupMock      func()
+		expectedStatus int
+	}{
+		{
+			name:   "list available tasks",
+			method: "GET",
+			path:   "/api/runners/tasks/available",
+			setupMock: func() {
+				mockService.On("ListAvailableTasks", mock.Anything).Return([]*models.Task{}, nil)
+			},
+			expectedStatus: http.StatusOK,
+		},
+		{
+			name:     "start task",
+			method:   "POST",
+			path:     "/api/runners/tasks/task123/start",
+			runnerID: "550e8400-e29b-41d4-a716-446655440000",
+			setupMock: func() {
+				mockService.On("AssignTaskToRunner", mock.Anything, "task123", "550e8400-e29b-41d4-a716-446655440000").Return(nil)
+				mockService.On("StartTask", mock.Anything, "task123").Return(nil)
+			},
+			expectedStatus: http.StatusOK,
+		},
+		{
+			name:     "start task - missing runner ID",
+			method:   "POST",
+			path:     "/api/runners/tasks/task123/start",
+			runnerID: "", // Empty runner ID
+			setupMock: func() {
+				// No mocks needed as it should fail validation
+			},
+			expectedStatus: http.StatusBadRequest,
+		},
+		{
+			name:   "complete task",
+			method: "POST",
+			path:   "/api/runners/tasks/task123/complete",
+			setupMock: func() {
+				mockService.On("CompleteTask", mock.Anything, "task123").Return(nil)
+			},
+			expectedStatus: http.StatusOK,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			mockService.ExpectedCalls = nil
+			tt.setupMock()
+
+			req := httptest.NewRequest(tt.method, tt.path, nil)
+			if tt.runnerID != "" {
+				req.Header.Set("X-Runner-ID", tt.runnerID)
+			}
+
+			rr := httptest.NewRecorder()
+			router.ServeHTTP(rr, req)
+
+			assert.Equal(t, tt.expectedStatus, rr.Code)
+			mockService.AssertExpectations(t)
 		})
 	}
 }

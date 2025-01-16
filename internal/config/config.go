@@ -10,6 +10,7 @@ type Config struct {
 	Server   ServerConfig   `mapstructure:"server"`
 	Database DatabaseConfig `mapstructure:"database"`
 	Ethereum EthereumConfig `mapstructure:"ethereum"`
+	Runner   RunnerConfig   `mapstructure:"runner"`
 }
 
 type ServerConfig struct {
@@ -51,4 +52,17 @@ func LoadConfig(path string) (*Config, error) {
 	}
 
 	return &config, nil
+}
+
+type RunnerConfig struct {
+	ServerURL    string        `mapstructure:"server_url"`
+	APIPrefix    string        `mapstructure:"api_prefix"`
+	PollInterval time.Duration `mapstructure:"poll_interval"`
+	Docker       DockerConfig  `mapstructure:"docker"`
+}
+
+type DockerConfig struct {
+	MemoryLimit string        `yaml:"memory_limit"`
+	CPULimit    string        `yaml:"cpu_limit"`
+	Timeout     time.Duration `yaml:"timeout"`
 }

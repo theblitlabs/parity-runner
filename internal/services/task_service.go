@@ -3,7 +3,9 @@ package services
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"fmt"
 	"time"
 
 	"github.com/google/uuid"
@@ -73,23 +75,36 @@ func (s *TaskService) GetTask(ctx context.Context, id string) (*models.Task, err
 	return s.repo.Get(ctx, id)
 }
 
-func (s *TaskService) ListAvailableTasks(ctx context.Context) ([]models.Task, error) {
+func (s *TaskService) ListAvailableTasks(ctx context.Context) ([]*models.Task, error) {
+	log := logger.Get()
+
+	log.Debug().Msg("Fetching available tasks from database")
+
 	tasks, err := s.repo.ListByStatus(ctx, models.TaskStatusPending)
 	if err != nil {
-		return nil, err
+		log.Error().
+			Err(err).
+			Msg("Failed to fetch available tasks from database")
+		return nil, fmt.Errorf("failed to fetch available tasks: %w", err)
 	}
-	// Convert []*models.Task to []models.Task
-	result := make([]models.Task, len(tasks))
-	for i, task := range tasks {
-		result[i] = *task
-	}
-	return result, nil
+
+	log.Debug().
+		Int("task_count", len(tasks)).
+		Msg("Successfully fetched available tasks from database")
+
+	return tasks, nil
 }
 
-func (s *TaskService) AssignTaskToRunner(ctx context.Context, taskID, runnerID string) error {
+func (s *TaskService) AssignTaskToRunner(ctx context.Context, taskID string, runnerID string) error {
 	task, err := s.repo.Get(ctx, taskID)
 	if err != nil {
 		return err
+	}
+
+	// Parse runner ID as UUID
+	runnerUUID, err := uuid.Parse(runnerID)
+	if err != nil {
+		return fmt.Errorf("invalid runner ID format: %w", err)
 	}
 
 	if task.Status != models.TaskStatusPending {
@@ -103,8 +118,15 @@ func (s *TaskService) AssignTaskToRunner(ctx context.Context, taskID, runnerID s
 		}
 	}
 
+	// Convert config to JSON
+	configJSON, err := json.Marshal(task.Config)
+	if err != nil {
+		return fmt.Errorf("failed to marshal task config: %w", err)
+	}
+	task.Config = configJSON
+
 	task.Status = models.TaskStatusRunning
-	task.RunnerID = &runnerID
+	task.RunnerID = &runnerUUID
 	task.UpdatedAt = time.Now()
 
 	return s.repo.Update(ctx, task)
@@ -120,4 +142,24 @@ func (s *TaskService) GetTaskReward(ctx context.Context, taskID string) (float64
 
 func (s *TaskService) GetTasks(ctx context.Context) ([]models.Task, error) {
 	return s.repo.GetAll(ctx)
+}
+
+func (s *TaskService) StartTask(ctx context.Context, id string) error {
+	task, err := s.repo.Get(ctx, id)
+	if err != nil {
+		return err
+	}
+	task.Status = models.TaskStatusRunning
+	return s.repo.Update(ctx, task)
+}
+
+func (s *TaskService) CompleteTask(ctx context.Context, id string) error {
+	task, err := s.repo.Get(ctx, id)
+	if err != nil {
+		return err
+	}
+	task.Status = models.TaskStatusCompleted
+	now := time.Now()
+	task.CompletedAt = &now
+	return s.repo.Update(ctx, task)
 }

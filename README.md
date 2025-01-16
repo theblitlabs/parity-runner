@@ -68,14 +68,32 @@ make test-verbose
 
 ## API Endpoints
 
-All API endpoints are prefixed with `/api/v1`. For example:
+The API is divided into two main sections:
 
-### Tasks
+### Task Creator Endpoints
 
-- Create a task:
+| Method | Endpoint               | Description           |
+| ------ | ---------------------- | --------------------- |
+| POST   | /api/tasks             | Create a new task     |
+| GET    | /api/tasks             | List all tasks        |
+| GET    | /api/tasks/{id}        | Get task by ID        |
+| POST   | /api/tasks/{id}/assign | Assign task to runner |
+| GET    | /api/tasks/{id}/reward | Get task reward       |
+
+### Runner Endpoints
+
+| Method | Endpoint                         | Description          |
+| ------ | -------------------------------- | -------------------- |
+| GET    | /api/runners/tasks/available     | List available tasks |
+| POST   | /api/runners/tasks/{id}/start    | Start a task         |
+| POST   | /api/runners/tasks/{id}/complete | Complete a task      |
+
+### Example Requests
+
+#### Create a Docker Task
 
 ```bash
-curl -X POST http://localhost:8080/api/v1/tasks \
+curl -X POST http://localhost:8080/api/tasks \
 -H "Content-Type: application/json" \
 -d '{
   "title": "Docker Test Task",
@@ -89,41 +107,21 @@ curl -X POST http://localhost:8080/api/v1/tasks \
     "type": "docker",
     "config": {
       "image": "alpine:latest",
-      "command": ["echo", "Hello from Docker!"],
-      "env": ["FOO=bar"],
       "workdir": "/app",
-      "volumes": {
-        "/tmp": "/container-tmp"
-      }
+      "env": ["FOO=bar"]
     }
   }
 }'
 ```
 
-- List all tasks:
+#### Start a Task (Runner)
 
 ```bash
-curl http://localhost:8080/api/v1/tasks
+curl -X POST http://localhost:8080/api/runners/tasks/{taskId}/start \
+-H "X-Runner-ID: 550e8400-e29b-41d4-a716-446655440000"
 ```
 
-- Get task by ID:
-
-```bash
-curl http://localhost:8080/api/v1/tasks/{id}
-```
-
-- Get task reward:
-
-```bash
-curl http://localhost:8080/api/v1/tasks/{id}/reward
-```
-
-| Method | Endpoint                  | Description       |
-| ------ | ------------------------- | ----------------- |
-| GET    | /api/v1/tasks             | List all tasks    |
-| POST   | /api/v1/tasks             | Create a new task |
-| GET    | /api/v1/tasks/{id}        | Get task by ID    |
-| GET    | /api/v1/tasks/{id}/reward | Get task reward   |
+Note: Runner ID must be a valid UUID.
 
 ## Project Structure
 

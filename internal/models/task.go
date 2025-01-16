@@ -1,8 +1,12 @@
 package models
 
 import (
+	"encoding/json"
 	"errors"
+	"fmt"
 	"time"
+
+	"github.com/google/uuid"
 )
 
 type TaskStatus string
@@ -37,18 +41,18 @@ type ResourceConfig struct {
 
 type Task struct {
 	ID          string             `json:"id" db:"id"`
-	CreatorID   string             `json:"creator_id" db:"creator_id"`
 	Title       string             `json:"title" db:"title"`
 	Description string             `json:"description" db:"description"`
 	Type        TaskType           `json:"type" db:"type"`
-	Config      TaskConfig         `json:"config" db:"config,type:jsonb"`
 	Status      TaskStatus         `json:"status" db:"status"`
+	Config      json.RawMessage    `json:"config" db:"config"`
+	Environment *EnvironmentConfig `json:"environment,omitempty" db:"environment"`
 	Reward      float64            `json:"reward" db:"reward"`
-	RunnerID    *string            `json:"runner_id,omitempty" db:"runner_id"`
+	CreatorID   string             `json:"creator_id" db:"creator_id"`
+	RunnerID    *uuid.UUID         `json:"runner_id,omitempty" db:"runner_id"`
 	CreatedAt   time.Time          `json:"created_at" db:"created_at"`
 	UpdatedAt   time.Time          `json:"updated_at" db:"updated_at"`
 	CompletedAt *time.Time         `json:"completed_at,omitempty" db:"completed_at"`
-	Environment *EnvironmentConfig `json:"environment" db:"environment,type:jsonb"`
 }
 
 // Validate performs basic validation on the task
@@ -67,18 +71,30 @@ func (t *Task) Validate() error {
 
 	switch t.Type {
 	case TaskTypeFile:
-		if t.Config.FileURL == "" {
+		var config TaskConfig
+		if err := json.Unmarshal(t.Config, &config); err != nil {
+			return fmt.Errorf("failed to unmarshal task config: %w", err)
+		}
+		if config.FileURL == "" {
 			return errors.New("file URL is required for file tasks")
 		}
 	case TaskTypeCommand:
-		if len(t.Config.Command) == 0 {
+		var config TaskConfig
+		if err := json.Unmarshal(t.Config, &config); err != nil {
+			return fmt.Errorf("failed to unmarshal task config: %w", err)
+		}
+		if len(config.Command) == 0 {
 			return errors.New("command is required for command tasks")
 		}
 	case TaskTypeDocker:
 		if t.Environment == nil || t.Environment.Type != "docker" {
 			return errors.New("docker environment configuration is required for docker tasks")
 		}
-		if len(t.Config.Command) == 0 {
+		var config TaskConfig
+		if err := json.Unmarshal(t.Config, &config); err != nil {
+			return fmt.Errorf("failed to unmarshal task config: %w", err)
+		}
+		if len(config.Command) == 0 {
 			return errors.New("command is required for docker tasks")
 		}
 	default:
