@@ -9,6 +9,7 @@ Parity Protocol is a decentralized compute network where runners can execute com
 - Go 1.20 or higher
 - PostgreSQL
 - Make
+- Docker (optional, for containerized database)
 
 ### Installation
 
@@ -55,59 +56,74 @@ make watch
 make run
 ```
 
-````
-
 ### Testing
 
-Run all tests:
-
 ```bash
+# Run tests with coverage
 make test
-````
+
+# Run tests with verbose output
+make test-verbose
+```
 
 ## API Endpoints
+
+All API endpoints are prefixed with `/api/v1`. For example:
 
 ### Tasks
 
 - Create a task:
 
 ```bash
-curl -X POST http://localhost:8080/tasks \
-  -H "Content-Type: application/json" \
-  -d '{
-    "title": "Test Task",
-    "description": "This is a test task",
-    "file_url": "https://example.com/task.zip",
-    "reward": 100
-  }'
+curl -X POST http://localhost:8080/api/v1/tasks \
+-H "Content-Type: application/json" \
+-d '{
+  "title": "Docker Test Task",
+  "description": "Run a simple Docker container",
+  "type": "docker",
+  "reward": 100,
+  "config": {
+    "command": ["echo", "Hello from Docker!"]
+  },
+  "environment": {
+    "type": "docker",
+    "config": {
+      "image": "alpine:latest",
+      "command": ["echo", "Hello from Docker!"],
+      "env": ["FOO=bar"],
+      "workdir": "/app",
+      "volumes": {
+        "/tmp": "/container-tmp"
+      }
+    }
+  }
+}'
 ```
 
 - List all tasks:
 
 ```bash
-curl http://localhost:8080/tasks
+curl http://localhost:8080/api/v1/tasks
 ```
 
 - Get task by ID:
 
 ```bash
-curl http://localhost:8080/tasks/{id}
+curl http://localhost:8080/api/v1/tasks/{id}
 ```
 
 - Get task reward:
 
 ```bash
-curl http://localhost:8080/tasks/{id}/reward
+curl http://localhost:8080/api/v1/tasks/{id}/reward
 ```
 
-All endpoints require appropriate authentication headers. The following endpoints are available:
-
-| Method | Endpoint           | Description       |
-| ------ | ------------------ | ----------------- |
-| GET    | /tasks             | List all tasks    |
-| POST   | /tasks             | Create a new task |
-| GET    | /tasks/{id}        | Get task by ID    |
-| GET    | /tasks/{id}/reward | Get task reward   |
+| Method | Endpoint                  | Description       |
+| ------ | ------------------------- | ----------------- |
+| GET    | /api/v1/tasks             | List all tasks    |
+| POST   | /api/v1/tasks             | Create a new task |
+| GET    | /api/v1/tasks/{id}        | Get task by ID    |
+| GET    | /api/v1/tasks/{id}/reward | Get task reward   |
 
 ## Project Structure
 
@@ -117,37 +133,50 @@ parity-protocol/
 │   ├── migrate/           # Database migration tool
 │   └── server/            # Main application server
 ├── config/                # Configuration files
-│   └── config.yaml        # Application
+│   └── config.yaml       # Application configuration
 ├── internal/              # Private application code
-│   ├── api/               # API layer
-│   ├── services/          # Business logic
-│   ├── models/            # Data models
-│   └── database/          # Database code
+│   ├── api/              # API layer
+│   ├── services/         # Business logic
+│   ├── models/           # Data models
+│   └── database/         # Database code
 ├── pkg/                   # Public packages
 └── test/                 # Test files
 ```
 
 ## Available Make Commands
 
+### Core Commands
+
 - `make build`: Build the application
 - `make run`: Run the application
-- `make test`: Run tests with race detection and coverage
-- `make clean`: Clean build files and test artifacts
-- `make deps`: Download and tidy dependencies
-- `make fmt`: Format code
-- `make watch`: Run the application with hot reload
+- `make watch`: Run with hot reload (requires air)
 - `make install-air`: Install air for hot reloading
+- `make clean`: Clean build files and test artifacts
+
+### Testing Commands
+
+- `make test`: Run tests with coverage
+- `make test-verbose`: Run tests with verbose output
+- `make setup-coverage`: Create coverage directory
 
 ### Database Commands
 
 - `make migrate-up`: Run database migrations up
 - `make migrate-down`: Run database migrations down
 
+### Development Commands
+
+- `make deps`: Download and tidy dependencies
+- `make fmt`: Format code
+
+### Installation Commands
+
+- `make install`: Install parity command globally
+- `make uninstall`: Remove parity command from system
+
 ### Helper Commands
 
 - `make help`: Display help screen with all available commands
-
-All commands support verbose output and include appropriate flags for development and production use.
 
 ## Contributing
 
