@@ -138,14 +138,6 @@ parity-protocol/
 - `make watch`: Run the application with hot reload
 - `make install-air`: Install air for hot reloading
 
-### Docker Commands
-
-- `make docker-build`: Build Docker image
-- `make docker-up`: Start Docker containers
-- `make docker-down`: Stop Docker containers
-- `make docker-logs`: View Docker container logs
-- `make docker-clean`: Clean Docker resources and remove orphans
-
 ### Database Commands
 
 - `make migrate-up`: Run database migrations up
