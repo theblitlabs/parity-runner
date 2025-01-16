@@ -57,8 +57,11 @@ func (r *Router) registerRoutes(
 
 // registerTaskRoutes registers all task-related routes
 func (r *Router) registerTaskRoutes(h *handlers.TaskHandler) {
-	// Create subrouter with endpoint prefix
-	tasks := r.PathPrefix("/api/tasks").Subrouter()
+	// Create API version subrouter
+	api := r.PathPrefix(r.endpoint).Subrouter()
+
+	// Create tasks subrouter under the API version
+	tasks := api.PathPrefix("/tasks").Subrouter()
 
 	// Task routes
 	tasks.HandleFunc("", h.CreateTask).Methods("POST")
