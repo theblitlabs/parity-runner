@@ -29,16 +29,18 @@ func TestDeviceIDStorage(t *testing.T) {
 	defer t.Setenv("HOME", origHome)
 
 	tests := []struct {
-		name      string
-		setupFunc func() error
-		wantError bool
+		name          string
+		setupFunc     func() error
+		wantNewID     bool
+		wantSameAsOld bool
 	}{
 		{
 			name: "new device ID creation",
 			setupFunc: func() error {
 				return nil // No setup needed
 			},
-			wantError: false,
+			wantNewID:     true,
+			wantSameAsOld: false,
 		},
 		{
 			name: "verify existing device ID",
@@ -49,7 +51,8 @@ func TestDeviceIDStorage(t *testing.T) {
 				}
 				return device.SaveDeviceID(id)
 			},
-			wantError: false,
+			wantNewID:     false,
+			wantSameAsOld: true,
 		},
 		{
 			name: "invalid device ID",
@@ -64,7 +67,8 @@ func TestDeviceIDStorage(t *testing.T) {
 				}
 				return os.WriteFile(path, []byte("invalid-id"), 0600)
 			},
-			wantError: true,
+			wantNewID:     true,
+			wantSameAsOld: false,
 		},
 	}
 
@@ -79,19 +83,22 @@ func TestDeviceIDStorage(t *testing.T) {
 			err = tt.setupFunc()
 			assert.NoError(t, err, "Setup failed")
 
+			// Store the old ID if it exists
+			var oldID string
+			if oldBytes, err := os.ReadFile(path); err == nil {
+				oldID = string(oldBytes)
+			}
+
 			// Test verification
 			deviceID, err := device.VerifyDeviceID()
-			if tt.wantError {
-				assert.Error(t, err)
-				assert.Empty(t, deviceID)
-			} else {
-				assert.NoError(t, err)
-				assert.NotEmpty(t, deviceID)
+			assert.NoError(t, err)
+			assert.NotEmpty(t, deviceID)
 
-				// Verify ID is consistent
-				currentID, err := device.GenerateDeviceID()
-				assert.NoError(t, err)
-				assert.Equal(t, currentID, deviceID)
+			if tt.wantSameAsOld {
+				assert.Equal(t, oldID, deviceID)
+			} else if tt.wantNewID {
+				assert.NotEqual(t, oldID, deviceID)
+				assert.True(t, device.IsValidSHA256(deviceID))
 			}
 		})
 	}

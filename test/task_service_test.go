@@ -22,13 +22,36 @@ func TestCreateTask(t *testing.T) {
 		wantErr bool
 	}{
 		{
-			name: "valid task",
+			name: "valid file task",
 			task: &models.Task{
 				Title:       "Test Task",
 				Description: "Test Description",
-				FileURL:     "https://example.com/task.zip",
-				Reward:      100,
-				CreatorID:   "creator123",
+				Type:        models.TaskTypeFile,
+				Config: models.TaskConfig{
+					FileURL: "https://example.com/task.zip",
+				},
+				Reward:    100,
+				CreatorID: "creator123",
+			},
+			wantErr: false,
+		},
+		{
+			name: "valid docker task",
+			task: &models.Task{
+				Title:       "Docker Task",
+				Description: "Test Docker Task",
+				Type:        models.TaskTypeDocker,
+				Config: models.TaskConfig{
+					Command: []string{"echo", "hello"},
+				},
+				Environment: &models.EnvironmentConfig{
+					Type: "docker",
+					Config: map[string]interface{}{
+						"image": "alpine:latest",
+					},
+				},
+				Reward:    100,
+				CreatorID: "creator123",
 			},
 			wantErr: false,
 		},
@@ -36,8 +59,11 @@ func TestCreateTask(t *testing.T) {
 			name: "invalid task - empty title",
 			task: &models.Task{
 				Description: "Test Description",
-				FileURL:     "https://example.com/task.zip",
-				Reward:      100,
+				Type:        models.TaskTypeFile,
+				Config: models.TaskConfig{
+					FileURL: "https://example.com/task.zip",
+				},
+				Reward: 100,
 			},
 			wantErr: true,
 		},
@@ -46,8 +72,24 @@ func TestCreateTask(t *testing.T) {
 			task: &models.Task{
 				Title:       "Test Task",
 				Description: "Test Description",
-				FileURL:     "https://example.com/task.zip",
-				Reward:      0,
+				Type:        models.TaskTypeFile,
+				Config: models.TaskConfig{
+					FileURL: "https://example.com/task.zip",
+				},
+				Reward: 0,
+			},
+			wantErr: true,
+		},
+		{
+			name: "invalid docker task - missing environment",
+			task: &models.Task{
+				Title:       "Docker Task",
+				Description: "Test Docker Task",
+				Type:        models.TaskTypeDocker,
+				Config: models.TaskConfig{
+					Command: []string{"echo", "hello"},
+				},
+				Reward: 100,
 			},
 			wantErr: true,
 		},

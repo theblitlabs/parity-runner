@@ -37,15 +37,18 @@ func NewTaskService(repo TaskRepository) *TaskService {
 func (s *TaskService) CreateTask(ctx context.Context, task *models.Task) error {
 	log := logger.Get()
 
-	if task.Title == "" || task.FileURL == "" || task.Reward <= 0 {
+	// Basic validation
+	if err := task.Validate(); err != nil {
 		log.Error().
 			Str("title", task.Title).
-			Str("file_url", task.FileURL).
+			Str("type", string(task.Type)).
 			Float64("reward", task.Reward).
+			Err(err).
 			Msg("Invalid task data")
 		return ErrInvalidTask
 	}
 
+	// Initialize task metadata
 	task.ID = uuid.New().String()
 	task.Status = models.TaskStatusPending
 	task.CreatedAt = time.Now()
@@ -53,7 +56,8 @@ func (s *TaskService) CreateTask(ctx context.Context, task *models.Task) error {
 
 	log.Debug().
 		Str("task_id", task.ID).
-		Msg("Attempting to create task in repository")
+		Str("type", string(task.Type)).
+		Msg("Creating new task")
 
 	if err := s.repo.Create(ctx, task); err != nil {
 		log.Error().Err(err).
@@ -90,6 +94,13 @@ func (s *TaskService) AssignTaskToRunner(ctx context.Context, taskID, runnerID s
 
 	if task.Status != models.TaskStatusPending {
 		return errors.New("task is not available")
+	}
+
+	// Additional validation for Docker tasks
+	if task.Type == models.TaskTypeDocker {
+		if task.Environment == nil || task.Environment.Type != "docker" {
+			return errors.New("invalid docker task configuration")
+		}
 	}
 
 	task.Status = models.TaskStatusRunning

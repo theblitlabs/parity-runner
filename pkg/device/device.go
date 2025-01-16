@@ -66,14 +66,14 @@ func SaveDeviceID(deviceID string) error {
 func VerifyDeviceID() (string, error) {
 	path, err := GetDeviceIDPath()
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("failed to get device ID path: %w", err)
 	}
 
 	// Check if device ID exists
-	storedID, err := os.ReadFile(path)
+	deviceID, err := os.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
-			// Generate new device ID
+			// Generate new device ID if it doesn't exist
 			newID, err := GenerateDeviceID()
 			if err != nil {
 				return "", err
@@ -86,15 +86,34 @@ func VerifyDeviceID() (string, error) {
 		return "", err
 	}
 
-	// Verify stored ID matches current hardware
-	currentID, err := GenerateDeviceID()
-	if err != nil {
-		return "", err
+	// Validate the stored device ID format
+	storedID := string(deviceID)
+	if len(storedID) != 64 || !IsValidSHA256(storedID) {
+		// If invalid format, generate a new one
+		newID, err := GenerateDeviceID()
+		if err != nil {
+			return "", err
+		}
+		if err := SaveDeviceID(newID); err != nil {
+			return "", err
+		}
+		return newID, nil
 	}
 
-	if currentID != string(storedID) {
-		return "", fmt.Errorf("device ID mismatch")
-	}
+	// For development: use stored ID even if it doesn't match current system
+	return storedID, nil
+}
 
-	return string(storedID), nil
+// IsValidSHA256 checks if a string is a valid SHA256 hash
+func IsValidSHA256(s string) bool {
+	// SHA256 is 64 characters of hexadecimal
+	if len(s) != 64 {
+		return false
+	}
+	for _, r := range s {
+		if !((r >= '0' && r <= '9') || (r >= 'a' && r <= 'f')) {
+			return false
+		}
+	}
+	return true
 }

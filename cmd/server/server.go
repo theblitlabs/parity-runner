@@ -40,8 +40,7 @@ func Run() {
 
 	db, err := database.Connect(ctx, cfg.Database.URL)
 	if err != nil {
-		log.Error().Err(err).Msg("Failed to connect to database")
-		os.Exit(1)
+		log.Fatal().Err(err).Msg("Failed to connect to database")
 	}
 
 	// Convert sql.DB to sqlx.DB
@@ -49,8 +48,7 @@ func Run() {
 
 	// Ping database to verify connection
 	if err := db.PingContext(ctx); err != nil {
-		log.Error().Err(err).Msg("Database connection check failed")
-		os.Exit(1)
+		log.Fatal().Err(err).Msg("Database connection check failed")
 	}
 
 	log.Info().Msg("Successfully connected to database")
@@ -74,6 +72,6 @@ func Run() {
 	log.Info().Msgf("Server starting on %s", fmt.Sprintf("%s:%s", cfg.Server.Host, cfg.Server.Port))
 
 	if err := server.ListenAndServe(); err != nil {
-		log.Error().Err(err).Msg("Server failed to start")
+		log.Fatal().Err(err).Msg("Server failed to start")
 	}
 }

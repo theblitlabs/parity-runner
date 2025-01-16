@@ -17,7 +17,7 @@ func main() {
 	// Load configuration
 	cfg, err := config.LoadConfig("config/config.yaml")
 	if err != nil {
-		log.Error().Err(err).Msg("Failed to load config")
+		log.Fatal().Err(err).Msg("Failed to load config")
 	}
 
 	// connection string for postgres
@@ -32,7 +32,7 @@ func main() {
 
 	db, err := sql.Open("postgres", dsn)
 	if err != nil {
-		log.Error().Err(err).Msg("Failed to connect to database")
+		log.Fatal().Err(err).Msg("Failed to connect to database")
 	}
 	defer db.Close()
 
@@ -52,13 +52,13 @@ func main() {
 
 	migrationSQL, err := os.ReadFile(sqlFile)
 	if err != nil {
-		log.Error().Err(err).Msg("Failed to read migration file")
+		log.Fatal().Err(err).Msg("Failed to read migration file")
 	}
 
 	// Execute the migration
 	_, err = db.Exec(string(migrationSQL))
 	if err != nil {
-		log.Error().Err(err).Msg("Failed to execute migration")
+		log.Fatal().Err(err).Msg("Failed to execute migration")
 	}
 
 	log.Info().Msgf("Migration (%s) completed successfully", migrationType)
