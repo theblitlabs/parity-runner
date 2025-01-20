@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/docker/docker/client"
 	"github.com/google/uuid"
 	"github.com/virajbhartiya/parity-protocol/internal/config"
 	"github.com/virajbhartiya/parity-protocol/internal/execution/sandbox"
@@ -14,10 +15,47 @@ import (
 	"github.com/virajbhartiya/parity-protocol/pkg/logger"
 )
 
+func checkDockerAvailability() error {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	cli, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
+	if err != nil {
+		return fmt.Errorf("failed to create Docker client: %w", err)
+	}
+	defer cli.Close()
+
+	// Check if Docker daemon is running
+	if _, err := cli.Ping(ctx); err != nil {
+		return fmt.Errorf("Docker daemon is not running: %w", err)
+	}
+
+	// Get Docker version info
+	version, err := cli.ServerVersion(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to get Docker version: %w", err)
+	}
+
+	log := logger.Get()
+	log.Info().
+		Str("version", version.Version).
+		Str("api_version", version.APIVersion).
+		Str("os", version.Os).
+		Str("arch", version.Arch).
+		Msg("Docker daemon is running")
+
+	return nil
+}
+
 func Run() {
 	log := logger.Get()
 
 	log.Info().Msg("Starting runner")
+
+	// Check Docker availability first
+	if err := checkDockerAvailability(); err != nil {
+		log.Fatal().Err(err).Msg("Docker is not available")
+	}
 
 	// Load config
 	cfg, err := config.LoadConfig("config/config.yaml")

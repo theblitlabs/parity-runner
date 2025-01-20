@@ -9,6 +9,7 @@ import (
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/client"
 	"github.com/virajbhartiya/parity-protocol/internal/models"
+	"github.com/virajbhartiya/parity-protocol/pkg/logger"
 )
 
 type DockerEnvironment struct {
@@ -26,13 +27,27 @@ type DockerConfig struct {
 }
 
 func NewDockerEnvironment(config map[string]interface{}) (*DockerEnvironment, error) {
-	// Convert generic config to DockerConfig
-	dockerConfig := &DockerConfig{}
-	// ... implement config parsing ...
 
+	// Create Docker client
 	cli, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
 	if err != nil {
 		return nil, fmt.Errorf("failed to create Docker client: %w", err)
+	}
+
+	// Convert generic config to DockerConfig
+	dockerConfig := &DockerConfig{
+		Image:       config["image"].(string),
+		WorkDir:     config["workdir"].(string),
+		Environment: make([]string, 0),
+	}
+
+	// Convert environment variables
+	if env, ok := config["env"].([]interface{}); ok {
+		for _, v := range env {
+			if str, ok := v.(string); ok {
+				dockerConfig.Environment = append(dockerConfig.Environment, str)
+			}
+		}
 	}
 
 	return &DockerEnvironment{
@@ -42,8 +57,10 @@ func NewDockerEnvironment(config map[string]interface{}) (*DockerEnvironment, er
 }
 
 func (d *DockerEnvironment) Setup() error {
+	log := logger.Get()
 	ctx := context.Background()
 
+	log.Info().Str("image", d.config.Image).Msg("Pulling Docker image")
 	reader, err := d.client.ImagePull(ctx, d.config.Image, types.ImagePullOptions{})
 	if err != nil {
 		return fmt.Errorf("failed to pull Docker image: %w", err)
@@ -52,7 +69,12 @@ func (d *DockerEnvironment) Setup() error {
 
 	// Wait for pull to complete
 	_, err = io.Copy(io.Discard, reader)
-	return err
+	if err != nil {
+		return fmt.Errorf("failed to pull image: %w", err)
+	}
+
+	log.Info().Str("image", d.config.Image).Msg("Docker image pulled successfully")
+	return nil
 }
 
 func (d *DockerEnvironment) Run(task *models.Task) error {

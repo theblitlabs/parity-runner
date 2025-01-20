@@ -14,7 +14,7 @@ var log zerolog.Logger
 func Init() {
 	output := zerolog.ConsoleWriter{
 		Out:        os.Stdout,
-		TimeFormat: "2006-01-02 15:04:05",
+		TimeFormat: "15:04:05",
 		NoColor:    false,
 		FormatLevel: func(i interface{}) string {
 			return colorizeLevel(i.(string))
@@ -23,10 +23,9 @@ func Init() {
 			return colorize(i.(string), cyan)
 		},
 		FormatFieldName: func(i interface{}) string {
-			return colorize(i.(string)+":", gray)
+			return colorize(fmt.Sprintf("%s:", i.(string)), gray)
 		},
 		FormatFieldValue: func(i interface{}) string {
-			// Handle different types of field values
 			switch v := i.(type) {
 			case string:
 				return colorize(v, blue)
@@ -39,7 +38,7 @@ func Init() {
 	}
 
 	zerolog.TimeFieldFormat = time.RFC3339
-	zerolog.SetGlobalLevel(zerolog.DebugLevel)
+	zerolog.SetGlobalLevel(zerolog.InfoLevel)
 	log = zerolog.New(output).With().Timestamp().Logger()
 	zerolog.DefaultContextLogger = &log
 }
