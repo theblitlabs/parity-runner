@@ -1,10 +1,23 @@
 package api
 
 import (
+	"net/http"
+
 	"github.com/gorilla/mux"
+	"github.com/gorilla/websocket"
 	"github.com/virajbhartiya/parity-protocol/internal/api/handlers"
 	"github.com/virajbhartiya/parity-protocol/internal/api/middleware"
+	"github.com/virajbhartiya/parity-protocol/pkg/logger"
 )
+
+var upgrader = websocket.Upgrader{
+	ReadBufferSize:  1024,
+	WriteBufferSize: 1024,
+	CheckOrigin: func(r *http.Request) bool {
+		// TODO: Add origin check
+		return true
+	},
+}
 
 // Router wraps mux.Router to add more functionality
 type Router struct {
@@ -19,19 +32,21 @@ func NewRouter(
 	endpoint string,
 ) *Router {
 	r := &Router{
-		Router: mux.NewRouter(),
-		middleware: []mux.MiddlewareFunc{
-			middleware.Logging,
-			// Temporarily comment out auth for testing
-			// middleware.Auth,
-		},
-		endpoint: endpoint,
+		Router:     mux.NewRouter(),
+		middleware: []mux.MiddlewareFunc{middleware.Logging},
+		endpoint:   endpoint,
 	}
 
-	// Initialize the router
-	r.setup()
+	// Create a separate router for WebSocket without middleware
+	wsRouter := mux.NewRouter()
+	wsRouter.HandleFunc(endpoint+"/runners/ws", r.handleWebSocket(taskHandler))
 
-	// Register all routes
+	// Combine the routers
+	r.Router = r.Router.PathPrefix("/").Subrouter()
+	r.Router.NotFoundHandler = wsRouter
+
+	// Setup middleware for regular HTTP routes
+	r.setup()
 	r.registerRoutes(taskHandler)
 
 	return r
@@ -46,14 +61,8 @@ func (r *Router) setup() {
 }
 
 // registerRoutes registers all application routes
-func (r *Router) registerRoutes(
-	taskHandler *handlers.TaskHandler,
-	// Add new handlers here as parameters when needed:
-) {
-	// Create API version subrouter
+func (r *Router) registerRoutes(taskHandler *handlers.TaskHandler) {
 	api := r.PathPrefix(r.endpoint).Subrouter()
-
-	// Create separate subrouters for tasks and runners
 	tasks := api.PathPrefix("/tasks").Subrouter()
 	runners := api.PathPrefix("/runners").Subrouter()
 
@@ -68,6 +77,23 @@ func (r *Router) registerRoutes(
 	runners.HandleFunc("/tasks/available", taskHandler.ListAvailableTasks).Methods("GET")
 	runners.HandleFunc("/tasks/{id}/start", taskHandler.StartTask).Methods("POST")
 	runners.HandleFunc("/tasks/{id}/complete", taskHandler.CompleteTask).Methods("POST")
+}
+
+func (r *Router) handleWebSocket(taskHandler *handlers.TaskHandler) http.HandlerFunc {
+	log := logger.Get()
+	log.Info().Msg("WebSocket handler registered")
+	return func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+
+		conn, err := upgrader.Upgrade(w, r, nil)
+		if err != nil {
+			logger.Error(err, "WebSocket upgrade failed")
+			return
+		}
+		defer conn.Close()
+
+		taskHandler.HandleWebSocket(conn)
+	}
 }
 
 // AddMiddleware adds a new middleware to the router

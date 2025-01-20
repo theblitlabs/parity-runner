@@ -9,11 +9,17 @@ import (
 
 	"github.com/docker/docker/client"
 	"github.com/google/uuid"
+	"github.com/gorilla/websocket"
 	"github.com/virajbhartiya/parity-protocol/internal/config"
 	"github.com/virajbhartiya/parity-protocol/internal/execution/sandbox"
 	"github.com/virajbhartiya/parity-protocol/internal/models"
 	"github.com/virajbhartiya/parity-protocol/pkg/logger"
 )
+
+type WSMessage struct {
+	Type    string          `json:"type"`
+	Payload json.RawMessage `json:"payload"`
+}
 
 func checkDockerAvailability() error {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -49,34 +55,33 @@ func checkDockerAvailability() error {
 
 func Run() {
 	log := logger.Get()
-
 	log.Info().Msg("Starting runner")
 
-	// Check Docker availability first
 	if err := checkDockerAvailability(); err != nil {
 		log.Fatal().Err(err).Msg("Docker is not available")
 	}
 
-	// Load config
 	cfg, err := config.LoadConfig("config/config.yaml")
 	if err != nil {
 		log.Fatal().Err(err).Msg("Failed to load config")
 	}
 
-	// Set default poll interval if not specified
-	if cfg.Runner.PollInterval == 0 {
-		cfg.Runner.PollInterval = 5 * time.Second
-		log.Warn().
-			Dur("poll_interval", cfg.Runner.PollInterval).
-			Msg("Poll interval not specified in config, using default")
-	}
+	// Create WebSocket URL
+	wsURL := fmt.Sprintf("ws://%s:%s%s/runners/ws",
+		cfg.Server.Host,
+		cfg.Server.Port,
+		cfg.Server.Endpoint,
+	)
 
-	log.Info().
-		Str("memory_limit", cfg.Runner.Docker.MemoryLimit).
-		Str("cpu_limit", cfg.Runner.Docker.CPULimit).
-		Dur("timeout", cfg.Runner.Docker.Timeout).
-		Dur("poll_interval", cfg.Runner.PollInterval).
-		Msg("Initializing runner with config")
+	// Connect to WebSocket
+	log.Info().Str("url", wsURL).Msg("Connecting to WebSocket")
+	conn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
+	if err != nil {
+		log.Fatal().Err(err).Msg("Failed to connect to WebSocket")
+	}
+	defer conn.Close()
+
+	log.Info().Msg("Connected to WebSocket")
 
 	// Create Docker executor
 	executor, err := sandbox.NewDockerExecutor(&sandbox.ExecutorConfig{
@@ -88,67 +93,69 @@ func Run() {
 		log.Fatal().Err(err).Msg("Failed to create Docker executor")
 	}
 
-	baseURL := cfg.Runner.ServerURL
-	log.Debug().Str("base_url", baseURL).Msg("Runner configured with base URL")
-
-	ticker := time.NewTicker(cfg.Runner.PollInterval)
-	defer ticker.Stop()
-
-	// Start task polling loop
-	for range ticker.C {
-		log.Debug().Msg("Polling for available tasks...")
-		tasks, err := GetAvailableTasks(baseURL)
+	// Handle incoming messages
+	for {
+		var msg WSMessage
+		err := conn.ReadJSON(&msg)
 		if err != nil {
-			log.Error().
-				Err(err).
-				Str("url", fmt.Sprintf("%s/runners/tasks/available", baseURL)).
-				Msg("Failed to get available tasks")
-			continue
+			if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseAbnormalClosure) {
+				log.Error().Err(err).Msg("WebSocket read error")
+			}
+			return
 		}
 
-		log.Info().Int("task_count", len(tasks)).Msg("Retrieved available tasks")
-
-		for _, task := range tasks {
-			log.Info().
-				Str("task_id", task.ID).
-				Str("status", string(task.Status)).
-				Msg("Processing task")
-
-			// Try to start task
-			if err := StartTask(baseURL, task.ID); err != nil {
-				log.Error().
-					Err(err).
-					Str("task_id", task.ID).
-					Str("url", fmt.Sprintf("%s/runners/tasks/%s/start", baseURL, task.ID)).
-					Msg("Failed to start task")
+		switch msg.Type {
+		case "available_tasks":
+			var tasks []*models.Task
+			data, _ := json.Marshal(msg.Payload)
+			if err := json.Unmarshal(data, &tasks); err != nil {
+				log.Error().Err(err).Msg("Failed to parse tasks")
 				continue
 			}
-			log.Info().Str("task_id", task.ID).Msg("Successfully started task")
 
-			// Execute task
-			log.Info().
-				Str("task_id", task.ID).
-				Msg("Beginning task execution")
-
-			if err := executor.ExecuteTask(context.Background(), task); err != nil {
-				log.Error().
-					Err(err).
+			// Process tasks
+			for _, task := range tasks {
+				log.Info().
 					Str("task_id", task.ID).
-					Msg("Failed to execute task")
-				continue
-			}
-			log.Info().Str("task_id", task.ID).Msg("Task execution completed")
+					Str("status", string(task.Status)).
+					Msg("Processing task")
 
-			// Mark task as completed
-			if err := CompleteTask(baseURL, task.ID); err != nil {
-				log.Error().
-					Err(err).
+				// Try to start task
+				if err := StartTask(cfg.Runner.ServerURL, task.ID); err != nil {
+					log.Error().
+						Err(err).
+						Str("task_id", task.ID).
+						Str("url", fmt.Sprintf("%s/runners/tasks/%s/start", cfg.Runner.ServerURL, task.ID)).
+						Msg("Failed to start task")
+					continue
+				}
+				log.Info().Str("task_id", task.ID).Msg("Successfully started task")
+
+				// Execute task
+				log.Info().
 					Str("task_id", task.ID).
-					Str("url", fmt.Sprintf("%s/runners/tasks/%s/complete", baseURL, task.ID)).
-					Msg("Failed to complete task")
-				continue
+					Msg("Beginning task execution")
+
+				if err := executor.ExecuteTask(context.Background(), task); err != nil {
+					log.Error().
+						Err(err).
+						Str("task_id", task.ID).
+						Msg("Failed to execute task")
+					continue
+				}
+				log.Info().Str("task_id", task.ID).Msg("Task execution completed")
+
+				// Mark task as completed
+				if err := CompleteTask(cfg.Runner.ServerURL, task.ID); err != nil {
+					log.Error().
+						Err(err).
+						Str("task_id", task.ID).
+						Str("url", fmt.Sprintf("%s/runners/tasks/%s/complete", cfg.Runner.ServerURL, task.ID)).
+						Msg("Failed to complete task")
+					continue
+				}
+				log.Info().Str("task_id", task.ID).Msg("Successfully marked task as completed")
 			}
-			log.Info().Str("task_id", task.ID).Msg("Successfully marked task as completed")
 		}
 	}
 }
