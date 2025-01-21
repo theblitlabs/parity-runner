@@ -1,4 +1,4 @@
-package helper
+package wallet
 
 import (
 	"fmt"
@@ -8,7 +8,6 @@ import (
 	"github.com/virajbhartiya/parity-protocol/internal/config"
 	"github.com/virajbhartiya/parity-protocol/pkg/keystore"
 	"github.com/virajbhartiya/parity-protocol/pkg/logger"
-	"github.com/virajbhartiya/parity-protocol/pkg/wallet"
 )
 
 // Define custom errors
@@ -20,7 +19,7 @@ var (
 
 func CheckWalletConnection(cfg *config.Config) error {
 	// Create wallet client
-	client, err := wallet.NewClient(cfg.Ethereum.RPC, cfg.Ethereum.ChainID)
+	client, err := NewClient(cfg.Ethereum.RPC, cfg.Ethereum.ChainID)
 	if err != nil {
 		if err.Error() == "401 Unauthorized: invalid project id" {
 			return ErrInvalidInfuraKey
@@ -37,7 +36,6 @@ func CheckWalletConnection(cfg *config.Config) error {
 	// Load token from keystore
 	authToken, err := keystore.LoadToken()
 	if err != nil {
-		// Check for specific error messages from keystore
 		if os.IsNotExist(err) ||
 			err.Error() == fmt.Sprintf("no keystore found at %s - please authenticate first", keystorePath) {
 			return ErrNoAuthToken
@@ -46,7 +44,7 @@ func CheckWalletConnection(cfg *config.Config) error {
 	}
 
 	// Verify token and get wallet address
-	claims, err := wallet.VerifyToken(authToken)
+	claims, err := VerifyToken(authToken)
 	if err != nil {
 		return ErrInvalidAuthToken
 	}
