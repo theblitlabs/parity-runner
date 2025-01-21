@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/rs/zerolog"
@@ -19,9 +20,6 @@ func Init() {
 		FormatLevel: func(i interface{}) string {
 			return colorizeLevel(i.(string))
 		},
-		FormatMessage: func(i interface{}) string {
-			return colorize(i.(string), cyan)
-		},
 		FormatFieldName: func(i interface{}) string {
 			return colorize(fmt.Sprintf("%s:", i.(string)), gray)
 		},
@@ -34,6 +32,22 @@ func Init() {
 			default:
 				return colorize(fmt.Sprint(v), blue)
 			}
+		},
+		PartsExclude: []string{
+			"query",
+			"referer",
+			"user_agent",
+			"remote_addr",
+			"duration_human",
+		},
+		FormatCaller: func(i interface{}) string {
+			return ""
+		},
+		FormatMessage: func(i interface{}) string {
+			msg := fmt.Sprint(i)
+			msg = strings.Replace(msg, "Request started", "→", 1)
+			msg = strings.Replace(msg, "Request completed", "←", 1)
+			return colorize(msg, cyan)
 		},
 	}
 
