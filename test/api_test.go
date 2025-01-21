@@ -4,11 +4,16 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/gorilla/mux"
+	"github.com/gorilla/websocket"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/virajbhartiya/parity-protocol/internal/api/handlers"
@@ -37,6 +42,7 @@ func setupRouter(taskService *mocks.MockTaskService) *mux.Router {
 	runners.HandleFunc("/tasks/available", taskHandler.ListAvailableTasks).Methods("GET")
 	runners.HandleFunc("/tasks/{id}/start", taskHandler.StartTask).Methods("POST")
 	runners.HandleFunc("/tasks/{id}/complete", taskHandler.CompleteTask).Methods("POST")
+	runners.HandleFunc("/ws", taskHandler.WebSocketHandler).Methods("GET")
 
 	return router
 }
@@ -414,5 +420,187 @@ func TestRunnerRoutes(t *testing.T) {
 			assert.Equal(t, tt.expectedStatus, rr.Code)
 			mockService.AssertExpectations(t)
 		})
+	}
+}
+
+func TestWebSocketConnection(t *testing.T) {
+	mockService := new(mocks.MockTaskService)
+	router := setupRouter(mockService)
+	server := httptest.NewServer(router)
+	defer server.Close()
+
+	wsURL := "ws" + strings.TrimPrefix(server.URL, "http") + "/api/runners/ws"
+
+	tests := []struct {
+		name      string
+		setupMock func()
+		wantTasks []*models.Task
+		wantError bool
+	}{
+		{
+			name: "successful connection and task updates",
+			setupMock: func() {
+				tasks := []*models.Task{
+					{
+						ID:     "task1",
+						Status: models.TaskStatusPending,
+						Config: json.RawMessage("null"),
+					},
+				}
+				mockService.On("ListAvailableTasks", mock.Anything).Return(tasks, nil).Maybe()
+			},
+			wantTasks: []*models.Task{
+				{
+					ID:     "task1",
+					Status: models.TaskStatusPending,
+					Config: json.RawMessage("null"),
+				},
+			},
+			wantError: false,
+		},
+		{
+			name: "service error",
+			setupMock: func() {
+				mockService.On("ListAvailableTasks", mock.Anything).
+					Return(nil, fmt.Errorf("service error")).Maybe()
+			},
+			wantTasks: nil,
+			wantError: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			mockService.ExpectedCalls = nil
+			tt.setupMock()
+
+			dialer := websocket.Dialer{
+				HandshakeTimeout: 5 * time.Second,
+			}
+			ws, _, err := dialer.Dial(wsURL, nil)
+			if err != nil {
+				t.Fatalf("Failed to connect to WebSocket: %v", err)
+			}
+			defer ws.Close()
+
+			done := make(chan bool)
+			go func() {
+				defer close(done)
+				var msg struct {
+					Type    string          `json:"type"`
+					Payload json.RawMessage `json:"payload"`
+				}
+				err := ws.ReadJSON(&msg)
+				if tt.wantError {
+					if err != nil {
+						// Connection error is acceptable for error case
+						return
+					}
+					if msg.Type != "error" {
+						t.Errorf("Expected message type 'error', got %s", msg.Type)
+						return
+					}
+					// Successfully received error message
+					return
+				}
+
+				if err != nil {
+					t.Errorf("ReadJSON error: %v", err)
+					return
+				}
+
+				if msg.Type != "available_tasks" {
+					t.Errorf("Expected message type 'available_tasks', got %s", msg.Type)
+					return
+				}
+
+				var tasks []*models.Task
+				if err := json.Unmarshal(msg.Payload, &tasks); err != nil {
+					t.Errorf("Failed to unmarshal tasks: %v", err)
+					return
+				}
+
+				if !reflect.DeepEqual(tasks, tt.wantTasks) {
+					t.Errorf("Tasks mismatch\nwant: %+v\ngot: %+v", tt.wantTasks, tasks)
+				}
+			}()
+
+			select {
+			case <-done:
+				// Test completed
+			case <-time.After(2 * time.Second): // Reduced timeout for error case
+				if !tt.wantError {
+					t.Fatal("Test timed out")
+				}
+			}
+		})
+	}
+}
+
+func TestWebSocketReconnection(t *testing.T) {
+	mockService := new(mocks.MockTaskService)
+	router := setupRouter(mockService)
+	server := httptest.NewServer(router)
+	defer server.Close()
+
+	wsURL := "ws" + strings.TrimPrefix(server.URL, "http") + "/api/runners/ws"
+	tasks := []*models.Task{{ID: "task1", Config: json.RawMessage("null")}}
+	mockService.On("ListAvailableTasks", mock.Anything).Return(tasks, nil).Maybe()
+
+	dialer := websocket.Dialer{
+		HandshakeTimeout: 5 * time.Second,
+	}
+
+	// Test first connection
+	ws1, _, err := dialer.Dial(wsURL, nil)
+	assert.NoError(t, err)
+
+	done := make(chan bool)
+	go func() {
+		defer close(done)
+		var msg struct {
+			Type    string          `json:"type"`
+			Payload json.RawMessage `json:"payload"`
+		}
+		if err := ws1.ReadJSON(&msg); err != nil {
+			t.Errorf("First connection read error: %v", err)
+			return
+		}
+		assert.Equal(t, "available_tasks", msg.Type)
+	}()
+
+	select {
+	case <-done:
+		// Test completed
+	case <-time.After(5 * time.Second):
+		t.Fatal("First connection test timed out")
+	}
+
+	ws1.Close()
+
+	// Test second connection
+	ws2, _, err := dialer.Dial(wsURL, nil)
+	assert.NoError(t, err)
+	defer ws2.Close()
+
+	done = make(chan bool)
+	go func() {
+		defer close(done)
+		var msg struct {
+			Type    string          `json:"type"`
+			Payload json.RawMessage `json:"payload"`
+		}
+		if err := ws2.ReadJSON(&msg); err != nil {
+			t.Errorf("Second connection read error: %v", err)
+			return
+		}
+		assert.Equal(t, "available_tasks", msg.Type)
+	}()
+
+	select {
+	case <-done:
+		// Test completed
+	case <-time.After(5 * time.Second):
+		t.Fatal("Second connection test timed out")
 	}
 }

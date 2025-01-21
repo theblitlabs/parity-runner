@@ -5,6 +5,7 @@ import (
 	"net/http"
 
 	"github.com/gorilla/mux"
+	"github.com/gorilla/websocket"
 	"github.com/virajbhartiya/parity-protocol/internal/api/middleware"
 	"github.com/virajbhartiya/parity-protocol/internal/models"
 	"github.com/virajbhartiya/parity-protocol/internal/services"
@@ -241,4 +242,20 @@ func (h *TaskHandler) ListAvailableTasks(w http.ResponseWriter, r *http.Request)
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(tasks)
+}
+func (h *TaskHandler) WebSocketHandler(w http.ResponseWriter, r *http.Request) {
+	var upgrader = websocket.Upgrader{
+		ReadBufferSize:  1024,
+		WriteBufferSize: 1024,
+		CheckOrigin: func(r *http.Request) bool {
+			return true // Consider making this more restrictive in production
+		},
+	}
+
+	conn, err := upgrader.Upgrade(w, r, nil)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	h.HandleWebSocket(conn)
 }
