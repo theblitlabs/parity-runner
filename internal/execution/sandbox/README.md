@@ -1,114 +1,112 @@
-# Task Execution Sandbox
+# Parity Protocol
 
-This package provides a secure sandbox environment for executing compute tasks in the Parity Protocol. It ensures safe and isolated execution of user-submitted tasks using Docker containers and WASM runtimes.
+A decentralized compute protocol that enables secure and efficient task execution across distributed nodes.
 
 ## Features
 
-- **Isolation**: Complete isolation of task execution from the host system
-- **Resource Limits**: CPU, memory, and network restrictions
-- **Security**: No access to host filesystem or sensitive resources
-- **Multiple Runtimes**: Support for both Docker and WASM execution environments
+- Secure task execution in isolated environments
+- Docker container support with resource limits
+- WebSocket-based real-time task updates
+- ERC20 token integration for task rewards
+- Robust error handling and logging
+
+## Architecture
+
+### Task Execution
+
+Tasks are executed in isolated environments with the following security features:
+
+- **Resource Limits**
+
+  - Memory caps (configurable per task)
+  - CPU restrictions
+  - Execution timeouts
+  - Network isolation
+
+- **Docker Integration**
+  - Secure container execution
+  - Automatic image pulling
+  - Environment variable support
+  - Working directory configuration
+  - Volume mounting capabilities
+
+### Configuration
+
+```yaml
+runner:
+  docker:
+    memory_limit: "512m" # Container memory limit
+    cpu_limit: "1.0" # CPU allocation (1.0 = 1 core)
+    timeout: "5m" # Maximum execution time
+```
 
 ## Usage
 
-### Docker Execution
+### Running Tasks
+
+1. **Start the Server**
+
+```bash
+parity server
+```
+
+2. **Start a Runner**
+
+```bash
+parity runner
+```
+
+3. **Create a Docker Task**
+
+```bash
+curl -X POST http://localhost:8080/api/tasks \
+  -H "Content-Type: application/json" \
+  -d '{
+    "title": "Docker Task",
+    "type": "docker",
+    "config": {
+      "command": ["echo", "hello world"]
+    },
+    "environment": {
+      "type": "docker",
+      "config": {
+        "image": "alpine:latest",
+        "workdir": "/app",
+        "env": ["KEY=value"]
+      }
+    },
+    "reward": 100
+  }'
+```
+
+### Task Environment Configuration
 
 ```go
-import "github.com/virajbhartiya/parity-protocol/internal/execution/sandbox"
-
-// Create a new Docker executor
-executor := sandbox.NewDockerExecutor(&sandbox.Config{
-    MemoryLimit: "512m",
-    CPULimit:    "1.0",
-    Timeout:     time.Minute * 5,
-})
-
-// Execute a task
-result, err := executor.Execute(ctx, &sandbox.Task{
-    Image:   "ubuntu:latest",
-    Command: []string{"echo", "hello world"},
-})
+type DockerConfig struct {
+    Image       string            // Docker image to use
+    Command     []string          // Command to execute
+    Environment []string          // Environment variables
+    WorkDir     string            // Working directory
+    Volumes     map[string]string // Volume mappings
+}
 ```
 
-### WASM Execution
+### Security Considerations
 
-```go
-// Create a new WASM executor
-executor := sandbox.NewWasmExecutor(&sandbox.Config{
-    MemoryLimit: "128m",
-    Timeout:     time.Minute * 1,
-})
+1. **Container Isolation**
 
-// Execute a WASM module
-result, err := executor.Execute(ctx, &sandbox.Task{
-    WasmFile: "./task.wasm",
-    Input:    []byte("input data"),
-})
-```
+   - Each task runs in a separate container
+   - No host network access by default
+   - Read-only filesystem where possible
+   - Resource limits enforced via cgroups
 
-## Security Considerations
+2. **Resource Management**
 
-1. **Resource Limits**
+   - Memory limits prevent OOM issues
+   - CPU quotas prevent resource hogging
+   - Execution timeouts prevent infinite loops
 
-   - Memory caps
-   - CPU restrictions
-   - Disk I/O limits
-   - Network access control
-
-2. **Filesystem Access**
-
-   - Read-only mounts
-   - Temporary workspace
-   - No access to host system
-
-3. **Network Security**
-   - Restricted network access
-   - No host network access
-   - Optional VPN/proxy support
-
-## Configuration
-
-```yaml
-sandbox:
-  default_runtime: "docker" # or "wasm"
-  docker:
-    memory_limit: "512m"
-    cpu_limit: "1.0"
-    network_mode: "none"
-    privileged: false
-  wasm:
-    memory_limit: "128m"
-    stack_size: "1m"
-    timeout: "5m"
-```
-
-## Implementation Details
-
-1. **Docker Runtime**
-
-   - Uses Docker API for container management
-   - Implements resource limits via cgroups
-   - Handles cleanup of containers and volumes
-
-2. **WASM Runtime**
-   - Uses Wasmer/Wasmtime for WASM execution
-   - Implements WASI for system interface
-   - Memory and CPU restrictions
-
-## Error Handling
-
-```go
-var (
-    ErrExecutionTimeout = errors.New("task execution timeout")
-    ErrResourceLimit    = errors.New("resource limit exceeded")
-    ErrInvalidInput    = errors.New("invalid task input")
-)
-```
-
-## Future Improvements
-
-- [ ] Add support for GPU tasks
-- [ ] Implement task result caching
-- [ ] Add more runtime options (e.g., gVisor)
-- [ ] Enhance security monitoring
-- [ ] Add support for distributed execution
+3. **Cleanup**
+   - Automatic container removal
+   - Volume cleanup after execution
+   - Resource release on completion

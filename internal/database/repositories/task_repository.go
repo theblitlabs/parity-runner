@@ -263,3 +263,31 @@ func (r *TaskRepository) GetAll(ctx context.Context) ([]models.Task, error) {
 
 	return tasks, nil
 }
+
+func (r *TaskRepository) SaveTaskResult(ctx context.Context, result *models.TaskResult) error {
+	query := `
+		INSERT INTO task_results (task_id, output, error, exit_code, execution_time)
+		VALUES ($1, $2, $3, $4, $5)
+		RETURNING id`
+
+	return r.db.QueryRowContext(ctx, query,
+		result.TaskID,
+		result.Output,
+		result.Error,
+		result.ExitCode,
+		result.ExecutionTime,
+	).Scan(&result.ID)
+}
+
+func (r *TaskRepository) GetTaskResult(ctx context.Context, taskID string) (*models.TaskResult, error) {
+	var result models.TaskResult
+	err := r.db.GetContext(ctx, &result,
+		"SELECT * FROM task_results WHERE task_id = $1", taskID)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &result, nil
+}

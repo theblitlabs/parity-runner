@@ -56,3 +56,16 @@ func (m *MockTaskService) CompleteTask(ctx context.Context, id string) error {
 	args := m.Called(ctx, id)
 	return args.Error(0)
 }
+
+func (m *MockTaskService) GetTaskResult(ctx context.Context, id string) (*models.TaskResult, error) {
+	args := m.Called(ctx, id)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*models.TaskResult), args.Error(1)
+}
+
+func (m *MockTaskService) SaveTaskResult(ctx context.Context, result *models.TaskResult) error {
+	args := m.Called(ctx, result)
+	return args.Error(0)
+}

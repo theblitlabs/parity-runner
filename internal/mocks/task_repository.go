@@ -43,3 +43,16 @@ func (m *MockTaskRepository) GetAll(ctx context.Context) ([]models.Task, error) 
 	args := m.Called(ctx)
 	return args.Get(0).([]models.Task), args.Error(1)
 }
+
+func (m *MockTaskRepository) GetTaskResult(ctx context.Context, taskID string) (*models.TaskResult, error) {
+	args := m.Called(ctx, taskID)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*models.TaskResult), args.Error(1)
+}
+
+func (m *MockTaskRepository) SaveTaskResult(ctx context.Context, result *models.TaskResult) error {
+	args := m.Called(ctx, result)
+	return args.Error(0)
+}

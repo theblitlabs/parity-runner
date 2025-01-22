@@ -36,6 +36,7 @@ func setupRouter(taskService *mocks.MockTaskService) *mux.Router {
 	tasks.HandleFunc("/{id}", taskHandler.GetTask).Methods("GET")
 	tasks.HandleFunc("/{id}/assign", taskHandler.AssignTask).Methods("POST")
 	tasks.HandleFunc("/{id}/reward", taskHandler.GetTaskReward).Methods("GET")
+	tasks.HandleFunc("/{id}/result", taskHandler.GetTaskResult).Methods("GET")
 
 	// Runner routes (for task executors)
 	runners := router.PathPrefix("/api/runners").Subrouter()

@@ -36,8 +36,9 @@ func TestDockerExecutor(t *testing.T) {
 	}
 
 	ctx := context.Background()
-	err = executor.ExecuteTask(ctx, task)
+	result, err := executor.ExecuteTask(ctx, task)
 	assert.NoError(t, err)
+	assert.NotNil(t, result)
 }
 
 func TestDockerExecutor_InvalidConfig(t *testing.T) {
@@ -104,11 +105,13 @@ func TestDockerExecutor_InvalidConfig(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			err := executor.ExecuteTask(context.Background(), tt.task)
+			result, err := executor.ExecuteTask(context.Background(), tt.task)
 			if tt.wantErr {
 				assert.Error(t, err)
+				assert.Nil(t, result)
 			} else {
 				assert.NoError(t, err)
+				assert.NotNil(t, result)
 			}
 		})
 	}

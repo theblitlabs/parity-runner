@@ -10,6 +10,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/virajbhartiya/parity-protocol/internal/database/repositories"
+	"github.com/virajbhartiya/parity-protocol/internal/execution/sandbox"
 	"github.com/virajbhartiya/parity-protocol/internal/models"
 	"github.com/virajbhartiya/parity-protocol/pkg/logger"
 )
@@ -26,6 +27,8 @@ type TaskRepository interface {
 	List(ctx context.Context, limit, offset int) ([]*models.Task, error)
 	ListByStatus(ctx context.Context, status models.TaskStatus) ([]*models.Task, error)
 	GetAll(ctx context.Context) ([]models.Task, error)
+	SaveTaskResult(ctx context.Context, result *models.TaskResult) error
+	GetTaskResult(ctx context.Context, taskID string) (*models.TaskResult, error)
 }
 
 type TaskService struct {
@@ -162,4 +165,39 @@ func (s *TaskService) CompleteTask(ctx context.Context, id string) error {
 	now := time.Now()
 	task.CompletedAt = &now
 	return s.repo.Update(ctx, task)
+}
+
+func (s *TaskService) ExecuteTask(ctx context.Context, task *models.Task) error {
+	executor, err := sandbox.NewDockerExecutor(&sandbox.ExecutorConfig{
+		MemoryLimit: "512m",
+		CPULimit:    "1.0",
+		Timeout:     5 * time.Minute,
+	})
+	if err != nil {
+		return fmt.Errorf("failed to create executor: %w", err)
+	}
+
+	result, err := executor.ExecuteTask(ctx, task)
+	if err != nil {
+		// Still save the result even if there's an error
+		if result != nil {
+			_ = s.repo.SaveTaskResult(ctx, result)
+		}
+		return err
+	}
+
+	// Save successful result
+	if err := s.repo.SaveTaskResult(ctx, result); err != nil {
+		return fmt.Errorf("failed to save task result: %w", err)
+	}
+
+	return nil
+}
+
+func (s *TaskService) GetTaskResult(ctx context.Context, taskID string) (*models.TaskResult, error) {
+	return s.repo.GetTaskResult(ctx, taskID)
+}
+
+func (s *TaskService) SaveTaskResult(ctx context.Context, result *models.TaskResult) error {
+	return s.repo.SaveTaskResult(ctx, result)
 }

@@ -1,6 +1,7 @@
 package runner
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -33,7 +34,7 @@ func checkDockerAvailability() error {
 
 	// Check if Docker daemon is running
 	if _, err := cli.Ping(ctx); err != nil {
-		return fmt.Errorf("Docker daemon is not running: %w", err)
+		return fmt.Errorf("docker daemon is not running: %w", err)
 	}
 
 	// Get Docker version info
@@ -136,13 +137,24 @@ func Run() {
 					Str("task_id", task.ID).
 					Msg("Beginning task execution")
 
-				if err := executor.ExecuteTask(context.Background(), task); err != nil {
+				result, err := executor.ExecuteTask(context.Background(), task)
+				if err != nil {
 					log.Error().
 						Err(err).
 						Str("task_id", task.ID).
 						Msg("Failed to execute task")
 					continue
 				}
+
+				// Save the task result
+				if err := SaveTaskResult(cfg.Runner.ServerURL, task.ID, result); err != nil {
+					log.Error().
+						Err(err).
+						Str("task_id", task.ID).
+						Msg("Failed to save task result")
+					continue
+				}
+
 				log.Info().Str("task_id", task.ID).Msg("Task execution completed")
 
 				// Mark task as completed
@@ -215,6 +227,27 @@ func CompleteTask(baseURL, taskID string) error {
 		Msg("Marking task as completed")
 
 	resp, err := http.Post(url, "application/json", nil)
+	if err != nil {
+		return fmt.Errorf("HTTP POST failed for %s: %w", url, err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("unexpected status code: %d", resp.StatusCode)
+	}
+
+	return nil
+}
+
+func SaveTaskResult(baseURL, taskID string, result *models.TaskResult) error {
+	url := fmt.Sprintf("%s/runners/tasks/%s/result", baseURL, taskID)
+
+	body, err := json.Marshal(result)
+	if err != nil {
+		return fmt.Errorf("failed to marshal result: %w", err)
+	}
+
+	resp, err := http.Post(url, "application/json", bytes.NewBuffer(body))
 	if err != nil {
 		return fmt.Errorf("HTTP POST failed for %s: %w", url, err)
 	}

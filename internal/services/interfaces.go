@@ -15,4 +15,6 @@ type ITaskService interface {
 	GetTaskReward(ctx context.Context, id string) (float64, error)
 	StartTask(ctx context.Context, id string) error
 	CompleteTask(ctx context.Context, id string) error
+	GetTaskResult(ctx context.Context, id string) (*models.TaskResult, error)
+	SaveTaskResult(ctx context.Context, result *models.TaskResult) error
 }

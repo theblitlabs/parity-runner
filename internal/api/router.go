@@ -72,11 +72,13 @@ func (r *Router) registerRoutes(taskHandler *handlers.TaskHandler) {
 	tasks.HandleFunc("/{id}", taskHandler.GetTask).Methods("GET")
 	tasks.HandleFunc("/{id}/assign", taskHandler.AssignTask).Methods("POST")
 	tasks.HandleFunc("/{id}/reward", taskHandler.GetTaskReward).Methods("GET")
+	tasks.HandleFunc("/{id}/result", taskHandler.GetTaskResult).Methods("GET")
 
 	// Runner routes (for task executors)
 	runners.HandleFunc("/tasks/available", taskHandler.ListAvailableTasks).Methods("GET")
 	runners.HandleFunc("/tasks/{id}/start", taskHandler.StartTask).Methods("POST")
 	runners.HandleFunc("/tasks/{id}/complete", taskHandler.CompleteTask).Methods("POST")
+	runners.HandleFunc("/tasks/{id}/result", taskHandler.SaveTaskResult).Methods("POST")
 }
 
 func (r *Router) handleWebSocket(taskHandler *handlers.TaskHandler) http.HandlerFunc {

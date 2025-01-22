@@ -2,9 +2,13 @@ package handlers
 
 import (
 	"context"
+	"encoding/json"
+	"net/http"
 	"time"
 
+	"github.com/gorilla/mux"
 	"github.com/gorilla/websocket"
+	"github.com/virajbhartiya/parity-protocol/internal/models"
 	"github.com/virajbhartiya/parity-protocol/pkg/logger"
 )
 
@@ -67,4 +71,53 @@ func (h *TaskHandler) HandleWebSocket(conn *websocket.Conn) {
 			}
 		}
 	}
+}
+
+func (h *TaskHandler) GetTaskResult(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	taskID := vars["id"]
+	if taskID == "" {
+		http.Error(w, "task ID is required", http.StatusBadRequest)
+		return
+	}
+
+	result, err := h.service.GetTaskResult(r.Context(), taskID)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	if result == nil {
+		http.Error(w, "task result not found", http.StatusNotFound)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(result)
+}
+
+func (h *TaskHandler) SaveTaskResult(w http.ResponseWriter, r *http.Request) {
+	log := logger.Get()
+	vars := mux.Vars(r)
+	taskID := vars["id"]
+
+	var result models.TaskResult
+	if err := json.NewDecoder(r.Body).Decode(&result); err != nil {
+		log.Error().Err(err).Msg("Failed to decode task result")
+		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	result.TaskID = taskID
+	result.CreatedAt = time.Now()
+	result.Clean()
+
+	if err := h.service.SaveTaskResult(r.Context(), &result); err != nil {
+		log.Error().Err(err).Str("task_id", taskID).Msg("Failed to save task result")
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	log.Info().Str("task_id", taskID).Msg("Task result saved successfully")
+	w.WriteHeader(http.StatusOK)
 }
