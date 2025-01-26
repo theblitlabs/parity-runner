@@ -6,16 +6,19 @@ import (
 )
 
 type TaskResult struct {
-	ID            string    `db:"id" json:"id"`
-	TaskID        string    `db:"task_id" json:"task_id"`
-	Output        string    `db:"output" json:"output"`
-	Error         string    `db:"error,omitempty" json:"error,omitempty"`
-	ExitCode      int       `db:"exit_code" json:"exit_code"`
-	ExecutionTime int64     `db:"execution_time" json:"execution_time"`
-	CreatedAt     time.Time `db:"created_at" json:"created_at"`
+	ID             string    `json:"id" db:"id"`
+	TaskID         string    `json:"task_id" db:"task_id"`
+	DeviceID       string    `json:"device_id" db:"device_id"`
+	DeviceIDHash   string    `json:"device_id_hash" db:"device_id_hash"`
+	RunnerAddress  string    `json:"runner_address" db:"runner_address"`
+	CreatorAddress string    `json:"creator_address" db:"creator_address"`
+	Output         string    `json:"output" db:"output"`
+	Error          string    `json:"error,omitempty" db:"error"`
+	ExitCode       int       `json:"exit_code" db:"exit_code"`
+	ExecutionTime  int64     `json:"execution_time" db:"execution_time"`
+	CreatedAt      time.Time `json:"created_at" db:"created_at"`
 }
 
 func (r *TaskResult) Clean() {
 	r.Output = strings.TrimSpace(r.Output)
-	r.Error = strings.TrimSpace(r.Error)
 }

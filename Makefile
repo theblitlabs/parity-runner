@@ -75,10 +75,10 @@ watch: install-air ## Run the application with hot reload
 	$(AIR)
 
 migrate-up: ## Run database migrations up
-	$(GORUN) cmd/migrate/main.go
+	$(GORUN) cmd/migrate/migrate.go up
 
 migrate-down: ## Run database migrations down
-	$(GORUN) cmd/migrate/main.go down
+	$(GORUN) cmd/migrate/migrate.go down
 
 help: ## Display this help screen
 	@grep -h -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "\033[36m%-30s\033[0m %s\n", $$1, $$2}'

@@ -5,16 +5,23 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"math/big"
 	"net/http"
 	"time"
 
 	"github.com/docker/docker/client"
+	"github.com/ethereum/go-ethereum/accounts/abi/bind"
+	"github.com/ethereum/go-ethereum/common"
 	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
+	"github.com/rs/zerolog/log"
 	"github.com/virajbhartiya/parity-protocol/internal/config"
 	"github.com/virajbhartiya/parity-protocol/internal/execution/sandbox"
 	"github.com/virajbhartiya/parity-protocol/internal/models"
+	"github.com/virajbhartiya/parity-protocol/pkg/device"
 	"github.com/virajbhartiya/parity-protocol/pkg/logger"
+	"github.com/virajbhartiya/parity-protocol/pkg/stakewallet"
+	"github.com/virajbhartiya/parity-protocol/pkg/wallet"
 )
 
 type WSMessage struct {
@@ -118,6 +125,7 @@ func Run() {
 			for _, task := range tasks {
 				log.Info().
 					Str("task_id", task.ID).
+					Str("creator_id", task.CreatorID).
 					Str("status", string(task.Status)).
 					Msg("Processing task")
 
@@ -167,9 +175,86 @@ func Run() {
 					continue
 				}
 				log.Info().Str("task_id", task.ID).Msg("Successfully marked task as completed")
+
+				// Distribute rewards
+				if err := distributeRewards(result); err != nil {
+					log.Error().Err(err).Msg("Failed to distribute rewards")
+				}
 			}
 		}
 	}
+}
+
+func distributeRewards(result *models.TaskResult) error {
+	ctx := context.Background()
+	log.Info().Msg("Checking stake status before distributing rewards")
+
+	// Load config and create clients
+	cfg, err := config.LoadConfig("config/config.yaml")
+	if err != nil {
+		return fmt.Errorf("failed to load config: %w", err)
+	}
+
+	client, err := wallet.NewClient(cfg.Ethereum.RPC, cfg.Ethereum.ChainID)
+	if err != nil {
+		return fmt.Errorf("failed to create ethereum client: %w", err)
+	}
+
+	stakeWalletAddr := common.HexToAddress(cfg.Ethereum.StakeWalletAddress)
+	stakeWallet, err := stakewallet.NewStakeWallet(stakeWalletAddr, client)
+	if err != nil {
+		return fmt.Errorf("failed to create stake wallet: %w", err)
+	}
+
+	// Check if runner has staked
+	stakeInfo, err := stakeWallet.GetStakeInfo(&bind.CallOpts{}, result.DeviceID)
+	if err != nil {
+		log.Error().Err(err).Msg("Failed to check stake info - skipping rewards")
+		return nil // Don't fail the task
+	}
+
+	if !stakeInfo.Exists {
+		log.Error().
+			Str("runner", result.DeviceID).
+			Msg("Runner has not staked - please stake tokens first using 'parity stake'")
+		return nil // Don't fail the task
+	}
+
+	log.Info().
+		Str("runner", result.DeviceID).
+		Str("stake_amount", stakeInfo.Amount.String()).
+		Msg("Found stake - distributing rewards")
+
+	// Get transaction options
+	txOpts, err := client.GetTransactOpts()
+	if err != nil {
+		return fmt.Errorf("failed to get transaction options: %w", err)
+	}
+
+	// Distribute rewards (assuming reward amount is configured or calculated)
+	rewardAmount := big.NewInt(1e18) // 1 token as reward, adjust as needed
+	tx, err := stakeWallet.DistributeStake(
+		txOpts,
+		result.DeviceID,
+		stakeWalletAddr,
+		big.NewInt(0),
+		rewardAmount,
+	)
+	if err != nil {
+		return fmt.Errorf("failed to distribute rewards: %w", err)
+	}
+
+	// Wait for transaction confirmation
+	receipt, err := bind.WaitMined(ctx, client, tx)
+	if err != nil {
+		return fmt.Errorf("failed to confirm reward distribution: %w", err)
+	}
+
+	if receipt.Status == 0 {
+		return fmt.Errorf("reward distribution transaction failed")
+	}
+
+	return nil
 }
 
 func GetAvailableTasks(baseURL string) ([]*models.Task, error) {
@@ -242,12 +327,27 @@ func CompleteTask(baseURL, taskID string) error {
 func SaveTaskResult(baseURL, taskID string, result *models.TaskResult) error {
 	url := fmt.Sprintf("%s/runners/tasks/%s/result", baseURL, taskID)
 
+	// Get device ID
+	deviceID, err := device.VerifyDeviceID()
+	if err != nil {
+		return fmt.Errorf("failed to get device ID: %w", err)
+	}
+
 	body, err := json.Marshal(result)
 	if err != nil {
 		return fmt.Errorf("failed to marshal result: %w", err)
 	}
 
-	resp, err := http.Post(url, "application/json", bytes.NewBuffer(body))
+	req, err := http.NewRequest("POST", url, bytes.NewBuffer(body))
+	if err != nil {
+		return fmt.Errorf("failed to create request: %w", err)
+	}
+
+	// Add device ID header
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Device-ID", deviceID)
+
+	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		return fmt.Errorf("HTTP POST failed for %s: %w", url, err)
 	}

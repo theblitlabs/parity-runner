@@ -24,6 +24,7 @@ ethereum:
   rpc: "https://sepolia.infura.io/v3/09e9e581f3fd47e8b590c0a627f96eed"
   chain_id: 11155111
   token_address: "0xe06343731baf7aA1c0dB9056FAe6969D4252B8d1"
+  stake_wallet_address: "0xd893CAA151AdB01808A8B60aCE5aB6f92A5a7bA5"
 
 runner:
   server_url: "http://localhost:8080/api"

@@ -1,17 +1,20 @@
 package wallet
 
 import (
+	"fmt"
 	"math/big"
 
 	"github.com/ethereum/go-ethereum/accounts/abi/bind"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/ethclient"
+	"github.com/virajbhartiya/parity-protocol/pkg/keystore"
 )
 
 type Client struct {
 	*ethclient.Client
 	chainID *big.Int
+	auth    *bind.TransactOpts
 }
 
 func NewClient(rpcURL string, chainID int64) (*Client, error) {
@@ -20,9 +23,22 @@ func NewClient(rpcURL string, chainID int64) (*Client, error) {
 		return nil, err
 	}
 
+	// Load private key from keystore
+	privateKey, err := keystore.LoadPrivateKey()
+	if err != nil {
+		return nil, fmt.Errorf("failed to load private key: %w", err)
+	}
+
+	// Create transaction auth
+	auth, err := bind.NewKeyedTransactorWithChainID(privateKey, big.NewInt(chainID))
+	if err != nil {
+		return nil, fmt.Errorf("failed to create transactor: %w", err)
+	}
+
 	return &Client{
 		Client:  client,
 		chainID: big.NewInt(chainID),
+		auth:    auth,
 	}, nil
 }
 
@@ -139,4 +155,15 @@ func (c *Client) TransferTokenWithDataAndCallback(auth *bind.TransactOpts, contr
 		return nil, err
 	}
 	return token.TransferWithDataAndCallback(auth, to, amount, data)
+}
+
+func (c *Client) Address() common.Address {
+	return c.auth.From
+}
+
+func (c *Client) GetTransactOpts() (*bind.TransactOpts, error) {
+	if c.auth == nil {
+		return nil, fmt.Errorf("wallet not authenticated")
+	}
+	return c.auth, nil
 }

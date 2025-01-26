@@ -40,19 +40,20 @@ type ResourceConfig struct {
 }
 
 type Task struct {
-	ID          string             `json:"id" db:"id"`
-	Title       string             `json:"title" db:"title"`
-	Description string             `json:"description" db:"description"`
-	Type        TaskType           `json:"type" db:"type"`
-	Status      TaskStatus         `json:"status" db:"status"`
-	Config      json.RawMessage    `json:"config" db:"config"`
-	Environment *EnvironmentConfig `json:"environment,omitempty" db:"environment"`
-	Reward      float64            `json:"reward" db:"reward"`
-	CreatorID   string             `json:"creator_id" db:"creator_id"`
-	RunnerID    *uuid.UUID         `json:"runner_id,omitempty" db:"runner_id"`
-	CreatedAt   time.Time          `json:"created_at" db:"created_at"`
-	UpdatedAt   time.Time          `json:"updated_at" db:"updated_at"`
-	CompletedAt *time.Time         `json:"completed_at,omitempty" db:"completed_at"`
+	ID             string             `json:"id" db:"id"`
+	Title          string             `json:"title" db:"title"`
+	Description    string             `json:"description" db:"description"`
+	Type           TaskType           `json:"type" db:"type"`
+	Status         TaskStatus         `json:"status" db:"status"`
+	Config         json.RawMessage    `json:"config" db:"config"`
+	Environment    *EnvironmentConfig `json:"environment,omitempty" db:"environment"`
+	Reward         float64            `json:"reward" db:"reward"`
+	CreatorID      string             `json:"creator_id" db:"creator_id"`
+	CreatorAddress string             `json:"creator_address" db:"creator_address"`
+	RunnerID       *uuid.UUID         `json:"runner_id,omitempty" db:"runner_id"`
+	CreatedAt      time.Time          `json:"created_at" db:"created_at"`
+	UpdatedAt      time.Time          `json:"updated_at" db:"updated_at"`
+	CompletedAt    *time.Time         `json:"completed_at,omitempty" db:"completed_at"`
 }
 
 // Validate performs basic validation on the task

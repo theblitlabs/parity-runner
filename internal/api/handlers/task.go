@@ -6,7 +6,7 @@ import (
 
 	"github.com/gorilla/mux"
 	"github.com/gorilla/websocket"
-	"github.com/virajbhartiya/parity-protocol/internal/api/middleware"
+	"github.com/rs/zerolog/log"
 	"github.com/virajbhartiya/parity-protocol/internal/models"
 	"github.com/virajbhartiya/parity-protocol/internal/services"
 	"github.com/virajbhartiya/parity-protocol/pkg/logger"
@@ -27,62 +27,41 @@ type CreateTaskRequest struct {
 	Config      models.TaskConfig         `json:"config"`
 	Environment *models.EnvironmentConfig `json:"environment,omitempty"`
 	Reward      float64                   `json:"reward"`
+	CreatorID   string                    `json:"creator_id"`
 }
 
 func (h *TaskHandler) CreateTask(w http.ResponseWriter, r *http.Request) {
-	log := logger.Get()
-	var req CreateTaskRequest
-
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		log.Error().Err(err).Msg("Failed to decode request body")
+	var task models.Task
+	if err := json.NewDecoder(r.Body).Decode(&task); err != nil {
 		http.Error(w, "Invalid request body", http.StatusBadRequest)
 		return
 	}
 
-	// For testing: use default user ID if not in context
-	userID := "test-user-id"
-	if id, ok := r.Context().Value(middleware.UserIDKey).(string); ok {
-		userID = id
+	// Get device ID from header
+	deviceID := r.Header.Get("X-Device-ID")
+	if deviceID == "" {
+		http.Error(w, "Device ID is required", http.StatusBadRequest)
+		return
 	}
+	task.CreatorID = deviceID
 
-	configJSON, err := json.Marshal(req.Config)
-	if err != nil {
-		log.Error().Err(err).Msg("Failed to marshal task config")
-		http.Error(w, "Invalid task configuration", http.StatusBadRequest)
+	// Check if sufficient stake exists for reward
+	if err := h.checkStakeBalance(r.Context(), &task); err != nil {
+		log.Error().Err(err).
+			Str("device_id", deviceID).
+			Float64("reward", task.Reward).
+			Msg("Insufficient stake balance for task reward")
+		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 
-	task := &models.Task{
-		Title:       req.Title,
-		Description: req.Description,
-		Type:        req.Type,
-		Config:      configJSON,
-		Environment: req.Environment,
-		Reward:      req.Reward,
-		CreatorID:   userID,
-	}
-
-	log.Debug().
-		Str("title", task.Title).
-		Float64("reward", task.Reward).
-		Msg("Creating new task")
-
-	if err := h.service.CreateTask(r.Context(), task); err != nil {
-		log.Error().Err(err).Msg("Failed to create task")
-		if err == services.ErrInvalidTask {
-			http.Error(w, "Invalid task data", http.StatusBadRequest)
-			return
-		}
+	// Continue with task creation
+	if err := h.service.CreateTask(r.Context(), &task); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 
-	log.Info().
-		Str("task_id", task.ID).
-		Msg("Task created successfully")
-
 	w.WriteHeader(http.StatusCreated)
-	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(task)
 }
 
@@ -243,6 +222,7 @@ func (h *TaskHandler) ListAvailableTasks(w http.ResponseWriter, r *http.Request)
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(tasks)
 }
+
 func (h *TaskHandler) WebSocketHandler(w http.ResponseWriter, r *http.Request) {
 	var upgrader = websocket.Upgrader{
 		ReadBufferSize:  1024,

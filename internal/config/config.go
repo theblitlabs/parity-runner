@@ -33,9 +33,10 @@ type DatabaseConfig struct {
 }
 
 type EthereumConfig struct {
-	RPC          string `mapstructure:"rpc"`
-	ChainID      int64  `mapstructure:"chain_id"`
-	TokenAddress string `mapstructure:"token_address"`
+	RPC                string `mapstructure:"rpc"`
+	ChainID            int64  `mapstructure:"chain_id"`
+	TokenAddress       string `mapstructure:"token_address"`
+	StakeWalletAddress string `mapstructure:"stake_wallet_address"`
 }
 
 func LoadConfig(path string) (*Config, error) {

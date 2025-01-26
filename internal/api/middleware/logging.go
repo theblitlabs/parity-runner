@@ -19,8 +19,6 @@ func Logging(next http.Handler) http.Handler {
 			Str("path", r.URL.Path).
 			Str("query", r.URL.RawQuery).
 			Str("remote_addr", r.RemoteAddr).
-			Str("user_agent", r.UserAgent()).
-			Str("referer", r.Referer()).
 			Logger()
 
 		// Log the request
@@ -37,7 +35,6 @@ func Logging(next http.Handler) http.Handler {
 		log.Info().
 			Int("status", ww.status).
 			Dur("duration", duration).
-			Str("duration_human", duration.String()).
 			Msg("Request completed")
 	})
 }

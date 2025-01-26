@@ -1,12 +1,14 @@
 package keystore
 
 import (
+	"crypto/ecdsa"
 	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
 	"time"
 
+	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/virajbhartiya/parity-protocol/pkg/logger"
 )
 
@@ -64,7 +66,7 @@ func SaveToken(token string) error {
 		return fmt.Errorf("token verification failed after save: %w", err)
 	}
 	if savedToken != token {
-		return fmt.Errorf("token verification mismatch after save - Original: %s..., Saved: %s...",
+		return fmt.Errorf("token verification mismatch after save - Original: %s, Saved: %s",
 			token[:10], savedToken[:10])
 	}
 
@@ -111,6 +113,34 @@ func LoadToken() (string, error) {
 		Msg("Token loaded successfully")
 
 	return keystore.AuthToken, nil
+}
+
+func LoadPrivateKey() (*ecdsa.PrivateKey, error) {
+	keystorePath, err := GetKeystorePath()
+	if err != nil {
+		return nil, err
+	}
+
+	data, err := os.ReadFile(keystorePath)
+	if err != nil {
+		return nil, err
+	}
+
+	return crypto.HexToECDSA(string(data))
+}
+
+func SavePrivateKey(privateKeyHex string) error {
+	keystorePath, err := GetKeystorePath()
+	if err != nil {
+		return err
+	}
+
+	// Validate private key format
+	if _, err := crypto.HexToECDSA(privateKeyHex); err != nil {
+		return fmt.Errorf("invalid private key format: %w", err)
+	}
+
+	return os.WriteFile(keystorePath, []byte(privateKeyHex), 0600)
 }
 
 func min(a, b int) int {
