@@ -8,7 +8,6 @@ import (
 	"github.com/ethereum/go-ethereum/accounts/abi/bind"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
-	"github.com/ethereum/go-ethereum/crypto"
 )
 
 // StakeWalletContract is the Go binding of the StakeWallet contract
@@ -65,23 +64,42 @@ const StakeWalletABI = `[
         {
           "indexed": true,
           "internalType": "address",
-          "name": "recipient",
+          "name": "from",
           "type": "address"
         },
         {
           "indexed": false,
           "internalType": "uint256",
-          "name": "ownerAmount",
+          "name": "amount",
           "type": "uint256"
+        }
+      ],
+      "name": "FundsAdded",
+      "type": "event"
+    },
+    {
+      "anonymous": false,
+      "inputs": [
+        {
+          "indexed": true,
+          "internalType": "string",
+          "name": "deviceId",
+          "type": "string"
+        },
+        {
+          "indexed": true,
+          "internalType": "address",
+          "name": "to",
+          "type": "address"
         },
         {
           "indexed": false,
           "internalType": "uint256",
-          "name": "recipientAmount",
+          "name": "amount",
           "type": "uint256"
         }
       ],
-      "name": "Distributed",
+      "name": "FundsWithdrawn",
       "type": "event"
     },
     {
@@ -109,13 +127,32 @@ const StakeWalletABI = `[
         {
           "indexed": true,
           "internalType": "string",
-          "name": "deviceId",
+          "name": "creatorDeviceId",
           "type": "string"
         },
         {
           "indexed": true,
+          "internalType": "string",
+          "name": "solverDeviceId",
+          "type": "string"
+        },
+        {
+          "indexed": false,
+          "internalType": "uint256",
+          "name": "amount",
+          "type": "uint256"
+        }
+      ],
+      "name": "TaskPayment",
+      "type": "event"
+    },
+    {
+      "anonymous": false,
+      "inputs": [
+        {
+          "indexed": true,
           "internalType": "address",
-          "name": "staker",
+          "name": "tokenAddress",
           "type": "address"
         },
         {
@@ -125,11 +162,16 @@ const StakeWalletABI = `[
           "type": "uint256"
         }
       ],
-      "name": "Staked",
+      "name": "TokenRecovered",
       "type": "event"
     },
     {
       "inputs": [
+        {
+          "internalType": "uint256",
+          "name": "_amount",
+          "type": "uint256"
+        },
         {
           "internalType": "string",
           "name": "_deviceId",
@@ -137,21 +179,11 @@ const StakeWalletABI = `[
         },
         {
           "internalType": "address",
-          "name": "_recipient",
+          "name": "_walletAddress",
           "type": "address"
-        },
-        {
-          "internalType": "uint256",
-          "name": "_ownerAmount",
-          "type": "uint256"
-        },
-        {
-          "internalType": "uint256",
-          "name": "_recipientAmount",
-          "type": "uint256"
         }
       ],
-      "name": "distributeStake",
+      "name": "addFunds",
       "outputs": [],
       "stateMutability": "nonpayable",
       "type": "function"
@@ -164,11 +196,11 @@ const StakeWalletABI = `[
           "type": "string"
         }
       ],
-      "name": "getBalanceByDeviceId",
+      "name": "getBalance",
       "outputs": [
         {
           "internalType": "uint256",
-          "name": "balance",
+          "name": "",
           "type": "uint256"
         }
       ],
@@ -183,16 +215,21 @@ const StakeWalletABI = `[
           "type": "string"
         }
       ],
-      "name": "getStakeInfo",
+      "name": "getWalletInfo",
       "outputs": [
         {
           "internalType": "uint256",
-          "name": "amount",
+          "name": "balance",
           "type": "uint256"
         },
         {
+          "internalType": "string",
+          "name": "deviceId",
+          "type": "string"
+        },
+        {
           "internalType": "address",
-          "name": "staker",
+          "name": "walletAddress",
           "type": "address"
         },
         {
@@ -218,57 +255,28 @@ const StakeWalletABI = `[
       "type": "function"
     },
     {
-      "inputs": [],
-      "name": "renounceOwnership",
-      "outputs": [],
-      "stateMutability": "nonpayable",
-      "type": "function"
-    },
-    {
       "inputs": [
+        {
+          "internalType": "address",
+          "name": "_tokenAddress",
+          "type": "address"
+        },
         {
           "internalType": "uint256",
           "name": "_amount",
           "type": "uint256"
-        },
-        {
-          "internalType": "string",
-          "name": "_deviceId",
-          "type": "string"
         }
       ],
-      "name": "stake",
+      "name": "recoverTokens",
       "outputs": [],
       "stateMutability": "nonpayable",
       "type": "function"
     },
     {
-      "inputs": [
-        {
-          "internalType": "string",
-          "name": "",
-          "type": "string"
-        }
-      ],
-      "name": "stakes",
-      "outputs": [
-        {
-          "internalType": "uint256",
-          "name": "amount",
-          "type": "uint256"
-        },
-        {
-          "internalType": "address",
-          "name": "staker",
-          "type": "address"
-        },
-        {
-          "internalType": "bool",
-          "name": "exists",
-          "type": "bool"
-        }
-      ],
-      "stateMutability": "view",
+      "inputs": [],
+      "name": "renounceOwnership",
+      "outputs": [],
+      "stateMutability": "nonpayable",
       "type": "function"
     },
     {
@@ -296,8 +304,101 @@ const StakeWalletABI = `[
       "outputs": [],
       "stateMutability": "nonpayable",
       "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "string",
+          "name": "_creatorDeviceId",
+          "type": "string"
+        },
+        {
+          "internalType": "string",
+          "name": "_solverDeviceId",
+          "type": "string"
+        },
+        {
+          "internalType": "uint256",
+          "name": "_amount",
+          "type": "uint256"
+        }
+      ],
+      "name": "transferPayment",
+      "outputs": [],
+      "stateMutability": "nonpayable",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "string",
+          "name": "_deviceId",
+          "type": "string"
+        },
+        {
+          "internalType": "address",
+          "name": "_newWalletAddress",
+          "type": "address"
+        }
+      ],
+      "name": "updateWalletAddress",
+      "outputs": [],
+      "stateMutability": "nonpayable",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "string",
+          "name": "",
+          "type": "string"
+        }
+      ],
+      "name": "wallets",
+      "outputs": [
+        {
+          "internalType": "uint256",
+          "name": "balance",
+          "type": "uint256"
+        },
+        {
+          "internalType": "string",
+          "name": "deviceId",
+          "type": "string"
+        },
+        {
+          "internalType": "address",
+          "name": "walletAddress",
+          "type": "address"
+        },
+        {
+          "internalType": "bool",
+          "name": "exists",
+          "type": "bool"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "string",
+          "name": "_deviceId",
+          "type": "string"
+        },
+        {
+          "internalType": "uint256",
+          "name": "_amount",
+          "type": "uint256"
+        }
+      ],
+      "name": "withdrawFunds",
+      "outputs": [],
+      "stateMutability": "nonpayable",
+      "type": "function"
     }
-  ],`
+  ]`
 
 // NewStakeWalletContract creates a new instance of the contract bindings
 func NewStakeWalletContract(address common.Address, backend bind.ContractBackend) (*StakeWalletContract, error) {
@@ -316,32 +417,35 @@ func NewStakeWalletContract(address common.Address, backend bind.ContractBackend
 // GetStakeInfo retrieves stake information for a given device ID
 func (c *StakeWalletContract) GetStakeInfo(opts *bind.CallOpts, deviceID string) (StakeInfo, error) {
 	var out []interface{}
-	// Convert deviceID to bytes32 for contract call
-	deviceIDBytes := crypto.Keccak256Hash([]byte(deviceID))
-
 	err := bind.NewBoundContract(c.address, c.abi, c.backend, c.backend, c.backend).
-		Call(opts, &out, "getStakeInfo", deviceIDBytes)
+		Call(opts, &out, "getWalletInfo", deviceID)
 	if err != nil {
 		return StakeInfo{}, err
 	}
 
 	return StakeInfo{
-		Amount:   abi.ConvertType(out[0], new(big.Int)).(*big.Int),
-		DeviceID: deviceID, // Keep original device ID
-		Exists:   *abi.ConvertType(out[2], new(bool)).(*bool),
+		Amount:        abi.ConvertType(out[0], new(big.Int)).(*big.Int),
+		DeviceID:      *abi.ConvertType(out[1], new(string)).(*string),
+		WalletAddress: *abi.ConvertType(out[2], new(common.Address)).(*common.Address),
+		Exists:        *abi.ConvertType(out[3], new(bool)).(*bool),
 	}, nil
 }
 
 // Stake tokens with device ID
-func (c *StakeWalletContract) Stake(opts *bind.TransactOpts, amount *big.Int, deviceID string) (*types.Transaction, error) {
+func (c *StakeWalletContract) Stake(opts *bind.TransactOpts, amount *big.Int, deviceID string, walletAddr common.Address) (*types.Transaction, error) {
 	return bind.NewBoundContract(c.address, c.abi, c.backend, c.backend, c.backend).
-		Transact(opts, "stake", amount, deviceID)
+		Transact(opts, "addFunds", amount, deviceID, walletAddr)
 }
 
 // DistributeStake distributes stake between user and recipient
-func (c *StakeWalletContract) DistributeStake(opts *bind.TransactOpts, deviceID string, recipient common.Address, ownerAmount *big.Int, recipientAmount *big.Int) (*types.Transaction, error) {
-	contract := bind.NewBoundContract(c.address, c.abi, c.backend, c.backend, c.backend)
-	return contract.Transact(opts, "distributeStake", deviceID, recipient, ownerAmount, recipientAmount)
+func (c *StakeWalletContract) TransferPayment(
+	opts *bind.TransactOpts,
+	creatorDeviceID string,
+	solverDeviceID string,
+	amount *big.Int,
+) (*types.Transaction, error) {
+	return bind.NewBoundContract(c.address, c.abi, c.backend, c.backend, c.backend).
+		Transact(opts, "transferPayment", creatorDeviceID, solverDeviceID, amount)
 }
 
 // Owner returns the contract owner
@@ -370,7 +474,7 @@ func (c *StakeWalletContract) Token(opts *bind.CallOpts) (common.Address, error)
 func (c *StakeWalletContract) GetBalanceByDeviceID(opts *bind.CallOpts, deviceID string) (*big.Int, error) {
 	var out []interface{}
 	err := bind.NewBoundContract(c.address, c.abi, c.backend, c.backend, c.backend).
-		Call(opts, &out, "getBalanceByDeviceId", deviceID)
+		Call(opts, &out, "getBalance", deviceID)
 	if err != nil {
 		return nil, err
 	}

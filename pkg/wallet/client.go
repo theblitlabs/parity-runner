@@ -1,20 +1,25 @@
 package wallet
 
 import (
+	"crypto/ecdsa"
 	"fmt"
 	"math/big"
+	"strings"
 
 	"github.com/ethereum/go-ethereum/accounts/abi/bind"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
+	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/ethclient"
 	"github.com/virajbhartiya/parity-protocol/pkg/keystore"
 )
 
 type Client struct {
 	*ethclient.Client
-	chainID *big.Int
-	auth    *bind.TransactOpts
+	chainID    *big.Int
+	auth       *bind.TransactOpts
+	privateKey *ecdsa.PrivateKey
+	address    common.Address
 }
 
 func NewClient(rpcURL string, chainID int64) (*Client, error) {
@@ -36,9 +41,11 @@ func NewClient(rpcURL string, chainID int64) (*Client, error) {
 	}
 
 	return &Client{
-		Client:  client,
-		chainID: big.NewInt(chainID),
-		auth:    auth,
+		Client:     client,
+		chainID:    big.NewInt(chainID),
+		auth:       auth,
+		privateKey: privateKey,
+		address:    crypto.PubkeyToAddress(privateKey.PublicKey),
 	}, nil
 }
 
@@ -158,7 +165,7 @@ func (c *Client) TransferTokenWithDataAndCallback(auth *bind.TransactOpts, contr
 }
 
 func (c *Client) Address() common.Address {
-	return c.auth.From
+	return c.address
 }
 
 func (c *Client) GetTransactOpts() (*bind.TransactOpts, error) {
@@ -166,4 +173,22 @@ func (c *Client) GetTransactOpts() (*bind.TransactOpts, error) {
 		return nil, fmt.Errorf("wallet not authenticated")
 	}
 	return c.auth, nil
+}
+
+// NewClientWithKey creates a client with a specific private key
+func NewClientWithKey(rpcURL string, chainID *big.Int, privateKey string) (*Client, error) {
+	key, err := crypto.HexToECDSA(strings.TrimPrefix(privateKey, "0x"))
+	if err != nil {
+		return nil, fmt.Errorf("invalid private key: %w", err)
+	}
+
+	client, err := NewClient(rpcURL, chainID.Int64())
+	if err != nil {
+		return nil, err
+	}
+
+	client.privateKey = key
+	client.address = crypto.PubkeyToAddress(key.PublicKey)
+
+	return client, nil
 }

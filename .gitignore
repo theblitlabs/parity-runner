@@ -74,3 +74,6 @@ node_modules/
 
 # Local development files
 *.local 
+
+# Config files
+config/config.yaml

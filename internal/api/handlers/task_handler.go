@@ -131,6 +131,16 @@ func (h *TaskHandler) SaveTaskResult(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if task.CreatorID == "" {
+		http.Error(w, "Creator device ID is required", http.StatusBadRequest)
+		return
+	}
+
+	if err := h.checkStakeBalance(r.Context(), task); err != nil {
+		http.Error(w, "Task creation failed: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+
 	result.TaskID = taskID
 	result.DeviceID = deviceID
 	result.CreatorAddress = task.CreatorAddress // Add creator's address to result
@@ -220,11 +230,29 @@ func (h *TaskHandler) distributeRewards(ctx context.Context, result *models.Task
 		Str("balance", balance.String()).
 		Msg("Found staked tokens for device")
 
-	rewardAmount := big.NewInt(1e18) // 1 token as reward
-	ownerAmount := big.NewInt(0)     // No tokens to owner in this case
+	// Get the actual task to access creator information
+	task, err := h.service.GetTask(ctx, result.TaskID)
+	if err != nil {
+		return fmt.Errorf("failed to get task details: %w", err)
+	}
+
+	// Convert task reward to wei
+	rewardWei := new(big.Int).Mul(
+		big.NewInt(int64(task.Reward)),
+		big.NewInt(1e18),
+	)
 
 	// Get transaction options and distribute
-	txOpts, err := client.GetTransactOpts()
+	ownerClient, err := wallet.NewClientWithKey(
+		cfg.Ethereum.RPC,
+		big.NewInt(cfg.Ethereum.ChainID),
+		cfg.Ethereum.OwnerPrivateKey,
+	)
+	if err != nil {
+		return fmt.Errorf("failed to create owner client: %w", err)
+	}
+
+	txOpts, err := ownerClient.GetTransactOpts()
 	if err != nil {
 		return fmt.Errorf("failed to get transaction options: %w", err)
 	}
@@ -232,22 +260,22 @@ func (h *TaskHandler) distributeRewards(ctx context.Context, result *models.Task
 	log.Info().
 		Str("device_id", result.DeviceID).
 		Str("recipient", recipientAddr.Hex()).
-		Str("reward_amount", rewardAmount.String()).
+		Str("reward_amount", rewardWei.String()).
 		Msg("Distributing rewards to authenticated wallet")
 
-	tx, err := stakeWallet.DistributeStake(
+	// Transfer payment from creator to solver
+	tx, err := stakeWallet.TransferPayment(
 		txOpts,
-		result.DeviceID,
-		recipientAddr,
-		ownerAmount,
-		rewardAmount,
+		task.CreatorID,  // Correct: Use creator's device ID
+		result.DeviceID, // Runner's device ID
+		rewardWei,
 	)
 	if err != nil {
 		log.Error().
 			Err(err).
 			Str("recipient", recipientAddr.Hex()).
-			Str("reward", rewardAmount.String()).
-			Msg("DistributeStake failed")
+			Str("reward", rewardWei.String()).
+			Msg("TransferPayment failed")
 		return fmt.Errorf("failed to distribute rewards: %w", err)
 	}
 
@@ -264,7 +292,7 @@ func (h *TaskHandler) distributeRewards(ctx context.Context, result *models.Task
 	return nil
 }
 
-func (h *TaskHandler) checkStakeBalance(ctx context.Context, task *models.Task) error {
+func (h *TaskHandler) checkStakeBalance(_ context.Context, task *models.Task) error {
 	cfg, err := config.LoadConfig("config/config.yaml")
 	if err != nil {
 		return fmt.Errorf("failed to load config: %w", err)
@@ -291,15 +319,15 @@ func (h *TaskHandler) checkStakeBalance(ctx context.Context, task *models.Task) 
 	rewardAmount, _ := rewardWei.Int(nil)
 
 	// Check device stake balance
-	balance, err := stakeWallet.GetBalanceByDeviceID(&bind.CallOpts{}, task.CreatorID)
-	if err != nil {
-		return fmt.Errorf("failed to check stake balance: %w", err)
+	stakeInfo, err := stakeWallet.GetStakeInfo(&bind.CallOpts{}, task.CreatorID)
+	if err != nil || !stakeInfo.Exists {
+		return fmt.Errorf("creator device not registered - please stake first")
 	}
 
-	if balance.Cmp(rewardAmount) < 0 {
-		return fmt.Errorf("insufficient stake balance for reward amount - required: %v PRTY, available: %v PRTY",
+	if stakeInfo.Amount.Cmp(rewardAmount) < 0 {
+		return fmt.Errorf("insufficient stake balance: need %v PRTY, has %v PRTY",
 			task.Reward,
-			new(big.Float).Quo(new(big.Float).SetInt(balance), new(big.Float).SetFloat64(1e18)))
+			new(big.Float).Quo(new(big.Float).SetInt(stakeInfo.Amount), big.NewFloat(1e18)))
 	}
 
 	return nil

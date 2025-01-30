@@ -195,7 +195,11 @@ func distributeRewards(result *models.TaskResult) error {
 		return fmt.Errorf("failed to load config: %w", err)
 	}
 
-	client, err := wallet.NewClient(cfg.Ethereum.RPC, cfg.Ethereum.ChainID)
+	client, err := wallet.NewClientWithKey(
+		cfg.Ethereum.RPC,
+		big.NewInt(cfg.Ethereum.ChainID),
+		cfg.Ethereum.RunnerPrivateKey,
+	)
 	if err != nil {
 		return fmt.Errorf("failed to create ethereum client: %w", err)
 	}
@@ -233,11 +237,10 @@ func distributeRewards(result *models.TaskResult) error {
 
 	// Distribute rewards (assuming reward amount is configured or calculated)
 	rewardAmount := big.NewInt(1e18) // 1 token as reward, adjust as needed
-	tx, err := stakeWallet.DistributeStake(
+	tx, err := stakeWallet.TransferPayment(
 		txOpts,
-		result.DeviceID,
-		stakeWalletAddr,
-		big.NewInt(0),
+		result.CreatorAddress, // Queuer's device ID from task result
+		result.DeviceID,       // Runner's device ID
 		rewardAmount,
 	)
 	if err != nil {

@@ -100,7 +100,7 @@ func Run() {
 		log.Fatal().Err(err).Msg("Failed to get transaction options")
 	}
 
-	tx, err := stakeWallet.Stake(txOpts, amountWei, deviceID)
+	tx, err := stakeWallet.Stake(txOpts, amountWei, deviceID, client.Address())
 	if err != nil {
 		log.Fatal().Err(err).Msg("Failed to stake tokens")
 	}
@@ -109,7 +109,13 @@ func Run() {
 		Str("tx_hash", tx.Hash().String()).
 		Str("amount", formatEther(amountWei)+" PRTY").
 		Str("device_id", deviceID).
-		Msg("Staking transaction sent - waiting for confirmation...")
+		Str("wallet_address", client.Address().Hex()).
+		Msg("Tokens staked successfully")
+
+	log.Info().
+		Str("device_id", deviceID).
+		Str("wallet_address", client.Address().Hex()).
+		Msg("Device wallet registered successfully")
 }
 
 func formatEther(wei *big.Int) string {

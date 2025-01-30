@@ -1,0 +1,39 @@
+server:
+  port:
+  host:
+  endpoint:
+  websocket:
+    ping_interval:
+    write_wait:
+    pong_wait:
+    max_message_size:
+
+database:
+  host:
+  port:
+  user:
+  password:
+  name:
+  sslmode:
+  max_open_conns:
+  max_idle_conns:
+  conn_max_lifetime:
+  url:
+
+ethereum:
+  rpc:
+  chain_id:
+  token_address:
+  stake_wallet_address:
+  stake_wallet_address:
+  owner_private_key:
+  runner_private_key:
+
+runner:
+  server_url:
+  api_prefix:
+  poll_interval:
+  docker:
+    memory_limit:
+    cpu_limit:
+    timeout:
