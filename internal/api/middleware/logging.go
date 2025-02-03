@@ -5,7 +5,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/virajbhartiya/parity-protocol/pkg/logger"
+	"github.com/theblitlabs/parity-protocol/pkg/logger"
 )
 
 func Logging(next http.Handler) http.Handler {

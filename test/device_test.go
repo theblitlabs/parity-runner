@@ -6,7 +6,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
-	"github.com/virajbhartiya/parity-protocol/pkg/device"
+	"github.com/theblitlabs/parity-protocol/pkg/device"
 )
 
 func TestDeviceIDGeneration(t *testing.T) {

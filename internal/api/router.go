@@ -5,9 +5,9 @@ import (
 
 	"github.com/gorilla/mux"
 	"github.com/gorilla/websocket"
-	"github.com/virajbhartiya/parity-protocol/internal/api/handlers"
-	"github.com/virajbhartiya/parity-protocol/internal/api/middleware"
-	"github.com/virajbhartiya/parity-protocol/pkg/logger"
+	"github.com/theblitlabs/parity-protocol/internal/api/handlers"
+	"github.com/theblitlabs/parity-protocol/internal/api/middleware"
+	"github.com/theblitlabs/parity-protocol/pkg/logger"
 )
 
 var upgrader = websocket.Upgrader{

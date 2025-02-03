@@ -5,9 +5,9 @@ import (
 	"os"
 
 	"github.com/ethereum/go-ethereum/common"
-	"github.com/virajbhartiya/parity-protocol/internal/config"
-	"github.com/virajbhartiya/parity-protocol/pkg/keystore"
-	"github.com/virajbhartiya/parity-protocol/pkg/logger"
+	"github.com/theblitlabs/parity-protocol/internal/config"
+	"github.com/theblitlabs/parity-protocol/pkg/keystore"
+	"github.com/theblitlabs/parity-protocol/pkg/logger"
 )
 
 // Define custom errors

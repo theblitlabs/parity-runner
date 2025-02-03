@@ -6,7 +6,7 @@ import (
 
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/stretchr/testify/assert"
-	"github.com/virajbhartiya/parity-protocol/pkg/wallet"
+	"github.com/theblitlabs/parity-protocol/pkg/wallet"
 )
 
 func TestGenerateAndVerifyToken(t *testing.T) {

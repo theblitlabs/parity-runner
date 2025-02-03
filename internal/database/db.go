@@ -5,7 +5,7 @@ import (
 
 	"github.com/jmoiron/sqlx"
 	_ "github.com/lib/pq"
-	"github.com/virajbhartiya/parity-protocol/internal/config"
+	"github.com/theblitlabs/parity-protocol/internal/config"
 )
 
 func NewDB(cfg *config.DatabaseConfig) (*sqlx.DB, error) {

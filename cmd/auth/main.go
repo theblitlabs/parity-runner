@@ -4,10 +4,10 @@ import (
 	"flag"
 	"os"
 
-	"github.com/virajbhartiya/parity-protocol/internal/config"
-	"github.com/virajbhartiya/parity-protocol/pkg/keystore"
-	"github.com/virajbhartiya/parity-protocol/pkg/logger"
-	"github.com/virajbhartiya/parity-protocol/pkg/wallet"
+	"github.com/theblitlabs/parity-protocol/internal/config"
+	"github.com/theblitlabs/parity-protocol/pkg/keystore"
+	"github.com/theblitlabs/parity-protocol/pkg/logger"
+	"github.com/theblitlabs/parity-protocol/pkg/wallet"
 )
 
 func Run() {

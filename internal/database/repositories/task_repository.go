@@ -11,8 +11,8 @@ import (
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/google/uuid"
 	"github.com/jmoiron/sqlx"
-	"github.com/virajbhartiya/parity-protocol/internal/models"
-	"github.com/virajbhartiya/parity-protocol/pkg/keystore"
+	"github.com/theblitlabs/parity-protocol/internal/models"
+	"github.com/theblitlabs/parity-protocol/pkg/keystore"
 )
 
 var (

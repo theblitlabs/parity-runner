@@ -7,9 +7,9 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
-	"github.com/virajbhartiya/parity-protocol/internal/mocks"
-	"github.com/virajbhartiya/parity-protocol/internal/models"
-	"github.com/virajbhartiya/parity-protocol/internal/services"
+	"github.com/theblitlabs/parity-protocol/internal/mocks"
+	"github.com/theblitlabs/parity-protocol/internal/models"
+	"github.com/theblitlabs/parity-protocol/internal/services"
 )
 
 func configToJSON(t *testing.T, config models.TaskConfig) json.RawMessage {

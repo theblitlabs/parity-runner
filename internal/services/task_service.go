@@ -9,10 +9,10 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/virajbhartiya/parity-protocol/internal/database/repositories"
-	"github.com/virajbhartiya/parity-protocol/internal/execution/sandbox"
-	"github.com/virajbhartiya/parity-protocol/internal/models"
-	"github.com/virajbhartiya/parity-protocol/pkg/logger"
+	"github.com/theblitlabs/parity-protocol/internal/database/repositories"
+	"github.com/theblitlabs/parity-protocol/internal/execution/sandbox"
+	"github.com/theblitlabs/parity-protocol/internal/models"
+	"github.com/theblitlabs/parity-protocol/pkg/logger"
 )
 
 var (

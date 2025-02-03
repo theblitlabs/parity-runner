@@ -16,7 +16,7 @@ Parity Protocol is a decentralized compute network where runners can execute com
 1. Clone the repository:
 
 ```bash
-git clone https://github.com/virajbhartiya/parity-protocol.git
+git clone https://github.com/theblitlabs/parity-protocol.git
 cd parity-protocol
 ```
 

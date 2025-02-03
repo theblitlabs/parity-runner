@@ -7,8 +7,8 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
-	"github.com/virajbhartiya/parity-protocol/cmd/runner"
-	"github.com/virajbhartiya/parity-protocol/internal/models"
+	"github.com/theblitlabs/parity-protocol/cmd/runner"
+	"github.com/theblitlabs/parity-protocol/internal/models"
 )
 
 func TestGetAvailableTasks(t *testing.T) {

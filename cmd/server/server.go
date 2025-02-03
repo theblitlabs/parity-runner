@@ -8,14 +8,14 @@ import (
 	"time"
 
 	"github.com/jmoiron/sqlx"
-	"github.com/virajbhartiya/parity-protocol/internal/api"
-	"github.com/virajbhartiya/parity-protocol/internal/api/handlers"
-	"github.com/virajbhartiya/parity-protocol/internal/config"
-	"github.com/virajbhartiya/parity-protocol/internal/database/repositories"
-	"github.com/virajbhartiya/parity-protocol/internal/services"
-	"github.com/virajbhartiya/parity-protocol/pkg/database"
-	"github.com/virajbhartiya/parity-protocol/pkg/device"
-	"github.com/virajbhartiya/parity-protocol/pkg/logger"
+	"github.com/theblitlabs/parity-protocol/internal/api"
+	"github.com/theblitlabs/parity-protocol/internal/api/handlers"
+	"github.com/theblitlabs/parity-protocol/internal/config"
+	"github.com/theblitlabs/parity-protocol/internal/database/repositories"
+	"github.com/theblitlabs/parity-protocol/internal/services"
+	"github.com/theblitlabs/parity-protocol/pkg/database"
+	"github.com/theblitlabs/parity-protocol/pkg/device"
+	"github.com/theblitlabs/parity-protocol/pkg/logger"
 )
 
 func Run() {

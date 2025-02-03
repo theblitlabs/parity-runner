@@ -9,8 +9,8 @@ import (
 	"strings"
 
 	_ "github.com/lib/pq"
-	"github.com/virajbhartiya/parity-protocol/internal/config"
-	"github.com/virajbhartiya/parity-protocol/pkg/logger"
+	"github.com/theblitlabs/parity-protocol/internal/config"
+	"github.com/theblitlabs/parity-protocol/pkg/logger"
 )
 
 func getMigrationFiles(migrationType string) ([]string, error) {

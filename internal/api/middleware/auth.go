@@ -5,7 +5,7 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/virajbhartiya/parity-protocol/pkg/wallet"
+	"github.com/theblitlabs/parity-protocol/pkg/wallet"
 )
 
 type contextKey string

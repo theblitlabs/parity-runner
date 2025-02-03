@@ -3,13 +3,13 @@ package main
 import (
 	"os"
 
-	"github.com/virajbhartiya/parity-protocol/cmd/auth"
-	"github.com/virajbhartiya/parity-protocol/cmd/balance"
-	"github.com/virajbhartiya/parity-protocol/cmd/chain"
-	"github.com/virajbhartiya/parity-protocol/cmd/runner"
-	"github.com/virajbhartiya/parity-protocol/cmd/server"
-	"github.com/virajbhartiya/parity-protocol/cmd/stake"
-	"github.com/virajbhartiya/parity-protocol/pkg/logger"
+	"github.com/theblitlabs/parity-protocol/cmd/auth"
+	"github.com/theblitlabs/parity-protocol/cmd/balance"
+	"github.com/theblitlabs/parity-protocol/cmd/chain"
+	"github.com/theblitlabs/parity-protocol/cmd/runner"
+	"github.com/theblitlabs/parity-protocol/cmd/server"
+	"github.com/theblitlabs/parity-protocol/cmd/stake"
+	"github.com/theblitlabs/parity-protocol/pkg/logger"
 )
 
 func main() {

@@ -8,7 +8,7 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/assert"
-	"github.com/virajbhartiya/parity-protocol/pkg/keystore"
+	"github.com/theblitlabs/parity-protocol/pkg/keystore"
 )
 
 func TestKeystore(t *testing.T) {

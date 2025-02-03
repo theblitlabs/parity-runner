@@ -3,7 +3,7 @@ package services
 import (
 	"context"
 
-	"github.com/virajbhartiya/parity-protocol/internal/models"
+	"github.com/theblitlabs/parity-protocol/internal/models"
 )
 
 type ITaskService interface {

@@ -4,7 +4,7 @@ import (
 	"context"
 
 	"github.com/stretchr/testify/mock"
-	"github.com/virajbhartiya/parity-protocol/internal/models"
+	"github.com/theblitlabs/parity-protocol/internal/models"
 )
 
 type MockTaskService struct {

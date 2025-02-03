@@ -6,8 +6,8 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/assert"
-	"github.com/virajbhartiya/parity-protocol/internal/execution/sandbox"
-	"github.com/virajbhartiya/parity-protocol/internal/models"
+	"github.com/theblitlabs/parity-protocol/internal/execution/sandbox"
+	"github.com/theblitlabs/parity-protocol/internal/models"
 )
 
 func TestDockerExecutor(t *testing.T) {

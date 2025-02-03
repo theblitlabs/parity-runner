@@ -16,12 +16,12 @@ import (
 	"github.com/gorilla/websocket"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
-	"github.com/virajbhartiya/parity-protocol/internal/api/handlers"
-	"github.com/virajbhartiya/parity-protocol/internal/api/middleware"
-	"github.com/virajbhartiya/parity-protocol/internal/mocks"
-	"github.com/virajbhartiya/parity-protocol/internal/models"
-	"github.com/virajbhartiya/parity-protocol/internal/services"
-	"github.com/virajbhartiya/parity-protocol/pkg/logger"
+	"github.com/theblitlabs/parity-protocol/internal/api/handlers"
+	"github.com/theblitlabs/parity-protocol/internal/api/middleware"
+	"github.com/theblitlabs/parity-protocol/internal/mocks"
+	"github.com/theblitlabs/parity-protocol/internal/models"
+	"github.com/theblitlabs/parity-protocol/internal/services"
+	"github.com/theblitlabs/parity-protocol/pkg/logger"
 )
 
 func setupRouter(taskService *mocks.MockTaskService) *mux.Router {

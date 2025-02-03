@@ -1,4 +1,4 @@
-module github.com/virajbhartiya/parity-protocol
+module github.com/theblitlabs/parity-protocol
 
 go 1.22.7
 

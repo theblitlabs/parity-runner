@@ -7,11 +7,11 @@ import (
 	"time"
 
 	"github.com/ethereum/go-ethereum/common"
-	"github.com/virajbhartiya/parity-protocol/internal/config"
-	"github.com/virajbhartiya/parity-protocol/pkg/device"
-	"github.com/virajbhartiya/parity-protocol/pkg/logger"
-	"github.com/virajbhartiya/parity-protocol/pkg/stakewallet"
-	"github.com/virajbhartiya/parity-protocol/pkg/wallet"
+	"github.com/theblitlabs/parity-protocol/internal/config"
+	"github.com/theblitlabs/parity-protocol/pkg/device"
+	"github.com/theblitlabs/parity-protocol/pkg/logger"
+	"github.com/theblitlabs/parity-protocol/pkg/stakewallet"
+	"github.com/theblitlabs/parity-protocol/pkg/wallet"
 )
 
 func Run() {

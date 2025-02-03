@@ -15,13 +15,13 @@ import (
 	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
 	"github.com/rs/zerolog/log"
-	"github.com/virajbhartiya/parity-protocol/internal/config"
-	"github.com/virajbhartiya/parity-protocol/internal/execution/sandbox"
-	"github.com/virajbhartiya/parity-protocol/internal/models"
-	"github.com/virajbhartiya/parity-protocol/pkg/device"
-	"github.com/virajbhartiya/parity-protocol/pkg/logger"
-	"github.com/virajbhartiya/parity-protocol/pkg/stakewallet"
-	"github.com/virajbhartiya/parity-protocol/pkg/wallet"
+	"github.com/theblitlabs/parity-protocol/internal/config"
+	"github.com/theblitlabs/parity-protocol/internal/execution/sandbox"
+	"github.com/theblitlabs/parity-protocol/internal/models"
+	"github.com/theblitlabs/parity-protocol/pkg/device"
+	"github.com/theblitlabs/parity-protocol/pkg/logger"
+	"github.com/theblitlabs/parity-protocol/pkg/stakewallet"
+	"github.com/theblitlabs/parity-protocol/pkg/wallet"
 )
 
 type WSMessage struct {
