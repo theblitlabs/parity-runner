@@ -1,34 +1,42 @@
 package stake
 
 import (
-	"flag"
 	"math/big"
-	"os"
 	"time"
 
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/rs/zerolog/log"
+	"github.com/spf13/cobra"
 	"github.com/theblitlabs/parity-protocol/internal/config"
 	"github.com/theblitlabs/parity-protocol/pkg/device"
-	"github.com/theblitlabs/parity-protocol/pkg/logger"
 	"github.com/theblitlabs/parity-protocol/pkg/stakewallet"
 	"github.com/theblitlabs/parity-protocol/pkg/wallet"
 )
 
 func Run() {
-	log := logger.Get()
+	var amount float64
 
-	stakeFlags := flag.NewFlagSet("stake", flag.ExitOnError)
-	amountFlag := stakeFlags.Float64("amount", 1.0, "Amount of PRTY tokens to stake")
-
-	if err := stakeFlags.Parse(os.Args[2:]); err != nil {
-		log.Fatal().Err(err).Msg("Failed to parse flags")
+	cmd := &cobra.Command{
+		Use:   "stake",
+		Short: "Stake tokens in the network",
+		Run: func(cmd *cobra.Command, args []string) {
+			executeStake(amount)
+		},
 	}
 
-	amount := new(big.Float).Mul(
-		new(big.Float).SetFloat64(*amountFlag),
+	cmd.Flags().Float64VarP(&amount, "amount", "a", 1.0, "Amount of PRTY tokens to stake")
+	cmd.MarkFlagRequired("amount")
+}
+
+func executeStake(amount float64) {
+	log := log.With().Str("component", "stake").Logger()
+
+	// Convert amount to wei
+	amountWei := new(big.Float).Mul(
+		big.NewFloat(amount),
 		new(big.Float).SetFloat64(1e18),
 	)
-	amountWei, _ := amount.Int(nil)
+	wei, _ := amountWei.Int(nil)
 
 	cfg, err := config.LoadConfig("config/config.yaml")
 	if err != nil {
@@ -53,10 +61,10 @@ func Run() {
 		log.Fatal().Err(err).Msg("Failed to check token balance")
 	}
 
-	if balance.Cmp(amountWei) < 0 {
+	if balance.Cmp(wei) < 0 {
 		log.Fatal().
 			Str("balance", balance.String()).
-			Str("required", amountWei.String()).
+			Str("required", wei.String()).
 			Msg("Insufficient token balance")
 	}
 
@@ -71,20 +79,20 @@ func Run() {
 		log.Fatal().Err(err).Msg("Failed to check allowance")
 	}
 
-	if allowance.Cmp(amountWei) < 0 {
+	if allowance.Cmp(wei) < 0 {
 		txOpts, err := client.GetTransactOpts()
 		if err != nil {
 			log.Fatal().Err(err).Msg("Failed to get transaction options")
 		}
 
-		tx, err := client.ApproveToken(txOpts, tokenAddr, stakeWalletAddr, amountWei)
+		tx, err := client.ApproveToken(txOpts, tokenAddr, stakeWalletAddr, wei)
 		if err != nil {
 			log.Fatal().Err(err).Msg("Failed to approve token spending")
 		}
 
 		log.Info().
 			Str("tx_hash", tx.Hash().String()).
-			Str("amount", amountWei.String()).
+			Str("amount", wei.String()).
 			Msg("Token approval transaction sent - waiting for confirmation...")
 
 		time.Sleep(15 * time.Second) // TODO: Check is the approval tx is mined on chain
@@ -100,14 +108,14 @@ func Run() {
 		log.Fatal().Err(err).Msg("Failed to get transaction options")
 	}
 
-	tx, err := stakeWallet.Stake(txOpts, amountWei, deviceID, client.Address())
+	tx, err := stakeWallet.Stake(txOpts, wei, deviceID, client.Address())
 	if err != nil {
 		log.Fatal().Err(err).Msg("Failed to stake tokens")
 	}
 
 	log.Info().
 		Str("tx_hash", tx.Hash().String()).
-		Str("amount", formatEther(amountWei)+" PRTY").
+		Str("amount", formatEther(wei)+" PRTY").
 		Str("device_id", deviceID).
 		Str("wallet_address", client.Address().Hex()).
 		Msg("Tokens staked successfully")

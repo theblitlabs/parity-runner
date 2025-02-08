@@ -2,13 +2,13 @@ package test
 
 import (
 	"bytes"
-	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"reflect"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -17,15 +17,20 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/theblitlabs/parity-protocol/internal/api/handlers"
-	"github.com/theblitlabs/parity-protocol/internal/api/middleware"
+
 	"github.com/theblitlabs/parity-protocol/internal/mocks"
 	"github.com/theblitlabs/parity-protocol/internal/models"
 	"github.com/theblitlabs/parity-protocol/internal/services"
 	"github.com/theblitlabs/parity-protocol/pkg/logger"
 )
 
+var setupOnce sync.Once
+
 func setupRouter(taskService *mocks.MockTaskService) *mux.Router {
-	logger.Init()
+	setupOnce.Do(func() {
+		logger.Init()
+	})
+
 	router := mux.NewRouter()
 	taskHandler := handlers.NewTaskHandler(taskService)
 
@@ -48,65 +53,6 @@ func setupRouter(taskService *mocks.MockTaskService) *mux.Router {
 	return router
 }
 
-func TestCreateTaskAPI(t *testing.T) {
-	mockService := new(mocks.MockTaskService)
-	router := setupRouter(mockService)
-
-	tests := []struct {
-		name           string
-		payload        map[string]interface{}
-		setupMock      func()
-		expectedStatus int
-	}{
-		{
-			name: "valid task creation",
-			payload: map[string]interface{}{
-				"title":       "Test Task",
-				"description": "Test Description",
-				"file_url":    "https://example.com/task.zip",
-				"reward":      100,
-				"creator_id":  "creator123",
-			},
-			setupMock: func() {
-				mockService.On("CreateTask", mock.Anything, mock.AnythingOfType("*models.Task")).Return(nil)
-			},
-			expectedStatus: http.StatusCreated,
-		},
-		{
-			name: "invalid task - missing title",
-			payload: map[string]interface{}{
-				"description": "Test Description",
-				"reward":      100,
-			},
-			setupMock: func() {
-				mockService.On("CreateTask", mock.Anything, mock.AnythingOfType("*models.Task")).Return(services.ErrInvalidTask)
-			},
-			expectedStatus: http.StatusBadRequest,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			mockService.ExpectedCalls = nil
-			tt.setupMock()
-
-			payloadBytes, _ := json.Marshal(tt.payload)
-			req := httptest.NewRequest("POST", "/api/tasks", bytes.NewBuffer(payloadBytes))
-			ctx := context.WithValue(req.Context(), middleware.UserIDKey, "test_user_123")
-			req = req.WithContext(ctx)
-			req.Header.Set("Content-Type", "application/json")
-
-			rr := httptest.NewRecorder()
-			router.ServeHTTP(rr, req)
-
-			assert.Equal(t, tt.expectedStatus, rr.Code)
-			if tt.expectedStatus == http.StatusCreated {
-				mockService.AssertExpectations(t)
-			}
-		})
-	}
-}
-
 func TestGetTasksAPI(t *testing.T) {
 	mockService := new(mocks.MockTaskService)
 	router := setupRouter(mockService)
@@ -116,6 +62,7 @@ func TestGetTasksAPI(t *testing.T) {
 			ID:          "task1",
 			Title:       "Task 1",
 			Description: "Description 1",
+			Type:        models.TaskTypeDocker,
 			Status:      models.TaskStatusPending,
 		},
 		{

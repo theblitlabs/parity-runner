@@ -1,27 +1,33 @@
 package auth
 
 import (
-	"flag"
-	"os"
-
+	"github.com/rs/zerolog/log"
+	"github.com/spf13/cobra"
 	"github.com/theblitlabs/parity-protocol/internal/config"
 	"github.com/theblitlabs/parity-protocol/pkg/keystore"
-	"github.com/theblitlabs/parity-protocol/pkg/logger"
 	"github.com/theblitlabs/parity-protocol/pkg/wallet"
 )
 
 func Run() {
-	log := logger.Get()
+	var privateKey string
 
-	authFlags := flag.NewFlagSet("auth", flag.ExitOnError)
-	privateKeyHex := authFlags.String("private-key", "", "Private key in hex format")
-
-	if err := authFlags.Parse(os.Args[2:]); err != nil {
-		log.Fatal().Err(err).Msg("Failed to parse flags")
+	cmd := &cobra.Command{
+		Use:   "auth",
+		Short: "Authenticate with the network",
+		Run: func(cmd *cobra.Command, args []string) {
+			executeAuth(privateKey)
+		},
 	}
 
-	if *privateKeyHex == "" {
-		log.Fatal().Msg("Private key is required. Use --private-key flag")
+	cmd.Flags().StringVarP(&privateKey, "private-key", "k", "", "Private key in hex format")
+	cmd.MarkFlagRequired("private-key")
+}
+
+func executeAuth(privateKey string) {
+	log := log.With().Str("component", "auth").Logger()
+
+	if privateKey == "" {
+		log.Fatal().Msg("Private key is required")
 	}
 
 	cfg, err := config.LoadConfig("config/config.yaml")
@@ -29,7 +35,7 @@ func Run() {
 		log.Fatal().Err(err).Msg("Failed to load config")
 	}
 
-	if err := keystore.SavePrivateKey(*privateKeyHex); err != nil {
+	if err := keystore.SavePrivateKey(privateKey); err != nil {
 		log.Fatal().Err(err).Msg("Failed to save private key")
 	}
 
