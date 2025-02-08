@@ -45,7 +45,7 @@ type Task struct {
 	Description    string             `json:"description" db:"description"`
 	Type           TaskType           `json:"type" db:"type"`
 	Status         TaskStatus         `json:"status" db:"status"`
-	Config         json.RawMessage    `json:"config" db:"config"`
+	Config         json.RawMessage    `json:"config"`
 	Environment    *EnvironmentConfig `json:"environment,omitempty" db:"environment"`
 	Reward         float64            `json:"reward" db:"reward"`
 	CreatorID      string             `json:"creator_id" db:"creator_id"`
@@ -95,8 +95,8 @@ func (t *Task) Validate() error {
 		if err := json.Unmarshal(t.Config, &config); err != nil {
 			return fmt.Errorf("failed to unmarshal task config: %w", err)
 		}
-		if len(config.Command) == 0 {
-			return errors.New("command is required for docker tasks")
+		if len(config.Command) == 0 && config.FileURL == "" {
+			return errors.New("either command or file_url must be specified for docker tasks")
 		}
 	default:
 		return errors.New("unsupported task type")

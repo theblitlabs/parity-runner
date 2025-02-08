@@ -31,18 +31,28 @@ INSTALL_PATH=/usr/local/bin
 all: clean build
 
 build: ## Build the application
-	$(GOBUILD) $(BUILD_FLAGS) -o $(BINARY_NAME) cmd/main.go
+	$(GOBUILD) $(BUILD_FLAGS) -o $(BINARY_NAME) ./cmd
 	chmod +x $(BINARY_NAME)
 
-run: ## Run the application
-	$(GORUN) cmd/main.go server
+run: build ## Run the application
+	./$(BINARY_NAME) --help
+
+server: build ## Start the parity server
+	./$(BINARY_NAME) server
+
+runner: build ## Start the task runner
+	./$(BINARY_NAME) runner
+
+chain: build ## Start the chain proxy server
+	./$(BINARY_NAME) chain
+
+stake: build ## Stake tokens in the network
+	./$(BINARY_NAME) stake --amount <amount>
+
+balance: build ## Check token balances
+	./$(BINARY_NAME) balance
 
 test: setup-coverage ## Run tests with coverage
-	$(GOTEST) $(TEST_FLAGS) $(TEST_PACKAGES)
-	@go tool cover -func=$(COVERAGE_PROFILE)
-	@go tool cover -html=$(COVERAGE_PROFILE) -o $(COVERAGE_HTML)
-
-test-verbose: setup-coverage ## Run tests with verbose output and coverage
 	$(GOTEST) $(TEST_FLAGS) -v $(TEST_PACKAGES)
 	@go tool cover -func=$(COVERAGE_PROFILE)
 	@go tool cover -html=$(COVERAGE_PROFILE) -o $(COVERAGE_HTML)
@@ -75,10 +85,10 @@ watch: install-air ## Run the application with hot reload
 	$(AIR)
 
 migrate-up: ## Run database migrations up
-	$(GORUN) cmd/migrate/migrate.go up
+	./$(BINARY_NAME) migrate
 
 migrate-down: ## Run database migrations down
-	$(GORUN) cmd/migrate/migrate.go down
+	./$(BINARY_NAME) migrate --down
 
 help: ## Display this help screen
 	@grep -h -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "\033[36m%-30s\033[0m %s\n", $$1, $$2}'
@@ -92,6 +102,5 @@ uninstall: ## Remove parity command from system
 	@echo "Uninstalling parity from $(INSTALL_PATH)..."
 	@sudo rm -f $(INSTALL_PATH)/$(BINARY_NAME)
 	@echo "Uninstallation complete"
-
 
 .DEFAULT_GOAL := help

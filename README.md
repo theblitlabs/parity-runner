@@ -56,6 +56,25 @@ make watch
 make run
 ```
 
+#### Individual Commands
+
+```bash
+# Start the server
+make server
+
+# Start the task runner
+make runner
+
+# Start the chain proxy
+make chain
+
+# Stake tokens (replace <amount> with desired amount)
+make stake amount=<amount>
+
+# Check balances
+make balance
+```
+
 ### Testing
 
 ```bash
@@ -146,10 +165,13 @@ parity-protocol/
 ### Core Commands
 
 - `make build`: Build the application
-- `make run`: Run the application
+- `make run`: Show CLI help
+- `make server`: Start the parity server
+- `make runner`: Start the task runner
+- `make chain`: Start the chain proxy server
+- `make stake`: Stake tokens in the network
+- `make balance`: Check token balances
 - `make watch`: Run with hot reload (requires air)
-- `make install-air`: Install air for hot reloading
-- `make clean`: Clean build files and test artifacts
 
 ### Testing Commands
 

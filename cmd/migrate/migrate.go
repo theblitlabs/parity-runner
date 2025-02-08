@@ -1,4 +1,4 @@
-package main
+package migrate
 
 import (
 	"database/sql"
@@ -13,7 +13,7 @@ import (
 	"github.com/theblitlabs/parity-protocol/pkg/logger"
 )
 
-func getMigrationFiles(migrationType string) ([]string, error) {
+func GetMigrationFiles(migrationType string) ([]string, error) {
 	// Migration directory path
 	migrationDir := "internal/database/migrations"
 
@@ -34,14 +34,15 @@ func getMigrationFiles(migrationType string) ([]string, error) {
 	return files, nil
 }
 
-func main() {
+func Run(down bool) {
 	logger.Init()
 	log := logger.Get()
 
 	// Load configuration
 	cfg, err := config.LoadConfig("config/config.yaml")
 	if err != nil {
-		log.Fatal().Err(err).Msg("Failed to load config")
+		log.Error().Err(err).Msg("Failed to load config")
+		return
 	}
 
 	// connection string for postgres
@@ -56,25 +57,27 @@ func main() {
 
 	db, err := sql.Open("postgres", dsn)
 	if err != nil {
-		log.Fatal().Err(err).Msg("Failed to connect to database")
+		log.Error().Err(err).Msg("Failed to connect to database")
+		return
 	}
 	defer db.Close()
 
 	migrationType := "up"
 
-	// Check if migration type is specified
-	if len(os.Args) > 1 && os.Args[1] == "down" {
+	if down {
 		migrationType = "down"
 	}
 
 	// Get sorted migration files
-	migrationFiles, err := getMigrationFiles(migrationType)
+	migrationFiles, err := GetMigrationFiles(migrationType)
 	if err != nil {
-		log.Fatal().Err(err).Msg("Failed to get migration files")
+		log.Error().Err(err).Msg("Failed to get migration files")
+		return
 	}
 
 	if len(migrationFiles) == 0 {
-		log.Fatal().Msgf("No %s migration files found", migrationType)
+		log.Error().Msgf("No %s migration files found", migrationType)
+		return
 	}
 
 	// Execute each migration file in order
@@ -83,13 +86,15 @@ func main() {
 
 		migrationSQL, err := os.ReadFile(sqlFile)
 		if err != nil {
-			log.Fatal().Err(err).Msg("Failed to read migration file")
+			log.Error().Err(err).Msg("Failed to read migration file")
+			return
 		}
 
 		// Execute the migration
 		_, err = db.Exec(string(migrationSQL))
 		if err != nil {
-			log.Fatal().Err(err).Msg("Failed to execute migration")
+			log.Error().Err(err).Msg("Failed to execute migration")
+			return
 		}
 
 		log.Info().Msgf("Migration (%s) completed successfully", migrationType)
