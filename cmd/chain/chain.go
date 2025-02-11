@@ -37,8 +37,11 @@ func Run() {
 		}
 		r.Body.Close()
 
-		// Strip /api prefix if present in the request
-		path := strings.TrimPrefix(r.URL.Path, "/api")
+		// Get the path and ensure it starts with /api
+		path := r.URL.Path
+		if !strings.HasPrefix(path, "/api") {
+			path = "/api" + path
+		}
 
 		// Create new request to forward to the server
 		targetURL := fmt.Sprintf("%s%s", cfg.Runner.ServerURL, path)

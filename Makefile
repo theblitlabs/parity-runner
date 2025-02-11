@@ -52,6 +52,9 @@ stake: build ## Stake tokens in the network
 balance: build ## Check token balances
 	./$(BINARY_NAME) balance
 
+auth: build ## Authenticate with the network
+	./$(BINARY_NAME) auth
+
 test: setup-coverage ## Run tests with coverage
 	$(GOTEST) $(TEST_FLAGS) -v $(TEST_PACKAGES)
 	@go tool cover -func=$(COVERAGE_PROFILE)

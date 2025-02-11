@@ -37,8 +37,6 @@ type EthereumConfig struct {
 	ChainID            int64  `mapstructure:"chain_id"`
 	TokenAddress       string `mapstructure:"token_address"`
 	StakeWalletAddress string `mapstructure:"stake_wallet_address"`
-	OwnerPrivateKey    string `mapstructure:"owner_private_key"`
-	RunnerPrivateKey   string `mapstructure:"runner_private_key"`
 }
 
 func LoadConfig(path string) (*Config, error) {

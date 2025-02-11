@@ -7,6 +7,7 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/theblitlabs/parity-protocol/internal/config"
 	"github.com/theblitlabs/parity-protocol/pkg/device"
+	"github.com/theblitlabs/parity-protocol/pkg/keystore"
 	"github.com/theblitlabs/parity-protocol/pkg/logger"
 	"github.com/theblitlabs/parity-protocol/pkg/stakewallet"
 	"github.com/theblitlabs/parity-protocol/pkg/wallet"
@@ -33,8 +34,18 @@ func Run() {
 		log.Fatal().Err(err).Msg("Failed to load config")
 	}
 
-	// Create Ethereum client
-	client, err := wallet.NewClient(cfg.Ethereum.RPC, cfg.Ethereum.ChainID)
+	// Get private key from keystore
+	privateKey, err := keystore.GetPrivateKey()
+	if err != nil {
+		log.Fatal().Err(err).Msg("No private key found - please authenticate first using 'parity auth'")
+	}
+
+	// Create Ethereum client with keystore private key
+	client, err := wallet.NewClientWithKey(
+		cfg.Ethereum.RPC,
+		big.NewInt(cfg.Ethereum.ChainID),
+		privateKey,
+	)
 	if err != nil {
 		log.Fatal().Err(err).Msg("Failed to create Ethereum client")
 	}

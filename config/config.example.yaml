@@ -25,9 +25,6 @@ ethereum:
   chain_id:
   token_address:
   stake_wallet_address:
-  stake_wallet_address:
-  owner_private_key:
-  runner_private_key:
 
 runner:
   server_url:

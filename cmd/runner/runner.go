@@ -19,6 +19,7 @@ import (
 	"github.com/theblitlabs/parity-protocol/internal/execution/sandbox"
 	"github.com/theblitlabs/parity-protocol/internal/models"
 	"github.com/theblitlabs/parity-protocol/pkg/device"
+	"github.com/theblitlabs/parity-protocol/pkg/keystore"
 	"github.com/theblitlabs/parity-protocol/pkg/logger"
 	"github.com/theblitlabs/parity-protocol/pkg/stakewallet"
 	"github.com/theblitlabs/parity-protocol/pkg/wallet"
@@ -74,7 +75,27 @@ func Run() {
 		log.Fatal().Err(err).Msg("Failed to load config")
 	}
 
-	// Create WebSocket URL
+	// Get private key from keystore
+	privateKey, err := keystore.GetPrivateKey()
+	if err != nil {
+		log.Fatal().Err(err).Msg("No private key found - please authenticate first using 'parity auth'")
+	}
+
+	// Create client with keystore private key
+	client, err := wallet.NewClientWithKey(
+		cfg.Ethereum.RPC,
+		big.NewInt(cfg.Ethereum.ChainID),
+		privateKey,
+	)
+	if err != nil {
+		log.Fatal().Err(err).Msg("Failed to create wallet client")
+	}
+
+	log.Info().
+		Str("address", client.Address().Hex()).
+		Msg("Using authenticated wallet")
+
+	// Create WebSocket URL with /api prefix
 	wsURL := fmt.Sprintf("ws://%s:%s%s/runners/ws",
 		cfg.Server.Host,
 		cfg.Server.Port,
@@ -189,19 +210,25 @@ func distributeRewards(result *models.TaskResult) error {
 	ctx := context.Background()
 	log.Info().Msg("Checking stake status before distributing rewards")
 
-	// Load config and create clients
 	cfg, err := config.LoadConfig("config/config.yaml")
 	if err != nil {
 		return fmt.Errorf("failed to load config: %w", err)
 	}
 
+	// Get private key from keystore
+	privateKey, err := keystore.GetPrivateKey()
+	if err != nil {
+		return fmt.Errorf("no private key found - please authenticate first: %w", err)
+	}
+
+	// Create client with keystore private key
 	client, err := wallet.NewClientWithKey(
 		cfg.Ethereum.RPC,
 		big.NewInt(cfg.Ethereum.ChainID),
-		cfg.Ethereum.RunnerPrivateKey,
+		privateKey,
 	)
 	if err != nil {
-		return fmt.Errorf("failed to create ethereum client: %w", err)
+		return fmt.Errorf("failed to create wallet client: %w", err)
 	}
 
 	stakeWalletAddr := common.HexToAddress(cfg.Ethereum.StakeWalletAddress)
@@ -229,7 +256,7 @@ func distributeRewards(result *models.TaskResult) error {
 		Str("stake_amount", stakeInfo.Amount.String()).
 		Msg("Found stake - distributing rewards")
 
-	// Get transaction options
+	// Get transaction options from the authenticated client
 	txOpts, err := client.GetTransactOpts()
 	if err != nil {
 		return fmt.Errorf("failed to get transaction options: %w", err)
@@ -261,7 +288,8 @@ func distributeRewards(result *models.TaskResult) error {
 }
 
 func GetAvailableTasks(baseURL string) ([]*models.Task, error) {
-	url := fmt.Sprintf("%s/runners/tasks/available", baseURL)
+	// Add /api prefix to URL
+	url := fmt.Sprintf("%s/api/runners/tasks/available", baseURL)
 
 	resp, err := http.Get(url)
 	if err != nil {
@@ -282,7 +310,8 @@ func GetAvailableTasks(baseURL string) ([]*models.Task, error) {
 }
 
 func StartTask(baseURL, taskID string) error {
-	url := fmt.Sprintf("%s/runners/tasks/%s/start", baseURL, taskID)
+	// Add /api prefix to URL
+	url := fmt.Sprintf("%s/api/runners/tasks/%s/start", baseURL, taskID)
 
 	req, err := http.NewRequest("POST", url, nil)
 	if err != nil {
@@ -306,7 +335,8 @@ func StartTask(baseURL, taskID string) error {
 }
 
 func CompleteTask(baseURL, taskID string) error {
-	url := fmt.Sprintf("%s/runners/tasks/%s/complete", baseURL, taskID)
+	// Add /api prefix to URL
+	url := fmt.Sprintf("%s/api/runners/tasks/%s/complete", baseURL, taskID)
 	log := logger.Get()
 
 	log.Debug().
@@ -328,7 +358,8 @@ func CompleteTask(baseURL, taskID string) error {
 }
 
 func SaveTaskResult(baseURL, taskID string, result *models.TaskResult) error {
-	url := fmt.Sprintf("%s/runners/tasks/%s/result", baseURL, taskID)
+	// Add /api prefix to URL
+	url := fmt.Sprintf("%s/api/runners/tasks/%s/result", baseURL, taskID)
 
 	// Get device ID
 	deviceID, err := device.VerifyDeviceID()

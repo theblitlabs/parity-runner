@@ -17,6 +17,10 @@ type Keystore struct {
 	CreatedAt int64  `json:"created_at"`
 }
 
+type KeyStore struct {
+	PrivateKey string `json:"private_key"`
+}
+
 func GetKeystorePath() (string, error) {
 	homeDir, err := os.UserHomeDir()
 	if err != nil {
@@ -126,7 +130,15 @@ func LoadPrivateKey() (*ecdsa.PrivateKey, error) {
 		return nil, err
 	}
 
-	return crypto.HexToECDSA(string(data))
+	// Parse the JSON structure
+	var ks struct {
+		PrivateKey string `json:"private_key"`
+	}
+	if err := json.Unmarshal(data, &ks); err != nil {
+		return nil, fmt.Errorf("invalid keystore format: %w", err)
+	}
+
+	return crypto.HexToECDSA(ks.PrivateKey)
 }
 
 func SavePrivateKey(privateKeyHex string) error {
@@ -141,6 +153,29 @@ func SavePrivateKey(privateKeyHex string) error {
 	}
 
 	return os.WriteFile(keystorePath, []byte(privateKeyHex), 0600)
+}
+
+func GetPrivateKey() (string, error) {
+	keystorePath := filepath.Join(os.Getenv("HOME"), ".parity", "keystore.json")
+
+	data, err := os.ReadFile(keystorePath)
+	if err != nil {
+		return "", fmt.Errorf("failed to read keystore: %w", err)
+	}
+
+	// Parse the JSON structure
+	var ks struct {
+		PrivateKey string `json:"private_key"`
+	}
+	if err := json.Unmarshal(data, &ks); err != nil {
+		return "", fmt.Errorf("invalid keystore format - try re-authenticating: %w", err)
+	}
+
+	if ks.PrivateKey == "" {
+		return "", fmt.Errorf("no private key found in keystore")
+	}
+
+	return ks.PrivateKey, nil
 }
 
 func min(a, b int) int {

@@ -14,6 +14,7 @@ import (
 	"github.com/gorilla/websocket"
 	"github.com/theblitlabs/parity-protocol/internal/config"
 	"github.com/theblitlabs/parity-protocol/internal/models"
+	"github.com/theblitlabs/parity-protocol/pkg/keystore"
 	"github.com/theblitlabs/parity-protocol/pkg/logger"
 	"github.com/theblitlabs/parity-protocol/pkg/stakewallet"
 	"github.com/theblitlabs/parity-protocol/pkg/wallet"
@@ -186,13 +187,23 @@ func (h *TaskHandler) distributeRewards(ctx context.Context, result *models.Task
 		return fmt.Errorf("failed to load config: %w", err)
 	}
 
-	// Create client with authenticated wallet
-	client, err := wallet.NewClient(cfg.Ethereum.RPC, cfg.Ethereum.ChainID)
+	// Get private key from keystore
+	privateKey, err := keystore.GetPrivateKey()
+	if err != nil {
+		return fmt.Errorf("failed to get private key from keystore: %w", err)
+	}
+
+	// Create client with keystore private key
+	client, err := wallet.NewClientWithKey(
+		cfg.Ethereum.RPC,
+		big.NewInt(cfg.Ethereum.ChainID),
+		privateKey,
+	)
 	if err != nil {
 		return fmt.Errorf("failed to create wallet client: %w", err)
 	}
 
-	// Use the authenticated wallet address as recipient
+	// Use the authenticated wallet address
 	recipientAddr := client.Address()
 	log.Info().
 		Str("device_id", result.DeviceID).
@@ -242,17 +253,8 @@ func (h *TaskHandler) distributeRewards(ctx context.Context, result *models.Task
 		big.NewInt(1e18),
 	)
 
-	// Get transaction options and distribute
-	ownerClient, err := wallet.NewClientWithKey(
-		cfg.Ethereum.RPC,
-		big.NewInt(cfg.Ethereum.ChainID),
-		cfg.Ethereum.OwnerPrivateKey,
-	)
-	if err != nil {
-		return fmt.Errorf("failed to create owner client: %w", err)
-	}
-
-	txOpts, err := ownerClient.GetTransactOpts()
+	// Get transaction options from the authenticated client
+	txOpts, err := client.GetTransactOpts()
 	if err != nil {
 		return fmt.Errorf("failed to get transaction options: %w", err)
 	}
