@@ -262,8 +262,12 @@ func distributeRewards(result *models.TaskResult) error {
 		return fmt.Errorf("failed to get transaction options: %w", err)
 	}
 
-	// Distribute rewards (assuming reward amount is configured or calculated)
-	rewardAmount := big.NewInt(1e18) // 1 token as reward, adjust as needed
+	rewardWei := new(big.Float).Mul(
+		new(big.Float).SetFloat64(result.Reward),
+		new(big.Float).SetFloat64(1e18),
+	)
+	rewardAmount, _ := rewardWei.Int(nil)
+
 	tx, err := stakeWallet.TransferPayment(
 		txOpts,
 		result.CreatorAddress, // Queuer's device ID from task result
@@ -287,8 +291,15 @@ func distributeRewards(result *models.TaskResult) error {
 	return nil
 }
 
+func formatEther(wei *big.Int) string {
+	ether := new(big.Float).Quo(
+		new(big.Float).SetInt(wei),
+		new(big.Float).SetFloat64(1e18),
+	)
+	return ether.Text('f', 2)
+}
+
 func GetAvailableTasks(baseURL string) ([]*models.Task, error) {
-	// Add /api prefix to URL
 	url := fmt.Sprintf("%s/api/runners/tasks/available", baseURL)
 
 	resp, err := http.Get(url)
@@ -310,7 +321,6 @@ func GetAvailableTasks(baseURL string) ([]*models.Task, error) {
 }
 
 func StartTask(baseURL, taskID string) error {
-	// Add /api prefix to URL
 	url := fmt.Sprintf("%s/api/runners/tasks/%s/start", baseURL, taskID)
 
 	req, err := http.NewRequest("POST", url, nil)
@@ -335,7 +345,6 @@ func StartTask(baseURL, taskID string) error {
 }
 
 func CompleteTask(baseURL, taskID string) error {
-	// Add /api prefix to URL
 	url := fmt.Sprintf("%s/api/runners/tasks/%s/complete", baseURL, taskID)
 	log := logger.Get()
 
@@ -358,7 +367,6 @@ func CompleteTask(baseURL, taskID string) error {
 }
 
 func SaveTaskResult(baseURL, taskID string, result *models.TaskResult) error {
-	// Add /api prefix to URL
 	url := fmt.Sprintf("%s/api/runners/tasks/%s/result", baseURL, taskID)
 
 	// Get device ID

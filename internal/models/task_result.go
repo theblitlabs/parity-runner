@@ -19,6 +19,7 @@ type TaskResult struct {
 	CreatedAt       time.Time `json:"created_at" db:"created_at"`
 	CreatorDeviceID string    `json:"creator_device_id" bson:"creator_device_id"`
 	SolverDeviceID  string    `json:"solver_device_id" bson:"solver_device_id"`
+	Reward          float64   `json:"reward" db:"reward"`
 }
 
 func (r *TaskResult) Clean() {
