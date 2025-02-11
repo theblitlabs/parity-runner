@@ -291,14 +291,6 @@ func distributeRewards(result *models.TaskResult) error {
 	return nil
 }
 
-func formatEther(wei *big.Int) string {
-	ether := new(big.Float).Quo(
-		new(big.Float).SetInt(wei),
-		new(big.Float).SetFloat64(1e18),
-	)
-	return ether.Text('f', 2)
-}
-
 func GetAvailableTasks(baseURL string) ([]*models.Task, error) {
 	url := fmt.Sprintf("%s/api/runners/tasks/available", baseURL)
 
