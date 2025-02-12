@@ -39,164 +39,142 @@ docker run --name parity-db -e POSTGRES_PASSWORD=postgres -p 5432:5432 -d postgr
 4. Run database migrations:
 
 ```bash
-make migrate-up
+make migrate
 ```
 
-### Running the Application
+### Configuration
 
-#### Development Mode (with hot reload)
+Create a `config.yaml` file in the `config` directory using the example provided:
 
-```bash
-make watch
+```yaml
+ethereum:
+  rpc: "http://localhost:8545"
+  chain_id: 1337
+  token_address: "0x..."
+  stake_wallet_address: "0x..."
+
+server:
+  host: "localhost"
+  port: "8080"
+  endpoint: "/api"
+
+database:
+  host: "localhost"
+  port: 5432
+  user: "postgres"
+  password: "postgres"
+  name: "parity"
+  sslmode: "disable"
 ```
 
-#### Standard Mode
+### CLI Commands
+
+The CLI provides a unified interface through the `parity` command:
 
 ```bash
-make run
-```
+# Show available commands and help
+parity help
 
-#### Individual Commands
+# Authenticate with your private key
+parity auth --private-key <private-key>
 
-```bash
 # Start the server
-make server
+parity server
 
-# Start the task runner
-make runner
+# Start a runner
+parity runner
 
-# Start the chain proxy
-make chain
+# Check balance
+parity balance
 
-# Stake tokens (replace <amount> with desired amount)
-make stake amount=<amount>
+# Stake tokens
+parity stake --amount <amount>
 
-# Check balances
-make balance
+# Start chain proxy
+parity chain
+
+# Run database migrations
+parity migrate
+```
+
+Each command supports the `--help` flag for detailed usage information:
+
+```bash
+parity <command> --help
+```
+
+For example:
+
+```bash
+parity auth --help
+parity stake --help
 ```
 
 ### Testing
 
 ```bash
-# Run tests with coverage
+# Run all tests with coverage
 make test
-
-# Run tests with verbose output
-make test-verbose
 ```
-
-## API Endpoints
-
-The API is divided into two main sections:
-
-### Task Creator Endpoints
-
-| Method | Endpoint               | Description           |
-| ------ | ---------------------- | --------------------- |
-| POST   | /api/tasks             | Create a new task     |
-| GET    | /api/tasks             | List all tasks        |
-| GET    | /api/tasks/{id}        | Get task by ID        |
-| POST   | /api/tasks/{id}/assign | Assign task to runner |
-| GET    | /api/tasks/{id}/reward | Get task reward       |
-
-### Runner Endpoints
-
-| Method | Endpoint                         | Description          |
-| ------ | -------------------------------- | -------------------- |
-| GET    | /api/runners/tasks/available     | List available tasks |
-| POST   | /api/runners/tasks/{id}/start    | Start a task         |
-| POST   | /api/runners/tasks/{id}/complete | Complete a task      |
-
-### Example Requests
-
-#### Create a Docker Task
-
-```bash
-curl -X POST http://localhost:8080/api/tasks \
--H "Content-Type: application/json" \
--d '{
-  "title": "Docker Test Task",
-  "description": "Run a simple Docker container",
-  "type": "docker",
-  "reward": 100,
-  "config": {
-    "command": ["echo", "Hello from Docker!"]
-  },
-  "environment": {
-    "type": "docker",
-    "config": {
-      "image": "alpine:latest",
-      "workdir": "/app",
-      "env": ["FOO=bar"]
-    }
-  }
-}'
-```
-
-#### Start a Task (Runner)
-
-```bash
-curl -X POST http://localhost:8080/api/runners/tasks/{taskId}/start \
--H "X-Runner-ID: 550e8400-e29b-41d4-a716-446655440000"
-```
-
-Note: Runner ID must be a valid UUID.
 
 ## Project Structure
 
 ```
 parity-protocol/
 ├── cmd/                    # Application entry points
-│   ├── migrate/           # Database migration tool
-│   └── server/            # Main application server
+│   ├── cli/               # CLI commands
+│   │   ├── auth.go       # Authentication command
+│   │   ├── balance.go    # Balance checking
+│   │   ├── chain.go      # Chain proxy
+│   │   ├── migrate.go    # Database migrations
+│   │   ├── root.go       # Root command
+│   │   ├── runner.go     # Runner command
+│   │   ├── server.go     # Server command
+│   │   └── stake.go      # Staking command
+│   └── main.go           # Main application entry
 ├── config/                # Configuration files
 │   └── config.yaml       # Application configuration
 ├── internal/              # Private application code
 │   ├── api/              # API layer
-│   ├── services/         # Business logic
+│   │   ├── handlers/     # Request handlers
+│   │   ├── middleware/   # HTTP middleware
+│   │   └── router.go     # API routing
+│   ├── config/           # Configuration handling
+│   ├── database/         # Database layer
+│   │   └── repositories/ # Data access
 │   ├── models/           # Data models
-│   └── database/         # Database code
+│   ├── runner/           # Runner implementation
+│   └── services/         # Business logic
 ├── pkg/                   # Public packages
-└── test/                 # Test files
+│   ├── database/         # Database utilities
+│   ├── device/           # Device management
+│   ├── keystore/         # Key management
+│   ├── logger/           # Logging utilities
+│   ├── stakewallet/      # Stake wallet interface
+│   └── wallet/           # Wallet operations
+└── test/                 # Integration tests
+    └── cli/              # CLI tests
 ```
 
-## Available Make Commands
+## API Documentation
 
-### Core Commands
+### Task Creator Endpoints
 
-- `make build`: Build the application
-- `make run`: Show CLI help
-- `make server`: Start the parity server
-- `make runner`: Start the task runner
-- `make chain`: Start the chain proxy server
-- `make stake`: Stake tokens in the network
-- `make balance`: Check token balances
-- `make watch`: Run with hot reload (requires air)
+| Method | Endpoint               | Description      |
+| ------ | ---------------------- | ---------------- |
+| POST   | /api/tasks             | Create task      |
+| GET    | /api/tasks             | List tasks       |
+| GET    | /api/tasks/{id}        | Get task details |
+| GET    | /api/tasks/{id}/reward | Get task reward  |
 
-### Testing Commands
+### Runner Endpoints
 
-- `make test`: Run tests with coverage
-- `make test-verbose`: Run tests with verbose output
-- `make setup-coverage`: Create coverage directory
-
-### Database Commands
-
-- `make migrate-up`: Run database migrations up
-- `make migrate-down`: Run database migrations down
-
-### Development Commands
-
-- `make deps`: Download and tidy dependencies
-- `make fmt`: Format code
-
-### Installation Commands
-
-- `make install`: Install parity command globally
-- `make uninstall`: Remove parity command from system
-
-### Helper Commands
-
-- `make help`: Display help screen with all available commands
+| Method | Endpoint                         | Description          |
+| ------ | -------------------------------- | -------------------- |
+| GET    | /api/runners/tasks/available     | List available tasks |
+| POST   | /api/runners/tasks/{id}/start    | Start task           |
+| POST   | /api/runners/tasks/{id}/complete | Complete task        |
+| WS     | /api/ws                          | WebSocket updates    |
 
 ## Contributing
 
