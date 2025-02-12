@@ -1,7 +1,6 @@
 package test
 
 import (
-	"crypto/ecdsa"
 	"testing"
 
 	"github.com/ethereum/go-ethereum/crypto"
@@ -20,27 +19,19 @@ func TestGenerateAndVerifyToken(t *testing.T) {
 	tests := []struct {
 		name      string
 		address   string
-		privKey   *ecdsa.PrivateKey
 		wantError bool
 	}{
 		{
 			name:      "valid token generation and verification",
 			address:   address,
-			privKey:   privateKey,
 			wantError: false,
-		},
-		{
-			name:      "invalid private key",
-			address:   "0x1234567890123456789012345678901234567890",
-			privKey:   nil,
-			wantError: true,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			// Generate token
-			token, err := wallet.GenerateToken(tt.address, tt.privKey)
+			token, err := wallet.GenerateToken(tt.address)
 			if tt.wantError {
 				assert.Error(t, err)
 				return
