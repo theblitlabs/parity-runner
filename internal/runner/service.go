@@ -5,10 +5,10 @@ import (
 	"fmt"
 
 	"github.com/docker/docker/client"
-	"github.com/rs/zerolog/log"
 	"github.com/theblitlabs/parity-protocol/internal/config"
 	"github.com/theblitlabs/parity-protocol/internal/execution/sandbox"
 	"github.com/theblitlabs/parity-protocol/pkg/keystore"
+	"github.com/theblitlabs/parity-protocol/pkg/logger"
 )
 
 type Service struct {
@@ -21,7 +21,7 @@ type Service struct {
 }
 
 func NewService(cfg *config.Config) (*Service, error) {
-	log := log.With().Str("component", "runner").Logger()
+	log := logger.Get().With().Str("component", "runner").Logger()
 
 	// Check Docker availability
 	if err := checkDockerAvailability(); err != nil {
@@ -60,7 +60,7 @@ func NewService(cfg *config.Config) (*Service, error) {
 	// Initialize WebSocket client
 	wsClient := NewWebSocketClient(wsURL, taskHandler)
 
-	log.Info().Msg("Runner service initialized successfully")
+	log.Debug().Msg("Runner service initialized")
 
 	return &Service{
 		cfg:            cfg,
@@ -73,7 +73,7 @@ func NewService(cfg *config.Config) (*Service, error) {
 }
 
 func (s *Service) Start() error {
-	log := log.With().Str("component", "runner").Logger()
+	log := logger.Get().With().Str("component", "runner").Logger()
 	log.Info().Msg("Starting runner service")
 
 	if err := s.wsClient.Connect(); err != nil {
@@ -81,19 +81,19 @@ func (s *Service) Start() error {
 	}
 
 	s.wsClient.Start()
-	log.Info().Msg("Runner service started successfully")
+	log.Debug().Msg("Runner service started")
 	return nil
 }
 
 func (s *Service) Stop() {
-	log := log.With().Str("component", "runner").Logger()
+	log := logger.Get().With().Str("component", "runner").Logger()
 	log.Info().Msg("Stopping runner service")
 	s.wsClient.Stop()
-	log.Info().Msg("Runner service stopped successfully")
+	log.Debug().Msg("Runner service stopped")
 }
 
 func checkDockerAvailability() error {
-	log := log.With().Str("component", "docker").Logger()
+	log := logger.Get().With().Str("component", "docker").Logger()
 
 	cli, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
 	if err != nil {
@@ -112,7 +112,7 @@ func checkDockerAvailability() error {
 		Str("api_version", version.APIVersion).
 		Str("os", version.Os).
 		Str("arch", version.Arch).
-		Msg("Docker daemon initialized")
+		Msg("Docker daemon ready")
 
 	return nil
 }

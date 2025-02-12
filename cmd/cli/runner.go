@@ -7,8 +7,7 @@ import (
 )
 
 func RunRunner() {
-	log := logger.Get()
-	log.Info().Msg("Starting runner")
+	log := logger.Get().With().Str("component", "cli").Logger()
 
 	// Load configuration
 	cfg, err := config.LoadConfig("config/config.yaml")

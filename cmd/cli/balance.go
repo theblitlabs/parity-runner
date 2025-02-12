@@ -16,7 +16,7 @@ import (
 )
 
 func RunBalance() {
-	log := logger.Get()
+	log := logger.Get().With().Str("component", "balance").Logger()
 
 	// Load config
 	cfg, err := config.LoadConfig("config/config.yaml")

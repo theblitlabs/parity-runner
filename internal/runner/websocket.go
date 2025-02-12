@@ -30,13 +30,14 @@ func NewWebSocketClient(url string, handler TaskHandler) *WebSocketClient {
 }
 
 func (w *WebSocketClient) Connect() error {
-	log.Info().Str("url", w.url).Msg("Connecting to WebSocket")
-	
+	log := log.With().Str("component", "websocket").Logger()
+	log.Debug().Str("url", w.url).Msg("Connecting to WebSocket")
+
 	conn, _, err := websocket.DefaultDialer.Dial(w.url, nil)
 	if err != nil {
 		return fmt.Errorf("failed to connect to WebSocket: %w", err)
 	}
-	
+
 	w.conn = conn
 	return nil
 }
@@ -46,13 +47,19 @@ func (w *WebSocketClient) Start() {
 }
 
 func (w *WebSocketClient) Stop() {
+	log := log.With().Str("component", "websocket").Logger()
 	close(w.stopChan)
 	if w.conn != nil {
+		if err := w.conn.WriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseNormalClosure, "")); err != nil {
+			log.Debug().Err(err).Msg("Error sending close message")
+		}
 		w.conn.Close()
 	}
 }
 
 func (w *WebSocketClient) listen() {
+	log := log.With().Str("component", "websocket").Logger()
+
 	for {
 		select {
 		case <-w.stopChan:
@@ -62,7 +69,7 @@ func (w *WebSocketClient) listen() {
 			err := w.conn.ReadJSON(&msg)
 			if err != nil {
 				if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseAbnormalClosure) {
-					log.Error().Err(err).Msg("WebSocket read error")
+					log.Warn().Err(err).Msg("WebSocket connection closed unexpectedly")
 				}
 				return
 			}
@@ -73,6 +80,8 @@ func (w *WebSocketClient) listen() {
 }
 
 func (w *WebSocketClient) handleMessage(msg WSMessage) {
+	log := log.With().Str("component", "websocket").Logger()
+
 	switch msg.Type {
 	case "available_tasks":
 		var tasks []*models.Task
@@ -81,12 +90,19 @@ func (w *WebSocketClient) handleMessage(msg WSMessage) {
 			return
 		}
 
+		if len(tasks) > 0 {
+			log.Debug().Int("count", len(tasks)).Msg("Processing tasks")
+		}
+
 		for _, task := range tasks {
 			if err := w.handler.HandleTask(task); err != nil {
 				log.Error().Err(err).
 					Str("task_id", task.ID).
+					Str("type", string(task.Type)).
 					Msg("Failed to handle task")
 			}
 		}
+	default:
+		log.Debug().Str("type", msg.Type).Msg("Skipping unknown message type")
 	}
 }
