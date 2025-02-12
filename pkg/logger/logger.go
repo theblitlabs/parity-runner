@@ -21,7 +21,7 @@ func Init() {
 			return colorizeLevel(i.(string))
 		},
 		FormatFieldName: func(i interface{}) string {
-			return colorize(fmt.Sprintf("%s:", i.(string)), gray)
+			return colorize(fmt.Sprintf("%s=", i.(string)), gray)
 		},
 		FormatFieldValue: func(i interface{}) string {
 			switch v := i.(type) {
@@ -29,9 +29,19 @@ func Init() {
 				return colorize(v, blue)
 			case json.Number:
 				return colorize(v.String(), blue)
+			case error:
+				return colorize(v.Error(), red)
+			case nil:
+				return ""
 			default:
 				return colorize(fmt.Sprint(v), blue)
 			}
+		},
+		PartsOrder: []string{
+			zerolog.TimestampFieldName,
+			zerolog.LevelFieldName,
+			zerolog.MessageFieldName,
+			"component",
 		},
 		PartsExclude: []string{
 			"query",
@@ -39,15 +49,13 @@ func Init() {
 			"user_agent",
 			"remote_addr",
 			"duration_human",
-		},
-		FormatCaller: func(i interface{}) string {
-			return ""
+			zerolog.CallerFieldName,
 		},
 		FormatMessage: func(i interface{}) string {
 			msg := fmt.Sprint(i)
 			msg = strings.Replace(msg, "Request started", "→", 1)
 			msg = strings.Replace(msg, "Request completed", "←", 1)
-			return colorize(msg, cyan)
+			return fmt.Sprintf("%-40s", msg) // Reduced padding for better alignment
 		},
 	}
 
@@ -93,17 +101,20 @@ func Get() zerolog.Logger {
 	return log
 }
 
-// Error logs an error message
-func Error(err error, msg string) {
-	log.Error().Err(err).Msg(msg)
+// Error logs an error message with a component
+func Error(component string, err error, msg string) {
+	logger := log.With().Str("component", component).Logger()
+	logger.Error().Err(err).Msg(msg)
 }
 
-// Info logs an info message
-func Info(msg string) {
-	log.Info().Msg(msg)
+// Info logs an info message with a component
+func Info(component string, msg string) {
+	logger := log.With().Str("component", component).Logger()
+	logger.Info().Msg(msg)
 }
 
-// Debug logs a debug message
-func Debug(msg string) {
-	log.Debug().Msg(msg)
+// Debug logs a debug message with a component
+func Debug(component string, msg string) {
+	logger := log.With().Str("component", component).Logger()
+	logger.Debug().Msg(msg)
 }

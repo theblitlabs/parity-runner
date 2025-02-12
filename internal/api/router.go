@@ -89,7 +89,7 @@ func (r *Router) handleWebSocket(taskHandler *handlers.TaskHandler) http.Handler
 
 		conn, err := upgrader.Upgrade(w, r, nil)
 		if err != nil {
-			logger.Error(err, "WebSocket upgrade failed")
+			logger.Error("WebSocket", err, "WebSocket upgrade failed")
 			return
 		}
 		defer conn.Close()

@@ -1,7 +1,6 @@
 package wallet
 
 import (
-	"crypto/ecdsa"
 	"fmt"
 	"time"
 
@@ -13,11 +12,7 @@ type Claims struct {
 	jwt.StandardClaims
 }
 
-func GenerateToken(address string, privateKey *ecdsa.PrivateKey) (string, error) {
-	if privateKey == nil {
-		return "", fmt.Errorf("private key cannot be nil")
-	}
-
+func GenerateToken(address string) (string, error) {
 	claims := Claims{
 		Address: address,
 		StandardClaims: jwt.StandardClaims{

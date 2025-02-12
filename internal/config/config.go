@@ -14,9 +14,9 @@ type Config struct {
 }
 
 type ServerConfig struct {
-	Host     string `yaml:"host"`
-	Port     string `yaml:"port"`
-	Endpoint string `yaml:"endpoint"`
+	Host     string `mapstructure:"host"`
+	Port     string `mapstructure:"port"`
+	Endpoint string `mapstructure:"endpoint"`
 }
 
 type DatabaseConfig struct {
@@ -63,7 +63,7 @@ type RunnerConfig struct {
 }
 
 type DockerConfig struct {
-	MemoryLimit string        `yaml:"memory_limit"`
-	CPULimit    string        `yaml:"cpu_limit"`
-	Timeout     time.Duration `yaml:"timeout"`
+	MemoryLimit string        `mapstructure:"memory_limit"`
+	CPULimit    string        `mapstructure:"cpu_limit"`
+	Timeout     time.Duration `mapstructure:"timeout"`
 }
