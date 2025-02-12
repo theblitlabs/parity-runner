@@ -21,6 +21,8 @@ type Service struct {
 }
 
 func NewService(cfg *config.Config) (*Service, error) {
+	log := log.With().Str("component", "runner").Logger()
+
 	// Check Docker availability
 	if err := checkDockerAvailability(); err != nil {
 		return nil, fmt.Errorf("docker is not available: %w", err)
@@ -58,6 +60,8 @@ func NewService(cfg *config.Config) (*Service, error) {
 	// Initialize WebSocket client
 	wsClient := NewWebSocketClient(wsURL, taskHandler)
 
+	log.Info().Msg("Runner service initialized successfully")
+
 	return &Service{
 		cfg:            cfg,
 		wsClient:       wsClient,
@@ -69,19 +73,28 @@ func NewService(cfg *config.Config) (*Service, error) {
 }
 
 func (s *Service) Start() error {
+	log := log.With().Str("component", "runner").Logger()
+	log.Info().Msg("Starting runner service")
+
 	if err := s.wsClient.Connect(); err != nil {
 		return fmt.Errorf("failed to connect to WebSocket: %w", err)
 	}
 
 	s.wsClient.Start()
+	log.Info().Msg("Runner service started successfully")
 	return nil
 }
 
 func (s *Service) Stop() {
+	log := log.With().Str("component", "runner").Logger()
+	log.Info().Msg("Stopping runner service")
 	s.wsClient.Stop()
+	log.Info().Msg("Runner service stopped successfully")
 }
 
 func checkDockerAvailability() error {
+	log := log.With().Str("component", "docker").Logger()
+
 	cli, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
 	if err != nil {
 		return fmt.Errorf("failed to create Docker client: %w", err)
@@ -99,7 +112,7 @@ func checkDockerAvailability() error {
 		Str("api_version", version.APIVersion).
 		Str("os", version.Os).
 		Str("arch", version.Arch).
-		Msg("Docker daemon is running")
+		Msg("Docker daemon initialized")
 
 	return nil
 }
