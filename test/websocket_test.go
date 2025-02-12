@@ -2,8 +2,6 @@ package test
 
 import (
 	"encoding/json"
-	"net/http"
-	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
@@ -15,28 +13,9 @@ import (
 	"github.com/theblitlabs/parity-protocol/internal/runner"
 )
 
-var upgrader = websocket.Upgrader{
-	ReadBufferSize:  1024,
-	WriteBufferSize: 1024,
-}
-
-type MockHandler struct {
-	mock.Mock
-}
-
-func (m *MockHandler) HandleTask(task *models.Task) error {
-	args := m.Called(task)
-	return args.Error(0)
-}
-
 func TestWebSocketClient_Connect(t *testing.T) {
 	// Create test server
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// Upgrade HTTP connection to WebSocket
-		conn, err := upgrader.Upgrade(w, r, nil)
-		assert.NoError(t, err)
-		defer conn.Close()
-
+	server := CreateTestServer(t, func(conn *websocket.Conn) {
 		// Send a test message
 		msg := runner.WSMessage{
 			Type: "test",
@@ -44,9 +23,9 @@ func TestWebSocketClient_Connect(t *testing.T) {
 				"message": "test connection"
 			}`),
 		}
-		err = conn.WriteJSON(msg)
+		err := conn.WriteJSON(msg)
 		assert.NoError(t, err)
-	}))
+	})
 	defer server.Close()
 
 	// Create WebSocket URL from test server
@@ -64,18 +43,9 @@ func TestWebSocketClient_Connect(t *testing.T) {
 
 func TestWebSocketClient_HandleAvailableTasks(t *testing.T) {
 	// Create test server
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		conn, err := upgrader.Upgrade(w, r, nil)
-		assert.NoError(t, err)
-		defer conn.Close()
-
+	server := CreateTestServer(t, func(conn *websocket.Conn) {
 		// Send available tasks message
-		tasks := []*models.Task{
-			{
-				ID:     "task1",
-				Status: models.TaskStatusPending,
-			},
-		}
+		tasks := []*models.Task{CreateTestTask()}
 		tasksJSON, err := json.Marshal(tasks)
 		assert.NoError(t, err)
 
@@ -85,7 +55,7 @@ func TestWebSocketClient_HandleAvailableTasks(t *testing.T) {
 		}
 		err = conn.WriteJSON(msg)
 		assert.NoError(t, err)
-	}))
+	})
 	defer server.Close()
 
 	url := "ws" + strings.TrimPrefix(server.URL, "http")
@@ -93,7 +63,7 @@ func TestWebSocketClient_HandleAvailableTasks(t *testing.T) {
 	// Create mock handler that expects to handle one task
 	mockHandler := &MockHandler{}
 	mockHandler.On("HandleTask", mock.MatchedBy(func(task *models.Task) bool {
-		return task.ID == "task1"
+		return task.ID == "task123"
 	})).Return(nil)
 
 	// Create and start client
@@ -112,19 +82,15 @@ func TestWebSocketClient_HandleAvailableTasks(t *testing.T) {
 }
 
 func TestWebSocketClient_HandleInvalidMessage(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		conn, err := upgrader.Upgrade(w, r, nil)
-		assert.NoError(t, err)
-		defer conn.Close()
-
+	server := CreateTestServer(t, func(conn *websocket.Conn) {
 		// Send invalid message with properly formatted JSON
 		msg := runner.WSMessage{
 			Type:    "available_tasks",
 			Payload: json.RawMessage(`{"invalid": true}`),
 		}
-		err = conn.WriteJSON(msg)
+		err := conn.WriteJSON(msg)
 		assert.NoError(t, err)
-	}))
+	})
 	defer server.Close()
 
 	url := "ws" + strings.TrimPrefix(server.URL, "http")
