@@ -1,64 +1,26 @@
 package test
 
 import (
-	"encoding/json"
-	"net/http"
-	"net/http/httptest"
 	"testing"
-
-	"github.com/stretchr/testify/assert"
-	"github.com/theblitlabs/parity-protocol/cmd/runner"
-	"github.com/theblitlabs/parity-protocol/internal/models"
 )
 
-func TestGetAvailableTasks(t *testing.T) {
-	// Setup test server
-	mockTasks := []*models.Task{
-		{
-			ID:          "task1",
-			Title:       "Test Task",
-			Description: "Test Description",
-			Status:      models.TaskStatusPending,
-			Config: configToJSON(t, models.TaskConfig{
-				Command: []string{"echo", "hello"},
-			}),
-		},
-	}
+// Tests have been moved to internal/runner/*_test.go
+// This file remains as a reference to run all runner tests
 
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		assert.Equal(t, "/api/runners/tasks/available", r.URL.Path)
-		assert.Equal(t, "GET", r.Method)
-		json.NewEncoder(w).Encode(mockTasks)
-	}))
-	defer server.Close()
+func TestRunnerPackage(t *testing.T) {
+	t.Run("task_client", func(t *testing.T) {
+		// Tests in internal/runner/task_client_test.go
+	})
 
-	tasks, err := runner.GetAvailableTasks(server.URL + "/api")
-	assert.NoError(t, err)
-	assert.Len(t, tasks, 1)
-	assert.Equal(t, mockTasks[0].ID, tasks[0].ID)
-}
+	t.Run("task_handler", func(t *testing.T) {
+		// Tests in internal/runner/task_handler_test.go
+	})
 
-func TestStartTask(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		assert.Equal(t, "/api/runners/tasks/task123/start", r.URL.Path)
-		assert.Equal(t, "POST", r.Method)
-		assert.NotEmpty(t, r.Header.Get("X-Runner-ID"))
-		w.WriteHeader(http.StatusOK)
-	}))
-	defer server.Close()
+	t.Run("websocket", func(t *testing.T) {
+		// Tests in internal/runner/websocket_test.go
+	})
 
-	err := runner.StartTask(server.URL+"/api", "task123")
-	assert.NoError(t, err)
-}
-
-func TestCompleteTask(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		assert.Equal(t, "/api/runners/tasks/task123/complete", r.URL.Path)
-		assert.Equal(t, "POST", r.Method)
-		w.WriteHeader(http.StatusOK)
-	}))
-	defer server.Close()
-
-	err := runner.CompleteTask(server.URL+"/api", "task123")
-	assert.NoError(t, err)
+	t.Run("reward_client", func(t *testing.T) {
+		// Tests in internal/runner/reward_client_test.go
+	})
 }

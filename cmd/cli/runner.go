@@ -1,18 +1,32 @@
 package cli
 
 import (
-	"github.com/spf13/cobra"
-	"github.com/theblitlabs/parity-protocol/cmd/runner"
+	"github.com/theblitlabs/parity-protocol/internal/config"
+	"github.com/theblitlabs/parity-protocol/internal/runner"
+	"github.com/theblitlabs/parity-protocol/pkg/logger"
 )
 
-var runnerCmd = &cobra.Command{
-	Use:   "runner",
-	Short: "Start the task runner",
-	Run: func(cmd *cobra.Command, args []string) {
-		runner.Run()
-	},
-}
+func RunRunner() {
+	log := logger.Get()
+	log.Info().Msg("Starting runner")
 
-func init() {
-	rootCmd.AddCommand(runnerCmd)
+	// Load configuration
+	cfg, err := config.LoadConfig("config/config.yaml")
+	if err != nil {
+		log.Fatal().Err(err).Msg("Failed to load config")
+	}
+
+	// Create and start runner service
+	service, err := runner.NewService(cfg)
+	if err != nil {
+		log.Fatal().Err(err).Msg("Failed to create runner service")
+	}
+
+	// Start the service
+	if err := service.Start(); err != nil {
+		log.Fatal().Err(err).Msg("Failed to start runner service")
+	}
+
+	// Wait for interrupt signal
+	<-make(chan struct{})
 }

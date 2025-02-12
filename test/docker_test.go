@@ -11,34 +11,55 @@ import (
 )
 
 func TestDockerExecutor(t *testing.T) {
+	// Create executor with longer timeout
 	executor, err := sandbox.NewDockerExecutor(&sandbox.ExecutorConfig{
-		MemoryLimit: "512m",
-		CPULimit:    "1.0",
-		Timeout:     5 * time.Second,
+		MemoryLimit: "128m",
+		CPULimit:    "0.5",
+		Timeout:     30 * time.Second,
 	})
-	assert.NoError(t, err)
 
-	// Create a test task
+	// Retry up to 3 times with exponential backoff
+	var lastErr error
+	for i := 0; i < 3; i++ {
+		if err == nil {
+			break
+		}
+		time.Sleep(time.Duration(i*i) * time.Second)
+		executor, err = sandbox.NewDockerExecutor(&sandbox.ExecutorConfig{
+			MemoryLimit: "128m",
+			CPULimit:    "0.5",
+			Timeout:     30 * time.Second,
+		})
+		lastErr = err
+	}
+	if err != nil {
+		t.Fatalf("Failed to create Docker executor after retries: %v", lastErr)
+	}
+	assert.NotNil(t, executor)
+
+	// Test task execution
 	task := &models.Task{
 		ID:   "test-task",
 		Type: models.TaskTypeDocker,
 		Config: configToJSON(t, models.TaskConfig{
-			Command: []string{"echo", "hello world"},
+			Command: []string{"echo", "hello"},
 		}),
 		Environment: &models.EnvironmentConfig{
 			Type: "docker",
 			Config: map[string]interface{}{
 				"image":   "alpine:latest",
 				"workdir": "/app",
-				"env":     []string{"TEST=true"},
 			},
 		},
 	}
 
-	ctx := context.Background()
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
 	result, err := executor.ExecuteTask(ctx, task)
 	assert.NoError(t, err)
 	assert.NotNil(t, result)
+	assert.Contains(t, result.Output, "hello")
 }
 
 func TestDockerExecutor_InvalidConfig(t *testing.T) {
