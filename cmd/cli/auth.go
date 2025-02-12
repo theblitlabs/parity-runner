@@ -2,6 +2,7 @@ package cli
 
 import (
 	"encoding/json"
+	"fmt"
 	"math/big"
 	"os"
 	"path/filepath"
@@ -25,7 +26,9 @@ func RunAuth() {
 		Use:   "auth",
 		Short: "Authenticate with the network",
 		Run: func(cmd *cobra.Command, args []string) {
-			executeAuth(privateKey)
+			if err := ExecuteAuth(privateKey, "config/config.yaml"); err != nil {
+				log.Fatal().Err(err).Msg("Failed to authenticate")
+			}
 		},
 	}
 
@@ -37,31 +40,36 @@ func RunAuth() {
 	}
 }
 
-func executeAuth(privateKey string) {
+// ExecuteAuth handles the authentication process with the provided private key
+func ExecuteAuth(privateKey string, configPath string) error {
 	log := log.With().Str("component", "auth").Logger()
 
 	if privateKey == "" {
-		log.Fatal().Msg("Private key is required")
+		return fmt.Errorf("private key is required")
 	}
 
-	cfg, err := config.LoadConfig("config/config.yaml")
+	cfg, err := config.LoadConfig(configPath)
 	if err != nil {
-		log.Fatal().Err(err).Msg("Failed to load config")
+		return fmt.Errorf("failed to load config: %w", err)
 	}
 
 	// Validate and normalize private key format
 	privateKey = strings.TrimPrefix(privateKey, "0x")
-	if len(privateKey) != 64 {
-		log.Fatal().Msg("Invalid private key - must be 64 hex characters without 0x prefix")
-	}
+
+	// Check format first
 	if _, err := crypto.HexToECDSA(privateKey); err != nil {
-		log.Fatal().Err(err).Msg("Invalid private key format")
+		return fmt.Errorf("invalid private key format: %w", err)
+	}
+
+	// Then check length
+	if len(privateKey) != 64 {
+		return fmt.Errorf("invalid private key - must be 64 hex characters without 0x prefix")
 	}
 
 	// 1. First create the keystore directory
 	keystoreDir := filepath.Join(os.Getenv("HOME"), ".parity")
 	if err := os.MkdirAll(keystoreDir, 0700); err != nil {
-		log.Fatal().Err(err).Msg("Failed to create keystore directory")
+		return fmt.Errorf("failed to create keystore directory: %w", err)
 	}
 
 	// 2. Save private key to keystore first
@@ -71,11 +79,11 @@ func executeAuth(privateKey string) {
 	}
 	keystoreData, err := json.MarshalIndent(keystore, "", "  ")
 	if err != nil {
-		log.Fatal().Err(err).Msg("Failed to marshal keystore data")
+		return fmt.Errorf("failed to marshal keystore data: %w", err)
 	}
 
 	if err := os.WriteFile(keystorePath, keystoreData, 0600); err != nil {
-		log.Fatal().Err(err).Msg("Failed to save keystore")
+		return fmt.Errorf("failed to save keystore: %w", err)
 	}
 
 	// 3. Then validate by creating client
@@ -85,11 +93,13 @@ func executeAuth(privateKey string) {
 		privateKey,
 	)
 	if err != nil {
-		log.Fatal().Err(err).Msg("Invalid private key")
+		return fmt.Errorf("invalid private key: %w", err)
 	}
 
 	log.Info().
 		Str("address", client.Address().Hex()).
 		Str("keystore", keystorePath).
 		Msg("Wallet authenticated successfully")
+
+	return nil
 }
