@@ -372,6 +372,7 @@ func TestRunnerRoutes(t *testing.T) {
 }
 
 func TestWebSocketConnection(t *testing.T) {
+	DisableLogging()
 	mockService := new(mocks.MockTaskService)
 	router := setupRouter(mockService)
 	server := httptest.NewServer(router)
@@ -487,6 +488,7 @@ func TestWebSocketConnection(t *testing.T) {
 }
 
 func TestWebSocketReconnection(t *testing.T) {
+	DisableLogging()
 	mockService := new(mocks.MockTaskService)
 	router := setupRouter(mockService)
 	server := httptest.NewServer(router)

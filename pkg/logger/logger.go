@@ -3,6 +3,7 @@ package logger
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"strings"
 	"time"
@@ -24,6 +25,8 @@ const (
 	LogLevelWarn LogLevel = "warn"
 	// LogLevelError enables error level logging
 	LogLevelError LogLevel = "error"
+	// LogLevelDisabled disables all logging
+	LogLevelDisabled LogLevel = "disabled"
 )
 
 // Config represents logger configuration
@@ -46,6 +49,14 @@ func DefaultConfig() Config {
 }
 
 func Init(cfg Config) {
+	// If logging is disabled, set global level to disabled and return early
+	if cfg.Level == LogLevelDisabled {
+		zerolog.SetGlobalLevel(zerolog.Disabled)
+		log = zerolog.New(io.Discard).With().Logger()
+		zerolog.DefaultContextLogger = &log
+		return
+	}
+
 	var output zerolog.ConsoleWriter
 	if cfg.Pretty {
 		output = zerolog.ConsoleWriter{

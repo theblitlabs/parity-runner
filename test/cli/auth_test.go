@@ -8,9 +8,12 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/theblitlabs/parity-protocol/cmd/cli"
+	"github.com/theblitlabs/parity-protocol/test"
 )
 
 func TestExecuteAuth(t *testing.T) {
+	test.SetupTestLogger()
+
 	// Create a temporary directory for testing
 	tempDir, err := os.MkdirTemp("", "auth_test")
 	require.NoError(t, err)

@@ -11,6 +11,7 @@ import (
 
 func TestTaskHandler(t *testing.T) {
 	t.Run("handle_task_success", func(t *testing.T) {
+		test.SetupTestLogger()
 		mockExecutor := &test.MockDockerExecutor{}
 		mockTaskClient := &test.MockTaskClient{}
 		mockRewardClient := &test.MockRewardClient{}
@@ -38,6 +39,7 @@ func TestTaskHandler(t *testing.T) {
 	})
 
 	t.Run("handle_task_start_error", func(t *testing.T) {
+		test.SetupTestLogger()
 		mockExecutor := &test.MockDockerExecutor{}
 		mockTaskClient := &test.MockTaskClient{}
 		mockRewardClient := &test.MockRewardClient{}
@@ -61,6 +63,7 @@ func TestTaskHandler(t *testing.T) {
 }
 
 func TestTaskClient(t *testing.T) {
+	test.SetupTestLogger()
 	// Add task client tests here
 	// These tests would verify HTTP client behavior for task operations
 }

@@ -16,6 +16,7 @@ import (
 )
 
 func TestTaskRepository(t *testing.T) {
+	SetupTestLogger()
 	ctx := context.Background()
 
 	taskConfig := models.TaskConfig{

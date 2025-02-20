@@ -44,10 +44,30 @@ func ConfigToJSON(t *testing.T, config models.TaskConfig) json.RawMessage {
 	return data
 }
 
-// SetupTestLogger configures a test logger that captures output
+// SetupTestLogger configures a test logger that completely disables all output
 func SetupTestLogger() *zerolog.Logger {
+	// Initialize logger with disabled level
+	cfg := logger.Config{
+		Level:      logger.LogLevelDisabled,
+		Pretty:     false,
+		TimeFormat: "",
+	}
+	logger.Init(cfg)
+
+	// Create a disabled logger instance
 	log := logger.WithComponent("test")
 	return &log
+}
+
+// DisableLogging disables all logging output for tests
+func DisableLogging() {
+	// Initialize logger with disabled level
+	cfg := logger.Config{
+		Level:      logger.LogLevelDisabled,
+		Pretty:     false,
+		TimeFormat: "",
+	}
+	logger.Init(cfg)
 }
 
 // CreateTestTask creates a task for testing with minimal logging
