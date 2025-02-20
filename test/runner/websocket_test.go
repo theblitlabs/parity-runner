@@ -38,8 +38,9 @@ func TestWebSocketClient(t *testing.T) {
 	})
 
 	t.Run("handle_available_tasks", func(t *testing.T) {
+		testTask := test.CreateTestTask()
 		server := test.CreateTestServer(t, func(conn *websocket.Conn) {
-			tasks := []*models.Task{test.CreateTestTask()}
+			tasks := []*models.Task{testTask}
 			tasksJSON, err := json.Marshal(tasks)
 			assert.NoError(t, err)
 
@@ -55,7 +56,7 @@ func TestWebSocketClient(t *testing.T) {
 		url := "ws" + strings.TrimPrefix(server.URL, "http")
 		mockHandler := &test.MockHandler{}
 		mockHandler.On("HandleTask", mock.MatchedBy(func(task *models.Task) bool {
-			return task.ID == "task123"
+			return task.ID == testTask.ID
 		})).Return(nil)
 
 		client := runner.NewWebSocketClient(url, mockHandler)

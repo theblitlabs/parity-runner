@@ -18,6 +18,7 @@ import (
 	"github.com/stretchr/testify/mock"
 	"github.com/theblitlabs/parity-protocol/internal/api/handlers"
 
+	"github.com/google/uuid"
 	"github.com/theblitlabs/parity-protocol/internal/mocks"
 	"github.com/theblitlabs/parity-protocol/internal/models"
 	"github.com/theblitlabs/parity-protocol/internal/services"
@@ -28,7 +29,7 @@ var setupOnce sync.Once
 
 func setupRouter(taskService *mocks.MockTaskService) *mux.Router {
 	setupOnce.Do(func() {
-		logger.Init()
+		logger.Init(logger.Config{})
 	})
 
 	router := mux.NewRouter()
@@ -59,14 +60,14 @@ func TestGetTasksAPI(t *testing.T) {
 
 	mockTasks := []*models.Task{
 		{
-			ID:          "task1",
+			ID:          uuid.New(),
 			Title:       "Task 1",
 			Description: "Description 1",
 			Type:        models.TaskTypeDocker,
 			Status:      models.TaskStatusPending,
 		},
 		{
-			ID:          "task2",
+			ID:          uuid.New(),
 			Title:       "Task 2",
 			Description: "Description 2",
 			Status:      models.TaskStatusRunning,
@@ -98,7 +99,7 @@ func TestGetTaskByIDAPI(t *testing.T) {
 	router := setupRouter(mockService)
 
 	mockTask := &models.Task{
-		ID:          "task1",
+		ID:          uuid.New(),
 		Title:       "Test Task",
 		Description: "Test Description",
 		Status:      models.TaskStatusPending,
@@ -112,17 +113,17 @@ func TestGetTaskByIDAPI(t *testing.T) {
 	}{
 		{
 			name:   "existing task",
-			taskID: "task1",
+			taskID: "9dd20894-955e-458f-8932-73ee18bd161a",
 			setupMock: func() {
-				mockService.On("GetTask", mock.Anything, "task1").Return(mockTask, nil)
+				mockService.On("GetTask", mock.Anything, "9dd20894-955e-458f-8932-73ee18bd161a").Return(mockTask, nil)
 			},
 			expectedStatus: http.StatusOK,
 		},
 		{
 			name:   "non-existent task",
-			taskID: "nonexistent",
+			taskID: "3d804a78-af92-47e9-8588-d1aa5b2d0461",
 			setupMock: func() {
-				mockService.On("GetTask", mock.Anything, "nonexistent").Return(nil, services.ErrTaskNotFound)
+				mockService.On("GetTask", mock.Anything, "3d804a78-af92-47e9-8588-d1aa5b2d0461").Return(nil, services.ErrTaskNotFound)
 			},
 			expectedStatus: http.StatusNotFound,
 		},
@@ -164,30 +165,29 @@ func TestAssignTaskAPI(t *testing.T) {
 	}{
 		{
 			name:   "successful assignment",
-			taskID: "task1",
+			taskID: "72d65553-ae34-48de-81c9-591faf798ab1",
 			payload: map[string]interface{}{
-				"runner_id": "runner123",
+				"runner_id": "4fc69653-6111-4fe5-8124-302367665d46",
 			},
 			setupMock: func() {
-				mockService.On("AssignTaskToRunner", mock.Anything, "task1", "runner123").Return(nil)
+				mockService.On("AssignTaskToRunner", mock.Anything, "72d65553-ae34-48de-81c9-591faf798ab1", "4fc69653-6111-4fe5-8124-302367665d46").Return(nil)
 			},
 			expectedStatus: http.StatusOK,
 		},
 		{
 			name:   "invalid task ID",
-			taskID: "nonexistent",
+			taskID: "d81f99bf-81d0-449c-924d-90a6d48842a6",
 			payload: map[string]interface{}{
-				"runner_id": "runner123",
+				"runner_id": "65f7a682-e9c9-4375-b911-4f6b0782350f",
 			},
 			setupMock: func() {
-				mockService.On("AssignTaskToRunner", mock.Anything, "nonexistent", "runner123").
-					Return(services.ErrTaskNotFound)
+				mockService.On("AssignTaskToRunner", mock.Anything, "d81f99bf-81d0-449c-924d-90a6d48842a6", "65f7a682-e9c9-4375-b911-4f6b0782350f").Return(services.ErrTaskNotFound)
 			},
 			expectedStatus: http.StatusNotFound,
 		},
 		{
 			name:   "missing runner ID",
-			taskID: "task1",
+			taskID: uuid.New().String(),
 			payload: map[string]interface{}{
 				"runner_id": "",
 			},
@@ -224,7 +224,7 @@ func TestListTasksAPI(t *testing.T) {
 
 	mockTasks := []*models.Task{
 		{
-			ID:          "task1",
+			ID:          uuid.New(),
 			Title:       "Task 1",
 			Description: "Description 1",
 			Status:      models.TaskStatusPending,
@@ -259,18 +259,18 @@ func TestGetTaskRewardAPI(t *testing.T) {
 	}{
 		{
 			name:   "valid task",
-			taskID: "task1",
+			taskID: "23226901-c9c5-42bc-a12d-9790e6b2db40",
 			setupMock: func() {
-				mockService.On("GetTaskReward", mock.Anything, "task1").Return(100.0, nil)
+				mockService.On("GetTaskReward", mock.Anything, "23226901-c9c5-42bc-a12d-9790e6b2db40").Return(100.0, nil)
 			},
 			expectedStatus: http.StatusOK,
 			expectedReward: 100.0,
 		},
 		{
 			name:   "task not found",
-			taskID: "nonexistent",
+			taskID: "96aa40ab-0a93-48b5-876d-8745408b30fb",
 			setupMock: func() {
-				mockService.On("GetTaskReward", mock.Anything, "nonexistent").Return(0.0, services.ErrTaskNotFound)
+				mockService.On("GetTaskReward", mock.Anything, "96aa40ab-0a93-48b5-876d-8745408b30fb").Return(0.0, services.ErrTaskNotFound)
 			},
 			expectedStatus: http.StatusNotFound,
 			expectedReward: 0.0,
@@ -324,9 +324,9 @@ func TestRunnerRoutes(t *testing.T) {
 			name:     "start task",
 			method:   "POST",
 			path:     "/api/runners/tasks/task123/start",
-			runnerID: "550e8400-e29b-41d4-a716-446655440000",
+			runnerID: "2b87c500-5753-4305-b7f4-fcebb141245e",
 			setupMock: func() {
-				mockService.On("AssignTaskToRunner", mock.Anything, "task123", "550e8400-e29b-41d4-a716-446655440000").Return(nil)
+				mockService.On("AssignTaskToRunner", mock.Anything, "task123", "2b87c500-5753-4305-b7f4-fcebb141245e").Return(nil)
 				mockService.On("StartTask", mock.Anything, "task123").Return(nil)
 			},
 			expectedStatus: http.StatusOK,
@@ -388,9 +388,10 @@ func TestWebSocketConnection(t *testing.T) {
 		{
 			name: "successful connection and task updates",
 			setupMock: func() {
+				taskID := uuid.MustParse("f47ac10b-58cc-4372-a567-0e02b2c3d479")
 				tasks := []*models.Task{
 					{
-						ID:     "task1",
+						ID:     taskID,
 						Status: models.TaskStatusPending,
 						Config: json.RawMessage("null"),
 					},
@@ -399,7 +400,7 @@ func TestWebSocketConnection(t *testing.T) {
 			},
 			wantTasks: []*models.Task{
 				{
-					ID:     "task1",
+					ID:     uuid.MustParse("f47ac10b-58cc-4372-a567-0e02b2c3d479"),
 					Status: models.TaskStatusPending,
 					Config: json.RawMessage("null"),
 				},
@@ -492,7 +493,7 @@ func TestWebSocketReconnection(t *testing.T) {
 	defer server.Close()
 
 	wsURL := "ws" + strings.TrimPrefix(server.URL, "http") + "/api/runners/ws"
-	tasks := []*models.Task{{ID: "task1", Config: json.RawMessage("null")}}
+	tasks := []*models.Task{{ID: uuid.New(), Config: json.RawMessage("null")}}
 	mockService.On("ListAvailableTasks", mock.Anything).Return(tasks, nil).Maybe()
 
 	dialer := websocket.Dialer{

@@ -21,10 +21,10 @@ func TestTaskHandler(t *testing.T) {
 		result := test.CreateTestResult()
 
 		// Set up expectations
-		mockTaskClient.On("StartTask", task.ID).Return(nil)
+		mockTaskClient.On("StartTask", task.ID.String()).Return(nil)
 		mockExecutor.On("ExecuteTask", mock.Anything, task).Return(result, nil)
-		mockTaskClient.On("SaveTaskResult", task.ID, result).Return(nil)
-		mockTaskClient.On("CompleteTask", task.ID).Return(nil)
+		mockTaskClient.On("SaveTaskResult", task.ID.String(), result).Return(nil)
+		mockTaskClient.On("CompleteTask", task.ID.String()).Return(nil)
 		mockRewardClient.On("DistributeRewards", result).Return(nil)
 
 		// Execute test
@@ -46,7 +46,7 @@ func TestTaskHandler(t *testing.T) {
 		task := test.CreateTestTask()
 
 		// Set up expectations - StartTask fails
-		mockTaskClient.On("StartTask", task.ID).Return(assert.AnError)
+		mockTaskClient.On("StartTask", task.ID.String()).Return(assert.AnError)
 
 		// Execute test
 		err := handler.HandleTask(task)

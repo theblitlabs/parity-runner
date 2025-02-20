@@ -7,10 +7,13 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
+	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/mock"
 	"github.com/theblitlabs/parity-protocol/internal/config"
 	"github.com/theblitlabs/parity-protocol/internal/models"
+	"github.com/theblitlabs/parity-protocol/pkg/logger"
 	"github.com/theblitlabs/parity-protocol/pkg/stakewallet"
 )
 
@@ -32,12 +35,6 @@ var TestConfig = &config.Config{
 	},
 }
 
-// WebSocket test utilities
-var upgrader = websocket.Upgrader{
-	ReadBufferSize:  1024,
-	WriteBufferSize: 1024,
-}
-
 // Helper functions
 func ConfigToJSON(t *testing.T, config models.TaskConfig) json.RawMessage {
 	data, err := json.Marshal(config)
@@ -47,38 +44,56 @@ func ConfigToJSON(t *testing.T, config models.TaskConfig) json.RawMessage {
 	return data
 }
 
-func CreateTestServer(t *testing.T, handler func(w *websocket.Conn)) *httptest.Server {
-	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+// SetupTestLogger configures a test logger that captures output
+func SetupTestLogger() *zerolog.Logger {
+	log := logger.WithComponent("test")
+	return &log
+}
+
+// CreateTestTask creates a task for testing with minimal logging
+func CreateTestTask() *models.Task {
+	task := &models.Task{
+		ID:              uuid.New(),
+		Title:           "Test Task",
+		Description:     "Test Description",
+		Type:            models.TaskTypeFile,
+		Config:          []byte(`{"file_url": "https://example.com/test.zip"}`),
+		Status:          models.TaskStatusPending,
+		Reward:          100,
+		CreatorDeviceID: "device123",
+	}
+	return task
+}
+
+// CreateTestServer creates a WebSocket test server with logging
+func CreateTestServer(t *testing.T, handler func(*websocket.Conn)) *httptest.Server {
+	log := logger.WithComponent("test_server")
+	upgrader := websocket.Upgrader{
+		ReadBufferSize:  1024,
+		WriteBufferSize: 1024,
+		CheckOrigin: func(r *http.Request) bool {
+			return true
+		},
+	}
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		conn, err := upgrader.Upgrade(w, r, nil)
 		if err != nil {
-			t.Fatalf("Failed to upgrade connection: %v", err)
+			log.Error().Err(err).Msg("Upgrade failed")
+			return
 		}
 		defer conn.Close()
+
 		handler(conn)
 	}))
+
+	return server
 }
 
 // Test data generators
-func CreateTestTask() *models.Task {
-	return &models.Task{
-		ID:          "task123",
-		Title:       "Test Task",
-		Description: "Test Description",
-		Status:      models.TaskStatusPending,
-		Type:        models.TaskTypeDocker,
-		Environment: &models.EnvironmentConfig{
-			Type: "docker",
-			Config: map[string]interface{}{
-				"image":   "alpine:latest",
-				"workdir": "/app",
-			},
-		},
-	}
-}
-
 func CreateTestResult() *models.TaskResult {
 	return &models.TaskResult{
-		TaskID:         "task123",
+		TaskID:         uuid.New(),
 		DeviceID:       "device123",
 		CreatorAddress: "0x9876543210987654321098765432109876543210",
 		Output:         "test output",
