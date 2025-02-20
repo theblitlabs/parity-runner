@@ -4,10 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"testing"
+	"time"
 
+	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
-	"github.com/theblitlabs/parity-protocol/internal/mocks"
+	"github.com/theblitlabs/parity-protocol/internal/ipfs"
 	"github.com/theblitlabs/parity-protocol/internal/models"
 	"github.com/theblitlabs/parity-protocol/internal/services"
 )
@@ -19,8 +21,9 @@ func configToJSON(t *testing.T, config models.TaskConfig) json.RawMessage {
 }
 
 func TestCreateTask(t *testing.T) {
-	mockRepo := new(mocks.MockTaskRepository)
-	service := services.NewTaskService(mockRepo)
+	mockRepo := new(MockTaskRepository)
+	mockIPFS := &ipfs.Client{}
+	service := services.NewTaskService(mockRepo, mockIPFS)
 	ctx := context.Background()
 
 	tests := []struct {
@@ -38,7 +41,7 @@ func TestCreateTask(t *testing.T) {
 					FileURL: "https://example.com/task.zip",
 				}),
 				Reward:    100,
-				CreatorID: "creator123",
+				CreatorID: uuid.New(),
 			},
 			wantErr: false,
 		},
@@ -58,7 +61,7 @@ func TestCreateTask(t *testing.T) {
 					},
 				},
 				Reward:    100,
-				CreatorID: "creator123",
+				CreatorID: uuid.New(),
 			},
 			wantErr: false,
 		},
@@ -70,7 +73,8 @@ func TestCreateTask(t *testing.T) {
 				Config: configToJSON(t, models.TaskConfig{
 					FileURL: "https://example.com/task.zip",
 				}),
-				Reward: 100,
+				Reward:    100,
+				CreatorID: uuid.New(),
 			},
 			wantErr: true,
 		},
@@ -83,7 +87,8 @@ func TestCreateTask(t *testing.T) {
 				Config: configToJSON(t, models.TaskConfig{
 					FileURL: "https://example.com/task.zip",
 				}),
-				Reward: 0,
+				Reward:    0,
+				CreatorID: uuid.New(),
 			},
 			wantErr: true,
 		},
@@ -96,7 +101,8 @@ func TestCreateTask(t *testing.T) {
 				Config: configToJSON(t, models.TaskConfig{
 					Command: []string{"echo", "hello"},
 				}),
-				Reward: 100,
+				Reward:    100,
+				CreatorID: uuid.New(),
 			},
 			wantErr: true,
 		},
@@ -126,12 +132,13 @@ func TestCreateTask(t *testing.T) {
 }
 
 func TestAssignTaskToRunner(t *testing.T) {
-	mockRepo := new(mocks.MockTaskRepository)
-	service := services.NewTaskService(mockRepo)
+	mockRepo := new(MockTaskRepository)
+	mockIPFS := &ipfs.Client{}
+	service := services.NewTaskService(mockRepo, mockIPFS)
 	ctx := context.Background()
 
-	taskID := "task123"
-	runnerID := "550e8400-e29b-41d4-a716-446655440000"
+	taskID := uuid.New()
+	runnerID := uuid.New()
 
 	tests := []struct {
 		name    string
@@ -175,7 +182,277 @@ func TestAssignTaskToRunner(t *testing.T) {
 			mockRepo.ExpectedCalls = nil
 			tt.setup()
 
-			err := service.AssignTaskToRunner(ctx, taskID, runnerID)
+			err := service.AssignTaskToRunner(ctx, taskID.String(), runnerID.String())
+
+			if tt.wantErr {
+				assert.Error(t, err)
+			} else {
+				assert.NoError(t, err)
+				mockRepo.AssertExpectations(t)
+			}
+		})
+	}
+}
+
+func TestGetTask(t *testing.T) {
+	mockRepo := new(MockTaskRepository)
+	mockIPFS := &ipfs.Client{}
+	service := services.NewTaskService(mockRepo, mockIPFS)
+	ctx := context.Background()
+
+	taskID := uuid.New()
+	task := &models.Task{
+		ID:          taskID,
+		Title:       "Test Task",
+		Description: "Test Description",
+		Status:      models.TaskStatusPending,
+		CreatedAt:   time.Now(),
+		UpdatedAt:   time.Now(),
+	}
+
+	tests := []struct {
+		name    string
+		taskID  string
+		setup   func(string)
+		wantErr bool
+	}{
+		{
+			name:   "existing task",
+			taskID: taskID.String(),
+			setup: func(id string) {
+				uid, _ := uuid.Parse(id)
+				mockRepo.On("Get", ctx, uid).Return(task, nil)
+			},
+			wantErr: false,
+		},
+		{
+			name:   "non-existent task",
+			taskID: uuid.New().String(),
+			setup: func(id string) {
+				uid, _ := uuid.Parse(id)
+				mockRepo.On("Get", ctx, uid).Return(nil, services.ErrTaskNotFound)
+			},
+			wantErr: true,
+		},
+		{
+			name:    "invalid task ID",
+			taskID:  "invalid-uuid",
+			setup:   func(id string) {},
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			mockRepo.ExpectedCalls = nil
+			tt.setup(tt.taskID)
+
+			result, err := service.GetTask(ctx, tt.taskID)
+
+			if tt.wantErr {
+				assert.Error(t, err)
+				assert.Nil(t, result)
+			} else {
+				assert.NoError(t, err)
+				assert.NotNil(t, result)
+				assert.Equal(t, task.ID, result.ID)
+				assert.Equal(t, task.Title, result.Title)
+				mockRepo.AssertExpectations(t)
+			}
+		})
+	}
+}
+
+func TestListAvailableTasks(t *testing.T) {
+	mockRepo := new(MockTaskRepository)
+	mockIPFS := &ipfs.Client{}
+	service := services.NewTaskService(mockRepo, mockIPFS)
+	ctx := context.Background()
+
+	tasks := []*models.Task{
+		{
+			ID:          uuid.New(),
+			Title:       "Task 1",
+			Description: "Description 1",
+			Status:      models.TaskStatusPending,
+		},
+		{
+			ID:          uuid.New(),
+			Title:       "Task 2",
+			Description: "Description 2",
+			Status:      models.TaskStatusPending,
+		},
+	}
+
+	tests := []struct {
+		name    string
+		setup   func()
+		want    []*models.Task
+		wantErr bool
+	}{
+		{
+			name: "available tasks exist",
+			setup: func() {
+				mockRepo.On("ListByStatus", ctx, models.TaskStatusPending).Return(tasks, nil)
+			},
+			want:    tasks,
+			wantErr: false,
+		},
+		{
+			name: "no available tasks",
+			setup: func() {
+				mockRepo.On("ListByStatus", ctx, models.TaskStatusPending).Return([]*models.Task{}, nil)
+			},
+			want:    []*models.Task{},
+			wantErr: false,
+		},
+		{
+			name: "repository error",
+			setup: func() {
+				mockRepo.On("ListByStatus", ctx, models.TaskStatusPending).Return(nil, assert.AnError)
+			},
+			want:    nil,
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			mockRepo.ExpectedCalls = nil
+			tt.setup()
+
+			result, err := service.ListAvailableTasks(ctx)
+
+			if tt.wantErr {
+				assert.Error(t, err)
+				assert.Nil(t, result)
+			} else {
+				assert.NoError(t, err)
+				assert.Equal(t, tt.want, result)
+				mockRepo.AssertExpectations(t)
+			}
+		})
+	}
+}
+
+func TestGetTaskReward(t *testing.T) {
+	mockRepo := new(MockTaskRepository)
+	mockIPFS := &ipfs.Client{}
+	service := services.NewTaskService(mockRepo, mockIPFS)
+	ctx := context.Background()
+
+	taskID := uuid.New()
+	task := &models.Task{
+		ID:     taskID,
+		Reward: 100.0,
+	}
+
+	tests := []struct {
+		name       string
+		taskID     string
+		setup      func(string)
+		wantReward float64
+		wantErr    bool
+	}{
+		{
+			name:   "existing task",
+			taskID: taskID.String(),
+			setup: func(id string) {
+				uid, _ := uuid.Parse(id)
+				mockRepo.On("Get", ctx, uid).Return(task, nil)
+			},
+			wantReward: 100.0,
+			wantErr:    false,
+		},
+		{
+			name:   "non-existent task",
+			taskID: uuid.New().String(),
+			setup: func(id string) {
+				uid, _ := uuid.Parse(id)
+				mockRepo.On("Get", ctx, uid).Return(nil, services.ErrTaskNotFound)
+			},
+			wantReward: 0.0,
+			wantErr:    true,
+		},
+		{
+			name:       "invalid task ID",
+			taskID:     "invalid-uuid",
+			setup:      func(id string) {},
+			wantReward: 0.0,
+			wantErr:    true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			mockRepo.ExpectedCalls = nil
+			tt.setup(tt.taskID)
+
+			reward, err := service.GetTaskReward(ctx, tt.taskID)
+
+			if tt.wantErr {
+				assert.Error(t, err)
+				assert.Equal(t, tt.wantReward, reward)
+			} else {
+				assert.NoError(t, err)
+				assert.Equal(t, tt.wantReward, reward)
+				mockRepo.AssertExpectations(t)
+			}
+		})
+	}
+}
+
+func TestStartTask(t *testing.T) {
+	mockRepo := new(MockTaskRepository)
+	mockIPFS := &ipfs.Client{}
+	service := services.NewTaskService(mockRepo, mockIPFS)
+	ctx := context.Background()
+
+	taskID := uuid.New()
+	task := &models.Task{
+		ID:     taskID,
+		Status: models.TaskStatusPending,
+	}
+
+	tests := []struct {
+		name    string
+		taskID  string
+		setup   func(string)
+		wantErr bool
+	}{
+		{
+			name:   "successful start",
+			taskID: taskID.String(),
+			setup: func(id string) {
+				uid, _ := uuid.Parse(id)
+				mockRepo.On("Get", ctx, uid).Return(task, nil)
+				mockRepo.On("Update", ctx, mock.AnythingOfType("*models.Task")).Return(nil)
+			},
+			wantErr: false,
+		},
+		{
+			name:   "task not found",
+			taskID: uuid.New().String(),
+			setup: func(id string) {
+				uid, _ := uuid.Parse(id)
+				mockRepo.On("Get", ctx, uid).Return(nil, services.ErrTaskNotFound)
+			},
+			wantErr: true,
+		},
+		{
+			name:    "invalid task ID",
+			taskID:  "invalid-uuid",
+			setup:   func(id string) {},
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			mockRepo.ExpectedCalls = nil
+			tt.setup(tt.taskID)
+
+			err := service.StartTask(ctx, tt.taskID)
 
 			if tt.wantErr {
 				assert.Error(t, err)

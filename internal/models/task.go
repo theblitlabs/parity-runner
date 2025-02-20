@@ -33,6 +33,26 @@ type TaskConfig struct {
 	Resources ResourceConfig    `json:"resources,omitempty"`
 }
 
+func (c *TaskConfig) Validate(taskType TaskType) error {
+	switch taskType {
+	case TaskTypeDocker:
+		if c.Command == nil || len(c.Command) == 0 {
+			return errors.New("command is required for Docker tasks")
+		}
+	case TaskTypeCommand:
+		if c.Command == nil || len(c.Command) == 0 {
+			return errors.New("command is required for Command tasks")
+		}
+	case TaskTypeFile:
+		if c.FileURL == "" {
+			return errors.New("file_url is required for File tasks")
+		}
+	default:
+		return fmt.Errorf("unsupported task type: %s", taskType)
+	}
+	return nil
+}
+
 type ResourceConfig struct {
 	Memory    string `json:"memory,omitempty"`     // e.g., "512m"
 	CPUShares int64  `json:"cpu_shares,omitempty"` // relative CPU share weight
@@ -40,20 +60,31 @@ type ResourceConfig struct {
 }
 
 type Task struct {
-	ID             string             `json:"id" db:"id"`
-	Title          string             `json:"title" db:"title"`
-	Description    string             `json:"description" db:"description"`
-	Type           TaskType           `json:"type" db:"type"`
-	Status         TaskStatus         `json:"status" db:"status"`
-	Config         json.RawMessage    `json:"config"`
-	Environment    *EnvironmentConfig `json:"environment,omitempty" db:"environment"`
-	Reward         float64            `json:"reward" db:"reward"`
-	CreatorID      string             `json:"creator_id" db:"creator_id"`
-	CreatorAddress string             `json:"creator_address" db:"creator_address"`
-	RunnerID       *uuid.UUID         `json:"runner_id,omitempty" db:"runner_id"`
-	CreatedAt      time.Time          `json:"created_at" db:"created_at"`
-	UpdatedAt      time.Time          `json:"updated_at" db:"updated_at"`
-	CompletedAt    *time.Time         `json:"completed_at,omitempty" db:"completed_at"`
+	ID              uuid.UUID          `json:"id" db:"id"`
+	Title           string             `json:"title" db:"title"`
+	Description     string             `json:"description" db:"description"`
+	Type            TaskType           `json:"type" db:"type"`
+	Status          TaskStatus         `json:"status" db:"status"`
+	Config          json.RawMessage    `json:"config"`
+	Environment     *EnvironmentConfig `json:"environment,omitempty" db:"environment"`
+	Reward          float64            `json:"reward" db:"reward"`
+	CreatorID       uuid.UUID          `json:"creator_id" db:"creator_id"`
+	CreatorAddress  string             `json:"creator_address" db:"creator_address"`
+	CreatorDeviceID string             `json:"creator_device_id" db:"creator_device_id"`
+	RunnerID        *uuid.UUID         `json:"runner_id,omitempty" db:"runner_id"`
+	CreatedAt       time.Time          `json:"created_at" db:"created_at"`
+	UpdatedAt       time.Time          `json:"updated_at" db:"updated_at"`
+	CompletedAt     *time.Time         `json:"completed_at,omitempty" db:"completed_at"`
+}
+
+// NewTask creates a new Task with a generated UUID
+func NewTask() *Task {
+	return &Task{
+		ID:        uuid.New(),
+		Status:    TaskStatusPending,
+		CreatedAt: time.Now(),
+		UpdatedAt: time.Now(),
+	}
 }
 
 // Validate performs basic validation on the task
@@ -70,37 +101,20 @@ func (t *Task) Validate() error {
 		return errors.New("reward must be greater than zero")
 	}
 
-	switch t.Type {
-	case TaskTypeFile:
-		var config TaskConfig
-		if err := json.Unmarshal(t.Config, &config); err != nil {
-			return fmt.Errorf("failed to unmarshal task config: %w", err)
-		}
-		if config.FileURL == "" {
-			return errors.New("file URL is required for file tasks")
-		}
-	case TaskTypeCommand:
-		var config TaskConfig
-		if err := json.Unmarshal(t.Config, &config); err != nil {
-			return fmt.Errorf("failed to unmarshal task config: %w", err)
-		}
-		if len(config.Command) == 0 {
-			return errors.New("command is required for command tasks")
-		}
-	case TaskTypeDocker:
-		if t.Environment == nil || t.Environment.Type != "docker" {
-			return errors.New("docker environment configuration is required for docker tasks")
-		}
-		var config TaskConfig
-		if err := json.Unmarshal(t.Config, &config); err != nil {
-			return fmt.Errorf("failed to unmarshal task config: %w", err)
-		}
-		if len(config.Command) == 0 && config.FileURL == "" {
-			return errors.New("either command or file_url must be specified for docker tasks")
-		}
-	default:
-		return errors.New("unsupported task type")
+	var config TaskConfig
+	if err := json.Unmarshal(t.Config, &config); err != nil {
+		return fmt.Errorf("failed to unmarshal task config: %w", err)
+	}
+
+	if err := config.Validate(t.Type); err != nil {
+		return err
+	}
+
+	if t.Type == TaskTypeDocker && (t.Environment == nil || t.Environment.Type != "docker") {
+		return errors.New("docker environment configuration is required for docker tasks")
 	}
 
 	return nil
 }
+
+// ... existing code ...

@@ -3,36 +3,45 @@ package handlers
 import (
 	"encoding/json"
 	"net/http"
+	"time"
 
+	"github.com/google/uuid"
 	"github.com/gorilla/mux"
 	"github.com/gorilla/websocket"
 	"github.com/rs/zerolog/log"
 	"github.com/theblitlabs/parity-protocol/internal/models"
 	"github.com/theblitlabs/parity-protocol/internal/services"
 	"github.com/theblitlabs/parity-protocol/pkg/logger"
+	"github.com/theblitlabs/parity-protocol/pkg/stakewallet"
 )
 
 type TaskHandler struct {
-	service services.ITaskService
+	service     services.ITaskService
+	stakeWallet stakewallet.StakeWallet
 }
 
 func NewTaskHandler(service services.ITaskService) *TaskHandler {
 	return &TaskHandler{service: service}
 }
 
+// SetStakeWallet sets the stake wallet for the handler
+func (h *TaskHandler) SetStakeWallet(wallet stakewallet.StakeWallet) {
+	h.stakeWallet = wallet
+}
+
 type CreateTaskRequest struct {
 	Title       string                    `json:"title"`
 	Description string                    `json:"description"`
 	Type        models.TaskType           `json:"type"`
-	Config      models.TaskConfig         `json:"config"`
+	Config      json.RawMessage           `json:"config"`
 	Environment *models.EnvironmentConfig `json:"environment,omitempty"`
 	Reward      float64                   `json:"reward"`
 	CreatorID   string                    `json:"creator_id"`
 }
 
 func (h *TaskHandler) CreateTask(w http.ResponseWriter, r *http.Request) {
-	var task models.Task
-	if err := json.NewDecoder(r.Body).Decode(&task); err != nil {
+	var req CreateTaskRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "Invalid request body", http.StatusBadRequest)
 		return
 	}
@@ -43,10 +52,56 @@ func (h *TaskHandler) CreateTask(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Device ID is required", http.StatusBadRequest)
 		return
 	}
-	task.CreatorID = deviceID
+
+	// Validate task type
+	if req.Type != models.TaskTypeFile && req.Type != models.TaskTypeDocker && req.Type != models.TaskTypeCommand {
+		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	// Validate task config
+	if req.Type == models.TaskTypeDocker {
+		if len(req.Config) == 0 {
+			http.Error(w, "Command is required for Docker tasks", http.StatusBadRequest)
+			return
+		}
+		if req.Environment == nil || req.Environment.Type != "docker" {
+			http.Error(w, "Docker environment configuration is required", http.StatusBadRequest)
+			return
+		}
+	}
+
+	// Generate a new UUID for the task
+	taskID := uuid.New()
+
+	// Generate a new UUID for the creator ID
+	creatorID := uuid.New()
+
+	task := &models.Task{
+		ID:              taskID,
+		Title:           req.Title,
+		Description:     req.Description,
+		Type:            req.Type,
+		Config:          req.Config,
+		Environment:     req.Environment,
+		Reward:          req.Reward,
+		CreatorID:       creatorID,
+		CreatorDeviceID: deviceID,
+		Status:          models.TaskStatusPending,
+		CreatedAt:       time.Now(),
+		UpdatedAt:       time.Now(),
+	}
+
+	// Log task details for debugging
+	log.Debug().
+		Str("task_id", taskID.String()).
+		Str("creator_id", task.CreatorID.String()).
+		Str("creator_device_id", task.CreatorDeviceID).
+		RawJSON("config", req.Config).
+		Msg("Creating task")
 
 	// Check if sufficient stake exists for reward
-	if err := h.checkStakeBalance(r.Context(), &task); err != nil {
+	if err := h.checkStakeBalance(r.Context(), task); err != nil {
 		log.Error().Err(err).
 			Str("device_id", deviceID).
 			Float64("reward", task.Reward).
@@ -56,11 +111,16 @@ func (h *TaskHandler) CreateTask(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Continue with task creation
-	if err := h.service.CreateTask(r.Context(), &task); err != nil {
+	if err := h.service.CreateTask(r.Context(), task); err != nil {
+		log.Error().Err(err).
+			Str("task_id", taskID.String()).
+			RawJSON("config", req.Config).
+			Msg("Failed to create task")
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 
+	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
 	json.NewEncoder(w).Encode(task)
 }

@@ -11,6 +11,7 @@ import (
 
 func TestTaskHandler(t *testing.T) {
 	t.Run("handle_task_success", func(t *testing.T) {
+		test.SetupTestLogger()
 		mockExecutor := &test.MockDockerExecutor{}
 		mockTaskClient := &test.MockTaskClient{}
 		mockRewardClient := &test.MockRewardClient{}
@@ -21,10 +22,10 @@ func TestTaskHandler(t *testing.T) {
 		result := test.CreateTestResult()
 
 		// Set up expectations
-		mockTaskClient.On("StartTask", task.ID).Return(nil)
+		mockTaskClient.On("StartTask", task.ID.String()).Return(nil)
 		mockExecutor.On("ExecuteTask", mock.Anything, task).Return(result, nil)
-		mockTaskClient.On("SaveTaskResult", task.ID, result).Return(nil)
-		mockTaskClient.On("CompleteTask", task.ID).Return(nil)
+		mockTaskClient.On("SaveTaskResult", task.ID.String(), result).Return(nil)
+		mockTaskClient.On("CompleteTask", task.ID.String()).Return(nil)
 		mockRewardClient.On("DistributeRewards", result).Return(nil)
 
 		// Execute test
@@ -38,6 +39,7 @@ func TestTaskHandler(t *testing.T) {
 	})
 
 	t.Run("handle_task_start_error", func(t *testing.T) {
+		test.SetupTestLogger()
 		mockExecutor := &test.MockDockerExecutor{}
 		mockTaskClient := &test.MockTaskClient{}
 		mockRewardClient := &test.MockRewardClient{}
@@ -46,7 +48,7 @@ func TestTaskHandler(t *testing.T) {
 		task := test.CreateTestTask()
 
 		// Set up expectations - StartTask fails
-		mockTaskClient.On("StartTask", task.ID).Return(assert.AnError)
+		mockTaskClient.On("StartTask", task.ID.String()).Return(assert.AnError)
 
 		// Execute test
 		err := handler.HandleTask(task)
@@ -61,6 +63,7 @@ func TestTaskHandler(t *testing.T) {
 }
 
 func TestTaskClient(t *testing.T) {
+	test.SetupTestLogger()
 	// Add task client tests here
 	// These tests would verify HTTP client behavior for task operations
 }

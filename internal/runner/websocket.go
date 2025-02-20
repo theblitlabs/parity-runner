@@ -5,8 +5,8 @@ import (
 	"fmt"
 
 	"github.com/gorilla/websocket"
-	"github.com/rs/zerolog/log"
 	"github.com/theblitlabs/parity-protocol/internal/models"
+	"github.com/theblitlabs/parity-protocol/pkg/logger"
 )
 
 type WSMessage struct {
@@ -30,14 +30,16 @@ func NewWebSocketClient(url string, handler TaskHandler) *WebSocketClient {
 }
 
 func (w *WebSocketClient) Connect() error {
-	log := log.With().Str("component", "websocket").Logger()
-	log.Debug().Str("url", w.url).Msg("Connecting to WebSocket")
+	log := logger.WithComponent("websocket")
+	log.Info().Str("url", w.url).Msg("Connecting")
 
 	conn, _, err := websocket.DefaultDialer.Dial(w.url, nil)
 	if err != nil {
-		return fmt.Errorf("failed to connect to WebSocket: %w", err)
+		log.Error().Err(err).Str("url", w.url).Msg("Connection failed")
+		return fmt.Errorf("websocket connection failed: %w", err)
 	}
 
+	log.Debug().Str("url", w.url).Msg("Connected")
 	w.conn = conn
 	return nil
 }
@@ -47,18 +49,19 @@ func (w *WebSocketClient) Start() {
 }
 
 func (w *WebSocketClient) Stop() {
-	log := log.With().Str("component", "websocket").Logger()
+	log := logger.WithComponent("websocket")
 	close(w.stopChan)
 	if w.conn != nil {
 		if err := w.conn.WriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseNormalClosure, "")); err != nil {
-			log.Debug().Err(err).Msg("Error sending close message")
+			log.Debug().Err(err).Str("url", w.url).Msg("Close message failed")
 		}
 		w.conn.Close()
+		log.Debug().Str("url", w.url).Msg("Connection closed")
 	}
 }
 
 func (w *WebSocketClient) listen() {
-	log := log.With().Str("component", "websocket").Logger()
+	log := logger.WithComponent("websocket")
 
 	for {
 		select {
@@ -69,7 +72,7 @@ func (w *WebSocketClient) listen() {
 			err := w.conn.ReadJSON(&msg)
 			if err != nil {
 				if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseAbnormalClosure) {
-					log.Warn().Err(err).Msg("WebSocket connection closed unexpectedly")
+					log.Warn().Err(err).Str("url", w.url).Msg("Unexpected close")
 				}
 				return
 			}
@@ -80,29 +83,38 @@ func (w *WebSocketClient) listen() {
 }
 
 func (w *WebSocketClient) handleMessage(msg WSMessage) {
-	log := log.With().Str("component", "websocket").Logger()
+	log := logger.WithComponent("websocket")
 
 	switch msg.Type {
 	case "available_tasks":
 		var tasks []*models.Task
 		if err := json.Unmarshal(msg.Payload, &tasks); err != nil {
-			log.Error().Err(err).Msg("Failed to parse tasks")
+			log.Error().Err(err).Str("payload", string(msg.Payload)).Msg("Task parse failed")
 			return
 		}
 
 		if len(tasks) > 0 {
-			log.Debug().Int("count", len(tasks)).Msg("Processing tasks")
-		}
+			log.Debug().Int("count", len(tasks)).Msg("Tasks received")
 
-		for _, task := range tasks {
-			if err := w.handler.HandleTask(task); err != nil {
-				log.Error().Err(err).
-					Str("task_id", task.ID).
-					Str("type", string(task.Type)).
-					Msg("Failed to handle task")
+			for _, task := range tasks {
+				if err := w.handler.HandleTask(task); err != nil {
+					log.Error().Err(err).
+						Str("id", task.ID.String()).
+						Str("type", string(task.Type)).
+						Float64("reward", task.Reward).
+						Msg("Task processing failed")
+				} else {
+					log.Debug().
+						Str("id", task.ID.String()).
+						Str("type", string(task.Type)).
+						Msg("Task processed")
+				}
 			}
 		}
 	default:
-		log.Debug().Str("type", msg.Type).Msg("Skipping unknown message type")
+		log.Debug().
+			Str("type", msg.Type).
+			Str("payload", string(msg.Payload)).
+			Msg("Unknown message type")
 	}
 }

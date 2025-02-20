@@ -13,29 +13,51 @@ import (
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/client"
 	"github.com/theblitlabs/parity-protocol/internal/models"
+	"github.com/theblitlabs/parity-protocol/pkg/ipfs"
 	"github.com/theblitlabs/parity-protocol/pkg/logger"
 )
 
 type DockerExecutor struct {
-	client *client.Client
-	config *ExecutorConfig
+	client     *client.Client
+	config     *ExecutorConfig
+	ipfsClient *ipfs.Service
 }
 
 type ExecutorConfig struct {
-	MemoryLimit string
-	CPULimit    string
-	Timeout     time.Duration
+	MemoryLimit  string
+	CPULimit     string
+	Timeout      time.Duration
+	IPFSEndpoint string // IPFS API endpoint
 }
 
 func NewDockerExecutor(config *ExecutorConfig) (*DockerExecutor, error) {
+	log := logger.WithComponent("docker")
+
 	cli, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
 	if err != nil {
-		return nil, fmt.Errorf("failed to create Docker client: %w", err)
+		log.Error().Err(err).Msg("Failed to create client")
+		return nil, fmt.Errorf("docker client creation failed: %w", err)
 	}
 
+	ipfsClient, err := ipfs.New(ipfs.Config{
+		APIEndpoint: config.IPFSEndpoint,
+	})
+	if err != nil {
+		log.Error().Err(err).Str("endpoint", config.IPFSEndpoint).Msg("Failed to create IPFS client")
+		return nil, fmt.Errorf("ipfs client creation failed: %w", err)
+	}
+
+	log.Debug().
+		Str("mem", config.MemoryLimit).
+		Str("cpu", config.CPULimit).
+		Dur("timeout", config.Timeout).
+		Str("ipfs", config.IPFSEndpoint).
+		Msg("Executor initialized")
+
 	return &DockerExecutor{
-		client: cli,
-		config: config,
+		client:     cli,
+		config:     config,
+		ipfsClient: ipfsClient,
 	}, nil
 }
 
@@ -76,35 +98,34 @@ func cleanOutput(output []byte) string {
 }
 
 func (e *DockerExecutor) ExecuteTask(ctx context.Context, task *models.Task) (*models.TaskResult, error) {
-	log := logger.Get()
-
+	log := logger.WithComponent("docker")
 	startTime := time.Now()
-	result := &models.TaskResult{
-		TaskID: task.ID,
-	}
+	result := models.NewTaskResult()
+	result.TaskID = task.ID
 
-	// Unmarshal config
 	var config models.TaskConfig
 	if err := json.Unmarshal(task.Config, &config); err != nil {
-		return nil, fmt.Errorf("failed to unmarshal task config: %w", err)
+		log.Error().Err(err).Str("id", task.ID.String()).Msg("Invalid config")
+		return nil, fmt.Errorf("invalid config: %w", err)
 	}
 
 	if len(config.Command) == 0 {
-		return nil, fmt.Errorf("command is required")
+		log.Error().Str("id", task.ID.String()).Msg("Missing command")
+		return nil, fmt.Errorf("command required")
 	}
 
-	// Validate required fields
 	image, ok := task.Environment.Config["image"].(string)
 	if !ok || image == "" {
-		return nil, fmt.Errorf("task environment config must include a valid 'image'")
+		log.Error().Str("id", task.ID.String()).Msg("Missing image")
+		return nil, fmt.Errorf("image required")
 	}
 
 	workdir, ok := task.Environment.Config["workdir"].(string)
 	if !ok || workdir == "" {
-		return nil, fmt.Errorf("task environment config must include a valid 'workdir'")
+		log.Error().Str("id", task.ID.String()).Msg("Missing workdir")
+		return nil, fmt.Errorf("workdir required")
 	}
 
-	// Convert env vars to string slice
 	var envVars []string
 	if env, ok := task.Environment.Config["env"].([]interface{}); ok {
 		envVars = make([]string, len(env))
@@ -115,23 +136,18 @@ func (e *DockerExecutor) ExecuteTask(ctx context.Context, task *models.Task) (*m
 		}
 	}
 
-	// Apply timeout to the context
 	ctx, cancel := context.WithTimeout(ctx, e.config.Timeout)
 	defer cancel()
 
-	// Pull Docker image
-	log.Info().Str("image", image).Msg("Pulling Docker image")
-	reader, err := e.client.ImagePull(
-		ctx,
-		image,
-		types.ImagePullOptions{},
-	)
+	log.Info().Str("id", task.ID.String()).Str("image", image).Msg("Pulling image")
+
+	reader, err := e.client.ImagePull(ctx, image, types.ImagePullOptions{})
 	if err != nil {
-		return nil, fmt.Errorf("failed to pull image '%s': %w", image, err)
+		log.Error().Err(err).Str("id", task.ID.String()).Str("image", image).Msg("Pull failed")
+		return nil, fmt.Errorf("image pull failed: %w", err)
 	}
 	defer reader.Close()
 
-	// Wait for pull to complete
 	decoder := json.NewDecoder(reader)
 	for {
 		var pullStatus map[string]interface{}
@@ -139,12 +155,14 @@ func (e *DockerExecutor) ExecuteTask(ctx context.Context, task *models.Task) (*m
 			if err == io.EOF {
 				break
 			}
-			return nil, fmt.Errorf("failed to decode pull status: %w", err)
+			log.Error().Err(err).Str("id", task.ID.String()).Msg("Pull status decode failed")
+			return nil, fmt.Errorf("pull status decode failed: %w", err)
 		}
-		log.Debug().Interface("status", pullStatus).Msg("Pull status")
+		if status, ok := pullStatus["status"].(string); ok {
+			log.Debug().Str("id", task.ID.String()).Str("status", status).Msg("Pull progress")
+		}
 	}
 
-	// Create the container
 	resp, err := e.client.ContainerCreate(ctx,
 		&container.Config{
 			Image:      image,
@@ -154,57 +172,111 @@ func (e *DockerExecutor) ExecuteTask(ctx context.Context, task *models.Task) (*m
 		},
 		nil, nil, nil, "")
 	if err != nil {
-		return nil, fmt.Errorf("failed to create container: %w", err)
+		log.Error().Err(err).
+			Str("id", task.ID.String()).
+			Str("image", image).
+			Msg("Container creation failed")
+		return nil, fmt.Errorf("container creation failed: %w", err)
 	}
 	containerID := resp.ID
 
-	// Ensure container is cleaned up on function exit
+	log.Debug().
+		Str("id", task.ID.String()).
+		Str("container", containerID).
+		Msg("Container created")
+
 	defer func() {
-		err := e.client.ContainerRemove(ctx, containerID, types.ContainerRemoveOptions{Force: true})
-		if err != nil {
-			log.Error().Err(err).Str("containerID", containerID).Msg("failed to remove container")
-		} else {
-			log.Info().Str("containerID", containerID).Msg("Container removed successfully")
+		if err := e.client.ContainerRemove(ctx, containerID, types.ContainerRemoveOptions{Force: true}); err != nil {
+			log.Debug().Err(err).Str("container", containerID).Msg("Container removal failed")
 		}
 	}()
 
-	// Start the container
 	if err := e.client.ContainerStart(ctx, containerID, types.ContainerStartOptions{}); err != nil {
-		return nil, fmt.Errorf("failed to start container: %w", err)
+		log.Error().Err(err).
+			Str("id", task.ID.String()).
+			Str("container", containerID).
+			Msg("Container start failed")
+		return nil, fmt.Errorf("container start failed: %w", err)
 	}
 
-	// Wait for the container to finish
+	log.Debug().
+		Str("id", task.ID.String()).
+		Str("container", containerID).
+		Msg("Container started")
+
 	statusCh, errCh := e.client.ContainerWait(ctx, containerID, container.WaitConditionNotRunning)
 	select {
 	case err := <-errCh:
 		if err != nil {
+			log.Error().Err(err).
+				Str("id", task.ID.String()).
+				Str("container", containerID).
+				Msg("Container wait failed")
 			result.Error = err.Error()
 			result.ExitCode = -1
-			return result, fmt.Errorf("error waiting for container: %w", err)
+			return result, fmt.Errorf("container wait failed: %w", err)
 		}
 	case status := <-statusCh:
 		result.ExitCode = int(status.StatusCode)
+		log.Debug().
+			Str("id", task.ID.String()).
+			Str("container", containerID).
+			Int("exit", result.ExitCode).
+			Msg("Container exited")
 	}
 
-	// Fetch container logs
 	out, err := e.client.ContainerLogs(ctx, containerID, types.ContainerLogsOptions{
 		ShowStdout: true,
 		ShowStderr: true,
 	})
 	if err != nil {
+		log.Error().Err(err).
+			Str("id", task.ID.String()).
+			Str("container", containerID).
+			Msg("Log fetch failed")
 		result.Error = err.Error()
-		return result, fmt.Errorf("failed to get container logs: %w", err)
+		return result, fmt.Errorf("log fetch failed: %w", err)
 	}
 	defer out.Close()
 
 	logs, err := io.ReadAll(out)
 	if err != nil {
+		log.Error().Err(err).
+			Str("id", task.ID.String()).
+			Str("container", containerID).
+			Msg("Log read failed")
 		result.Error = err.Error()
-		return result, fmt.Errorf("failed to read container logs: %w", err)
+		return result, fmt.Errorf("log read failed: %w", err)
 	}
 
-	result.Output = cleanOutput(logs)
+	cleanedLogs := cleanOutput(logs)
+	result.Output = cleanedLogs
+
+	logCID, err := e.ipfsClient.UploadData([]byte(cleanedLogs))
+	if err != nil {
+		log.Warn().Err(err).
+			Str("id", task.ID.String()).
+			Msg("IPFS upload failed")
+	} else {
+		log.Debug().
+			Str("id", task.ID.String()).
+			Str("cid", logCID).
+			Int("size", len(cleanedLogs)).
+			Msg("Logs uploaded to IPFS")
+
+		if result.Metadata == nil {
+			result.Metadata = make(map[string]interface{})
+		}
+		result.Metadata["logs_cid"] = logCID
+	}
+
 	result.ExecutionTime = time.Since(startTime).Nanoseconds()
+
+	log.Info().
+		Str("id", task.ID.String()).
+		Int("exit", result.ExitCode).
+		Int64("duration_ns", result.ExecutionTime).
+		Msg("Task execution completed")
 
 	return result, nil
 }

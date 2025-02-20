@@ -2,14 +2,18 @@ package handlers
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"math/big"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/ethereum/go-ethereum/accounts/abi/bind"
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/google/uuid"
 	"github.com/gorilla/mux"
 	"github.com/gorilla/websocket"
 	"github.com/theblitlabs/parity-protocol/internal/config"
@@ -26,14 +30,13 @@ type WSMessage struct {
 }
 
 func (h *TaskHandler) HandleWebSocket(conn *websocket.Conn) {
-	log := logger.Get()
+	log := logger.WithComponent("websocket")
 	ticker := time.NewTicker(time.Second)
 	defer ticker.Stop()
 
 	done := make(chan struct{})
 	defer close(done)
 
-	// Start read pump in goroutine
 	go func() {
 		for {
 			select {
@@ -43,7 +46,7 @@ func (h *TaskHandler) HandleWebSocket(conn *websocket.Conn) {
 				_, _, err := conn.ReadMessage()
 				if err != nil {
 					if !websocket.IsCloseError(err, websocket.CloseGoingAway, websocket.CloseNormalClosure) {
-						log.Error().Err(err).Msg("WebSocket read error")
+						log.Debug().Err(err).Msg("Connection closed")
 					}
 					return
 				}
@@ -51,7 +54,6 @@ func (h *TaskHandler) HandleWebSocket(conn *websocket.Conn) {
 		}
 	}()
 
-	// Write pump in main goroutine
 	for {
 		select {
 		case <-done:
@@ -59,13 +61,12 @@ func (h *TaskHandler) HandleWebSocket(conn *websocket.Conn) {
 		case <-ticker.C:
 			tasks, err := h.service.ListAvailableTasks(context.Background())
 			if err != nil {
-				log.Error().Err(err).Msg("Failed to get available tasks")
-				// Send error message to client
+				log.Error().Err(err).Msg("Task fetch failed")
 				if err := conn.WriteJSON(WSMessage{
 					Type:    "error",
-					Payload: err.Error(),
+					Payload: "Internal server error",
 				}); err != nil {
-					log.Error().Err(err).Msg("Failed to write error message")
+					log.Debug().Err(err).Msg("Error message send failed")
 				}
 				continue
 			}
@@ -74,7 +75,7 @@ func (h *TaskHandler) HandleWebSocket(conn *websocket.Conn) {
 				Type:    "available_tasks",
 				Payload: tasks,
 			}); err != nil {
-				log.Error().Err(err).Msg("Failed to write message")
+				log.Debug().Err(err).Msg("Task send failed")
 				return
 			}
 		}
@@ -105,171 +106,195 @@ func (h *TaskHandler) GetTaskResult(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *TaskHandler) SaveTaskResult(w http.ResponseWriter, r *http.Request) {
-	log := logger.Get()
+	log := logger.WithComponent("task_handler")
 	vars := mux.Vars(r)
 	taskID := vars["id"]
-
-	// Get device ID from header
 	deviceID := r.Header.Get("X-Device-ID")
+
 	if deviceID == "" {
-		log.Error().Msg("Device ID not provided")
-		http.Error(w, "Device ID is required", http.StatusBadRequest)
+		log.Debug().Str("task", taskID).Msg("Missing device ID")
+		http.Error(w, "Device ID required", http.StatusBadRequest)
 		return
 	}
 
 	var result models.TaskResult
 	if err := json.NewDecoder(r.Body).Decode(&result); err != nil {
-		log.Error().Err(err).Msg("Failed to decode task result")
+		log.Debug().Err(err).
+			Str("task", taskID).
+			Str("device", deviceID).
+			Msg("Invalid result payload")
 		http.Error(w, "Invalid request body", http.StatusBadRequest)
 		return
 	}
 
-	// Get task details including creator's wallet address
 	task, err := h.service.GetTask(r.Context(), taskID)
 	if err != nil {
-		log.Error().Err(err).Str("task_id", taskID).Msg("Failed to get task details")
-		http.Error(w, "Failed to get task details", http.StatusInternalServerError)
+		log.Error().Err(err).
+			Str("task", taskID).
+			Str("device", deviceID).
+			Msg("Task fetch failed")
+		http.Error(w, "Task fetch failed", http.StatusInternalServerError)
 		return
 	}
 
-	if task.CreatorID == "" {
-		http.Error(w, "Creator device ID is required", http.StatusBadRequest)
+	if task.CreatorID == uuid.Nil {
+		log.Debug().
+			Str("task", taskID).
+			Str("device", deviceID).
+			Msg("Missing creator ID")
+		http.Error(w, "Creator ID required", http.StatusBadRequest)
 		return
 	}
 
-	if err := h.checkStakeBalance(r.Context(), task); err != nil {
-		http.Error(w, "Task creation failed: "+err.Error(), http.StatusBadRequest)
+	taskUUID, err := uuid.Parse(taskID)
+	if err != nil {
+		log.Debug().
+			Str("task", taskID).
+			Str("device", deviceID).
+			Msg("Invalid task ID")
+		http.Error(w, "Invalid task ID", http.StatusBadRequest)
 		return
 	}
 
-	result.TaskID = taskID
+	result.TaskID = taskUUID
 	result.DeviceID = deviceID
-	result.CreatorAddress = task.CreatorAddress // Add creator's address to result
+	result.CreatorAddress = task.CreatorAddress
+	result.CreatorDeviceID = task.CreatorDeviceID
+	result.SolverDeviceID = deviceID
+	result.RunnerAddress = deviceID
 	result.CreatedAt = time.Now()
+	result.Reward = task.Reward
+
+	hash := sha256.Sum256([]byte(deviceID))
+	result.DeviceIDHash = hex.EncodeToString(hash[:])
 	result.Clean()
 
-	// Save the result first
 	if err := h.service.SaveTaskResult(r.Context(), &result); err != nil {
-		log.Error().Err(err).Str("task_id", taskID).Msg("Failed to save task result")
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		if strings.Contains(err.Error(), "invalid task result:") {
+			log.Debug().Err(err).
+				Str("task", taskID).
+				Str("device", deviceID).
+				Msg("Invalid result")
+			http.Error(w, err.Error(), http.StatusBadRequest)
+		} else {
+			log.Error().Err(err).
+				Str("task", taskID).
+				Str("device", deviceID).
+				Msg("Result save failed")
+			http.Error(w, "Result save failed", http.StatusInternalServerError)
+		}
 		return
 	}
 
-	// If task completed successfully, try to distribute rewards
 	if result.ExitCode == 0 {
 		if err := h.distributeRewards(r.Context(), &result); err != nil {
-			// Log the error but don't fail the request
 			log.Error().Err(err).
-				Str("task_id", taskID).
+				Str("task", taskID).
+				Str("device", deviceID).
 				Str("runner", result.RunnerAddress).
-				Msg("Failed to distribute rewards - task saved successfully")
+				Msg("Reward distribution failed")
 		} else {
 			log.Info().
-				Str("task_id", taskID).
+				Str("task", taskID).
+				Str("device", deviceID).
 				Str("runner", result.RunnerAddress).
-				Str("device_id", deviceID).
-				Msg("Rewards distributed successfully")
+				Float64("reward", result.Reward).
+				Msg("Task completed with rewards")
 		}
+	} else {
+		log.Info().
+			Str("task", taskID).
+			Str("device", deviceID).
+			Int("exit", result.ExitCode).
+			Msg("Task completed with error")
 	}
 
-	log.Info().
-		Str("task_id", taskID).
-		Str("device_id", deviceID).
-		Msg("Task result saved successfully")
 	w.WriteHeader(http.StatusOK)
 }
 
 func (h *TaskHandler) distributeRewards(ctx context.Context, result *models.TaskResult) error {
-	log := logger.Get()
+	log := logger.WithComponent("rewards")
 
 	cfg, err := config.LoadConfig("config/config.yaml")
 	if err != nil {
-		return fmt.Errorf("failed to load config: %w", err)
+		return fmt.Errorf("config load failed: %w", err)
 	}
 
-	// Get private key from keystore
 	privateKey, err := keystore.GetPrivateKey()
 	if err != nil {
-		return fmt.Errorf("failed to get private key from keystore: %w", err)
+		return fmt.Errorf("auth required: %w", err)
 	}
 
-	// Create client with keystore private key
 	client, err := wallet.NewClientWithKey(
 		cfg.Ethereum.RPC,
 		big.NewInt(cfg.Ethereum.ChainID),
 		privateKey,
 	)
 	if err != nil {
-		return fmt.Errorf("failed to create wallet client: %w", err)
+		return fmt.Errorf("wallet client failed: %w", err)
 	}
 
-	// Use the authenticated wallet address
 	recipientAddr := client.Address()
-	log.Info().
-		Str("device_id", result.DeviceID).
+	log.Debug().
+		Str("device", result.DeviceID).
 		Str("recipient", recipientAddr.Hex()).
-		Msg("Using authenticated wallet for rewards")
+		Msg("Using auth wallet")
 
 	stakeWallet, err := stakewallet.NewStakeWallet(
 		common.HexToAddress(cfg.Ethereum.StakeWalletAddress),
 		client,
 	)
 	if err != nil {
-		return fmt.Errorf("failed to create stake wallet contract: %w", err)
+		return fmt.Errorf("stake wallet init failed: %w", err)
 	}
 
-	// Get balance using the raw device ID
 	balance, err := stakeWallet.GetBalanceByDeviceID(&bind.CallOpts{}, result.DeviceID)
 	if err != nil {
 		log.Error().
 			Err(err).
-			Str("device_id", result.DeviceID).
-			Str("stake_wallet", cfg.Ethereum.StakeWalletAddress).
-			Msg("Failed to get device stake balance")
-		return fmt.Errorf("contract call reverted - please verify device ID format")
+			Str("device", result.DeviceID).
+			Str("addr", cfg.Ethereum.StakeWalletAddress).
+			Msg("Balance check failed")
+		return fmt.Errorf("invalid device ID format")
 	}
 
 	if balance.Cmp(big.NewInt(0)) == 0 {
-		log.Warn().
-			Str("device_id", result.DeviceID).
-			Msg("No stake found for device - please stake tokens using 'parity stake'")
+		log.Debug().
+			Str("device", result.DeviceID).
+			Msg("No stake found")
 		return nil
 	}
 
-	log.Info().
-		Str("device_id", result.DeviceID).
+	log.Debug().
+		Str("device", result.DeviceID).
 		Str("balance", balance.String()).
-		Msg("Found staked tokens for device")
+		Msg("Found stake")
 
-	// Get the actual task to access creator information
-	task, err := h.service.GetTask(ctx, result.TaskID)
+	task, err := h.service.GetTask(ctx, result.TaskID.String())
 	if err != nil {
-		return fmt.Errorf("failed to get task details: %w", err)
+		return fmt.Errorf("task fetch failed: %w", err)
 	}
 
-	// Convert task reward to wei
 	rewardWei := new(big.Int).Mul(
 		big.NewInt(int64(task.Reward)),
 		big.NewInt(1e18),
 	)
 
-	// Get transaction options from the authenticated client
 	txOpts, err := client.GetTransactOpts()
 	if err != nil {
-		return fmt.Errorf("failed to get transaction options: %w", err)
+		return fmt.Errorf("tx opts failed: %w", err)
 	}
 
-	log.Info().
-		Str("device_id", result.DeviceID).
+	log.Debug().
+		Str("device", result.DeviceID).
 		Str("recipient", recipientAddr.Hex()).
-		Str("reward_amount", rewardWei.String()).
-		Msg("Distributing rewards to authenticated wallet")
+		Str("reward", rewardWei.String()).
+		Msg("Initiating transfer")
 
-	// Transfer payment from creator to solver
 	tx, err := stakeWallet.TransferPayment(
 		txOpts,
-		task.CreatorID,  // Correct: Use creator's device ID
-		result.DeviceID, // Runner's device ID
+		task.CreatorDeviceID,
+		result.DeviceID,
 		rewardWei,
 	)
 	if err != nil {
@@ -277,40 +302,25 @@ func (h *TaskHandler) distributeRewards(ctx context.Context, result *models.Task
 			Err(err).
 			Str("recipient", recipientAddr.Hex()).
 			Str("reward", rewardWei.String()).
-			Msg("TransferPayment failed")
-		return fmt.Errorf("failed to distribute rewards: %w", err)
+			Msg("Transfer failed")
+		return fmt.Errorf("transfer failed: %w", err)
 	}
 
-	// Wait for transaction confirmation
 	receipt, err := bind.WaitMined(ctx, client, tx)
 	if err != nil {
-		return fmt.Errorf("failed to confirm reward distribution: %w", err)
+		return fmt.Errorf("confirmation failed: %w", err)
 	}
 
 	if receipt.Status == 0 {
-		return fmt.Errorf("reward distribution transaction failed")
+		return fmt.Errorf("transfer reverted")
 	}
 
 	return nil
 }
 
 func (h *TaskHandler) checkStakeBalance(_ context.Context, task *models.Task) error {
-	cfg, err := config.LoadConfig("config/config.yaml")
-	if err != nil {
-		return fmt.Errorf("failed to load config: %w", err)
-	}
-
-	client, err := wallet.NewClient(cfg.Ethereum.RPC, cfg.Ethereum.ChainID)
-	if err != nil {
-		return fmt.Errorf("failed to create wallet client: %w", err)
-	}
-
-	stakeWallet, err := stakewallet.NewStakeWallet(
-		common.HexToAddress(cfg.Ethereum.StakeWalletAddress),
-		client,
-	)
-	if err != nil {
-		return fmt.Errorf("failed to create stake wallet contract: %w", err)
+	if h.stakeWallet == nil {
+		return fmt.Errorf("stake wallet not initialized")
 	}
 
 	// Convert reward to wei (assuming reward is in whole tokens)
@@ -321,7 +331,7 @@ func (h *TaskHandler) checkStakeBalance(_ context.Context, task *models.Task) er
 	rewardAmount, _ := rewardWei.Int(nil)
 
 	// Check device stake balance
-	stakeInfo, err := stakeWallet.GetStakeInfo(&bind.CallOpts{}, task.CreatorID)
+	stakeInfo, err := h.stakeWallet.GetStakeInfo(&bind.CallOpts{}, task.CreatorDeviceID)
 	if err != nil || !stakeInfo.Exists {
 		return fmt.Errorf("creator device not registered - please stake first")
 	}

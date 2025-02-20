@@ -35,10 +35,9 @@ func (r *TaskRepository) Create(ctx context.Context, task *models.Task) error {
 	}
 	creatorAddress := crypto.PubkeyToAddress(privateKey.PublicKey).Hex()
 
-	// Convert Config and Environment to JSON before saving
-	configJSON, err := json.Marshal(task.Config)
-	if err != nil {
-		return fmt.Errorf("failed to marshal config: %w", err)
+	// Ensure Config is valid JSON
+	if len(task.Config) == 0 {
+		task.Config = []byte("{}")
 	}
 
 	var envJSON []byte
@@ -47,58 +46,59 @@ func (r *TaskRepository) Create(ctx context.Context, task *models.Task) error {
 		if err != nil {
 			return fmt.Errorf("failed to marshal environment: %w", err)
 		}
-	}
-
-	// Create a map for the query
-	params := map[string]interface{}{
-		"id":              task.ID,
-		"creator_id":      task.CreatorID,
-		"creator_address": creatorAddress,
-		"title":           task.Title,
-		"description":     task.Description,
-		"type":            task.Type,
-		"config":          configJSON,
-		"status":          task.Status,
-		"reward":          task.Reward,
-		"environment":     envJSON,
-		"created_at":      task.CreatedAt,
-		"updated_at":      task.UpdatedAt,
+	} else {
+		envJSON = []byte("{}")
 	}
 
 	query := `
 		INSERT INTO tasks (
-			id, creator_id, creator_address, title, description, type,
+			id, creator_id, creator_address, creator_device_id, title, description, type,
 			config, status, reward, environment,
 			created_at, updated_at
 		) VALUES (
-			:id, :creator_id, :creator_address, :title, :description, :type,
-			:config, :status, :reward, :environment,
-			:created_at, :updated_at
+			$1, $2, $3, $4, $5, $6, $7,
+			$8::jsonb, $9, $10, $11::jsonb,
+			$12, $13
 		)
 	`
 
-	_, err = r.db.NamedExecContext(ctx, query, params)
+	_, err = r.db.ExecContext(ctx, query,
+		task.ID,
+		task.CreatorID,
+		creatorAddress,
+		task.CreatorDeviceID,
+		task.Title,
+		task.Description,
+		task.Type,
+		string(task.Config),
+		task.Status,
+		task.Reward,
+		string(envJSON),
+		task.CreatedAt,
+		task.UpdatedAt,
+	)
 	return err
 }
 
 type dbTask struct {
-	ID             string            `db:"id"`
-	CreatorID      string            `db:"creator_id"`
-	CreatorAddress string            `db:"creator_address"`
-	Title          string            `db:"title"`
-	Description    string            `db:"description"`
-	Type           models.TaskType   `db:"type"`
-	Config         []byte            `db:"config"`
-	Status         models.TaskStatus `db:"status"`
-	Reward         float64           `db:"reward"`
-	RunnerID       *uuid.UUID        `db:"runner_id"`
-	CreatedAt      time.Time         `db:"created_at"`
-	UpdatedAt      time.Time         `db:"updated_at"`
-	CompletedAt    *time.Time        `db:"completed_at"`
-	Environment    []byte            `db:"environment"`
+	ID              uuid.UUID         `db:"id"`
+	CreatorID       uuid.UUID         `db:"creator_id"`
+	CreatorAddress  string            `db:"creator_address"`
+	CreatorDeviceID string            `db:"creator_device_id"`
+	Title           string            `db:"title"`
+	Description     string            `db:"description"`
+	Type            models.TaskType   `db:"type"`
+	Config          []byte            `db:"config"`
+	Status          models.TaskStatus `db:"status"`
+	Reward          float64           `db:"reward"`
+	RunnerID        *uuid.UUID        `db:"runner_id"`
+	CreatedAt       time.Time         `db:"created_at"`
+	UpdatedAt       time.Time         `db:"updated_at"`
+	CompletedAt     *time.Time        `db:"completed_at"`
+	Environment     []byte            `db:"environment"`
 }
 
-func (r *TaskRepository) Get(ctx context.Context, id string) (*models.Task, error) {
+func (r *TaskRepository) Get(ctx context.Context, id uuid.UUID) (*models.Task, error) {
 	var dbTask dbTask
 	query := `SELECT * FROM tasks WHERE id = $1`
 
@@ -111,18 +111,19 @@ func (r *TaskRepository) Get(ctx context.Context, id string) (*models.Task, erro
 	}
 
 	task := &models.Task{
-		ID:             dbTask.ID,
-		CreatorID:      dbTask.CreatorID,
-		CreatorAddress: dbTask.CreatorAddress,
-		Title:          dbTask.Title,
-		Description:    dbTask.Description,
-		Type:           dbTask.Type,
-		Status:         dbTask.Status,
-		Reward:         dbTask.Reward,
-		RunnerID:       dbTask.RunnerID,
-		CreatedAt:      dbTask.CreatedAt,
-		UpdatedAt:      dbTask.UpdatedAt,
-		CompletedAt:    dbTask.CompletedAt,
+		ID:              dbTask.ID,
+		CreatorID:       dbTask.CreatorID,
+		CreatorAddress:  dbTask.CreatorAddress,
+		CreatorDeviceID: dbTask.CreatorDeviceID,
+		Title:           dbTask.Title,
+		Description:     dbTask.Description,
+		Type:            dbTask.Type,
+		Status:          dbTask.Status,
+		Reward:          dbTask.Reward,
+		RunnerID:        dbTask.RunnerID,
+		CreatedAt:       dbTask.CreatedAt,
+		UpdatedAt:       dbTask.UpdatedAt,
+		CompletedAt:     dbTask.CompletedAt,
 	}
 
 	if err := json.Unmarshal(dbTask.Config, &task.Config); err != nil {
@@ -169,18 +170,19 @@ func (r *TaskRepository) ListByStatus(ctx context.Context, status models.TaskSta
 	tasks := make([]*models.Task, len(dbTasks))
 	for i, dbTask := range dbTasks {
 		tasks[i] = &models.Task{
-			ID:             dbTask.ID,
-			CreatorID:      dbTask.CreatorID,
-			CreatorAddress: dbTask.CreatorAddress,
-			Title:          dbTask.Title,
-			Description:    dbTask.Description,
-			Type:           dbTask.Type,
-			Status:         dbTask.Status,
-			Reward:         dbTask.Reward,
-			RunnerID:       dbTask.RunnerID,
-			CreatedAt:      dbTask.CreatedAt,
-			UpdatedAt:      dbTask.UpdatedAt,
-			CompletedAt:    dbTask.CompletedAt,
+			ID:              dbTask.ID,
+			CreatorID:       dbTask.CreatorID,
+			CreatorAddress:  dbTask.CreatorAddress,
+			CreatorDeviceID: dbTask.CreatorDeviceID,
+			Title:           dbTask.Title,
+			Description:     dbTask.Description,
+			Type:            dbTask.Type,
+			Status:          dbTask.Status,
+			Reward:          dbTask.Reward,
+			RunnerID:        dbTask.RunnerID,
+			CreatedAt:       dbTask.CreatedAt,
+			UpdatedAt:       dbTask.UpdatedAt,
+			CompletedAt:     dbTask.CompletedAt,
 		}
 
 		if err := json.Unmarshal(dbTask.Config, &tasks[i].Config); err != nil {
@@ -210,18 +212,19 @@ func (r *TaskRepository) List(ctx context.Context, limit, offset int) ([]*models
 	tasks := make([]*models.Task, len(dbTasks))
 	for i, dbTask := range dbTasks {
 		tasks[i] = &models.Task{
-			ID:             dbTask.ID,
-			CreatorID:      dbTask.CreatorID,
-			CreatorAddress: dbTask.CreatorAddress,
-			Title:          dbTask.Title,
-			Description:    dbTask.Description,
-			Type:           dbTask.Type,
-			Status:         dbTask.Status,
-			Reward:         dbTask.Reward,
-			RunnerID:       dbTask.RunnerID,
-			CreatedAt:      dbTask.CreatedAt,
-			UpdatedAt:      dbTask.UpdatedAt,
-			CompletedAt:    dbTask.CompletedAt,
+			ID:              dbTask.ID,
+			CreatorID:       dbTask.CreatorID,
+			CreatorAddress:  dbTask.CreatorAddress,
+			CreatorDeviceID: dbTask.CreatorDeviceID,
+			Title:           dbTask.Title,
+			Description:     dbTask.Description,
+			Type:            dbTask.Type,
+			Status:          dbTask.Status,
+			Reward:          dbTask.Reward,
+			RunnerID:        dbTask.RunnerID,
+			CreatedAt:       dbTask.CreatedAt,
+			UpdatedAt:       dbTask.UpdatedAt,
+			CompletedAt:     dbTask.CompletedAt,
 		}
 
 		if err := json.Unmarshal(dbTask.Config, &tasks[i].Config); err != nil {
@@ -249,18 +252,19 @@ func (r *TaskRepository) GetAll(ctx context.Context) ([]models.Task, error) {
 	tasks := make([]models.Task, len(dbTasks))
 	for i, dbTask := range dbTasks {
 		tasks[i] = models.Task{
-			ID:             dbTask.ID,
-			CreatorID:      dbTask.CreatorID,
-			CreatorAddress: dbTask.CreatorAddress,
-			Title:          dbTask.Title,
-			Description:    dbTask.Description,
-			Type:           dbTask.Type,
-			Status:         dbTask.Status,
-			Reward:         dbTask.Reward,
-			RunnerID:       dbTask.RunnerID,
-			CreatedAt:      dbTask.CreatedAt,
-			UpdatedAt:      dbTask.UpdatedAt,
-			CompletedAt:    dbTask.CompletedAt,
+			ID:              dbTask.ID,
+			CreatorID:       dbTask.CreatorID,
+			CreatorAddress:  dbTask.CreatorAddress,
+			CreatorDeviceID: dbTask.CreatorDeviceID,
+			Title:           dbTask.Title,
+			Description:     dbTask.Description,
+			Type:            dbTask.Type,
+			Status:          dbTask.Status,
+			Reward:          dbTask.Reward,
+			RunnerID:        dbTask.RunnerID,
+			CreatedAt:       dbTask.CreatedAt,
+			UpdatedAt:       dbTask.UpdatedAt,
+			CompletedAt:     dbTask.CompletedAt,
 		}
 
 		if err := json.Unmarshal(dbTask.Config, &tasks[i].Config); err != nil {
@@ -278,21 +282,43 @@ func (r *TaskRepository) GetAll(ctx context.Context) ([]models.Task, error) {
 	return tasks, nil
 }
 
-func (r *TaskRepository) SaveTaskResult(ctx context.Context, result *models.TaskResult) error {
-	// Hash the device ID
-	deviceIDHash := crypto.Keccak256Hash([]byte(result.DeviceID)).Hex()[2:] // Remove "0x" prefix
-	result.DeviceIDHash = deviceIDHash
+type dbTaskResult struct {
+	ID              uuid.UUID `db:"id"`
+	TaskID          uuid.UUID `db:"task_id"`
+	DeviceID        string    `db:"device_id"`
+	DeviceIDHash    string    `db:"device_id_hash"`
+	RunnerAddress   string    `db:"runner_address"`
+	CreatorAddress  string    `db:"creator_address"`
+	Output          string    `db:"output"`
+	Error           string    `db:"error"`
+	ExitCode        int       `db:"exit_code"`
+	ExecutionTime   int64     `db:"execution_time"`
+	CreatedAt       time.Time `db:"created_at"`
+	CreatorDeviceID string    `db:"creator_device_id"`
+	SolverDeviceID  string    `db:"solver_device_id"`
+	Reward          float64   `db:"reward"`
+	Metadata        []byte    `db:"metadata"`
+	IPFSCID         string    `db:"ipfs_cid"`
+}
 
+func (r *TaskRepository) SaveTaskResult(ctx context.Context, result *models.TaskResult) error {
 	query := `
 		INSERT INTO task_results (
-			task_id, device_id, device_id_hash, runner_address, creator_address,
-			output, error, exit_code, execution_time
+			id, task_id, device_id, device_id_hash, runner_address, creator_address,
+			output, error, exit_code, execution_time, created_at, creator_device_id,
+			solver_device_id, reward, metadata, ipfs_cid
 		) VALUES (
-			$1, $2, $3, $4, $5, $6, $7, $8, $9
+			$1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16
 		)
-		RETURNING id`
+	`
 
-	return r.db.QueryRowContext(ctx, query,
+	metadataJSON, err := json.Marshal(result.Metadata)
+	if err != nil {
+		return fmt.Errorf("failed to marshal metadata: %w", err)
+	}
+
+	_, err = r.db.ExecContext(ctx, query,
+		result.ID,
 		result.TaskID,
 		result.DeviceID,
 		result.DeviceIDHash,
@@ -302,18 +328,52 @@ func (r *TaskRepository) SaveTaskResult(ctx context.Context, result *models.Task
 		result.Error,
 		result.ExitCode,
 		result.ExecutionTime,
-	).Scan(&result.ID)
+		result.CreatedAt,
+		result.CreatorDeviceID,
+		result.SolverDeviceID,
+		result.Reward,
+		metadataJSON,
+		result.IPFSCID,
+	)
+
+	return err
 }
 
-func (r *TaskRepository) GetTaskResult(ctx context.Context, taskID string) (*models.TaskResult, error) {
-	var result models.TaskResult
-	err := r.db.GetContext(ctx, &result,
-		"SELECT * FROM task_results WHERE task_id = $1", taskID)
-	if err == sql.ErrNoRows {
-		return nil, nil
-	}
+func (r *TaskRepository) GetTaskResult(ctx context.Context, taskID uuid.UUID) (*models.TaskResult, error) {
+	query := `SELECT * FROM task_results WHERE task_id = $1`
+	var dbResult dbTaskResult
+
+	err := r.db.GetContext(ctx, &dbResult, query, taskID)
 	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, nil
+		}
 		return nil, err
 	}
-	return &result, nil
+
+	result := &models.TaskResult{
+		ID:              dbResult.ID,
+		TaskID:          dbResult.TaskID,
+		DeviceID:        dbResult.DeviceID,
+		DeviceIDHash:    dbResult.DeviceIDHash,
+		RunnerAddress:   dbResult.RunnerAddress,
+		CreatorAddress:  dbResult.CreatorAddress,
+		Output:          dbResult.Output,
+		Error:           dbResult.Error,
+		ExitCode:        dbResult.ExitCode,
+		ExecutionTime:   dbResult.ExecutionTime,
+		CreatedAt:       dbResult.CreatedAt,
+		CreatorDeviceID: dbResult.CreatorDeviceID,
+		SolverDeviceID:  dbResult.SolverDeviceID,
+		Reward:          dbResult.Reward,
+		IPFSCID:         dbResult.IPFSCID,
+	}
+
+	if len(dbResult.Metadata) > 0 {
+		if err := json.Unmarshal(dbResult.Metadata, &result.Metadata); err != nil {
+			return nil, fmt.Errorf("failed to unmarshal metadata: %w", err)
+		}
+	}
+
+	return result, nil
 }

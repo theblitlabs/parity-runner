@@ -30,13 +30,6 @@ func RunChain() {
 
 	// Proxy request to the server
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		body, err := io.ReadAll(r.Body)
-		if err != nil {
-			http.Error(w, "Error reading request body", http.StatusInternalServerError)
-			return
-		}
-		r.Body.Close()
-
 		// Get the path and ensure it starts with /api
 		path := r.URL.Path
 		if !strings.HasPrefix(path, "/api") {
@@ -51,40 +44,58 @@ func RunChain() {
 			Str("target_url", targetURL).
 			Msg("Forwarding request")
 
-		// After reading the original body
-		var requestData map[string]interface{}
-		if err := json.NewDecoder(bytes.NewBuffer(body)).Decode(&requestData); err != nil {
-			log.Error().Err(err).Msg("Failed to decode request body")
-			http.Error(w, "Invalid request body", http.StatusBadRequest)
-			return
+		var proxyReq *http.Request
+		var err error
+
+		// Only modify body for POST/PUT requests with JSON content
+		if (r.Method == "POST" || r.Method == "PUT") && strings.Contains(r.Header.Get("Content-Type"), "application/json") {
+			body, err := io.ReadAll(r.Body)
+			if err != nil {
+				http.Error(w, "Error reading request body", http.StatusInternalServerError)
+				return
+			}
+			r.Body.Close()
+
+			// Try to decode and modify JSON body
+			var requestData map[string]interface{}
+			if err := json.NewDecoder(bytes.NewBuffer(body)).Decode(&requestData); err != nil {
+				log.Error().Err(err).Msg("Failed to decode request body")
+				http.Error(w, "Invalid request body", http.StatusBadRequest)
+				return
+			}
+
+			// Add device ID to request body
+			requestData["creator_id"] = deviceID
+
+			// Marshal modified body
+			modifiedBody, err := json.Marshal(requestData)
+			if err != nil {
+				log.Error().Err(err).Msg("Failed to marshal modified request body")
+				http.Error(w, "Error processing request", http.StatusInternalServerError)
+				return
+			}
+
+			proxyReq, err = http.NewRequest(r.Method, targetURL, bytes.NewBuffer(modifiedBody))
+			if err != nil {
+				http.Error(w, "Error creating proxy request", http.StatusInternalServerError)
+				return
+			}
+		} else {
+			// For other requests, forward the body as-is
+			proxyReq, err = http.NewRequest(r.Method, targetURL, r.Body)
+			if err != nil {
+				http.Error(w, "Error creating proxy request", http.StatusInternalServerError)
+				return
+			}
 		}
 
-		// Add device ID to request body
-		requestData["creator_id"] = deviceID
-
-		// After modifying the body
-		modifiedBody, err := json.Marshal(requestData)
-		if err != nil {
-			log.Error().Err(err).Msg("Failed to marshal modified request body")
-			http.Error(w, "Error processing request", http.StatusInternalServerError)
-			return
-		}
-
-		// Create new request with modified body
-		proxyReq, err := http.NewRequest(r.Method, targetURL, bytes.NewBuffer(modifiedBody))
-		if err != nil {
-			http.Error(w, "Error creating proxy request", http.StatusInternalServerError)
-			return
-		}
-
-		// Copy headers again
+		// Copy headers
 		for header, values := range r.Header {
 			for _, value := range values {
 				proxyReq.Header.Add(header, value)
 			}
 		}
 		proxyReq.Header.Set("X-Device-ID", deviceID)
-		proxyReq.Header.Set("Content-Length", fmt.Sprintf("%d", len(modifiedBody)))
 
 		// Forward the request
 		client := &http.Client{}

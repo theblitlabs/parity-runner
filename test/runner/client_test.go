@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/theblitlabs/parity-protocol/internal/models"
 	"github.com/theblitlabs/parity-protocol/internal/runner"
@@ -18,10 +19,10 @@ func configToJSON(t *testing.T, config models.TaskConfig) json.RawMessage {
 }
 
 func TestGetAvailableTasks(t *testing.T) {
-	// Setup test server
+	taskID := uuid.New()
 	mockTasks := []*models.Task{
 		{
-			ID:          "task1",
+			ID:          taskID,
 			Title:       "Test Task",
 			Description: "Test Description",
 			Status:      models.TaskStatusPending,
