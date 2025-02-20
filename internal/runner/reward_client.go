@@ -7,10 +7,10 @@ import (
 
 	"github.com/ethereum/go-ethereum/accounts/abi/bind"
 	"github.com/ethereum/go-ethereum/common"
-	"github.com/rs/zerolog/log"
 	"github.com/theblitlabs/parity-protocol/internal/config"
 	"github.com/theblitlabs/parity-protocol/internal/models"
 	"github.com/theblitlabs/parity-protocol/pkg/keystore"
+	"github.com/theblitlabs/parity-protocol/pkg/logger"
 	"github.com/theblitlabs/parity-protocol/pkg/stakewallet"
 	"github.com/theblitlabs/parity-protocol/pkg/wallet"
 )
@@ -41,10 +41,11 @@ func (c *EthereumRewardClient) SetStakeWallet(sw StakeWallet) {
 }
 
 func (c *EthereumRewardClient) DistributeRewards(result *models.TaskResult) error {
-	log := log.With().
-		Str("component", "reward_client").
+	log := logger.WithComponent("rewards").With().
 		Str("task_id", result.TaskID.String()).
 		Str("device_id", result.DeviceID).
+		Str("creator_id", result.CreatorDeviceID).
+		Float64("reward", result.Reward).
 		Logger()
 
 	log.Info().Msg("Starting reward distribution")
@@ -53,18 +54,21 @@ func (c *EthereumRewardClient) DistributeRewards(result *models.TaskResult) erro
 	if c.stakeWallet != nil {
 		stakeInfo, err := c.stakeWallet.GetStakeInfo(&bind.CallOpts{}, result.DeviceID)
 		if err != nil {
-			log.Error().Err(err).Msg("Failed to check stake info")
+			log.Error().
+				Err(err).
+				Msg("Failed to verify stake info")
 			return nil // Don't fail the task
 		}
 
 		if !stakeInfo.Exists {
-			log.Error().Msg("No stake found for runner - staking required")
+			log.Warn().
+				Msg("No stake found for runner - staking required")
 			return nil // Don't fail the task
 		}
 
 		log.Info().
 			Str("stake_amount", stakeInfo.Amount.String()).
-			Msg("Found valid stake")
+			Msg("Found valid stake for runner")
 
 		rewardWei := new(big.Float).Mul(
 			new(big.Float).SetFloat64(result.Reward),
@@ -73,23 +77,31 @@ func (c *EthereumRewardClient) DistributeRewards(result *models.TaskResult) erro
 		rewardAmount, _ := rewardWei.Int(nil)
 
 		log.Info().
-			Str("reward_amount", rewardAmount.String()).
+			Str("reward_wei", rewardAmount.String()).
 			Str("creator_address", result.CreatorAddress).
-			Msg("Transferring reward payment")
+			Msg("Initiating reward transfer")
 
 		if err := c.stakeWallet.TransferPayment(nil, result.CreatorAddress, result.DeviceID, rewardAmount); err != nil {
-			log.Error().Err(err).Msg("Failed to transfer reward payment")
+			log.Error().
+				Err(err).
+				Str("reward_wei", rewardAmount.String()).
+				Str("creator_address", result.CreatorAddress).
+				Msg("Failed to transfer reward")
 			return fmt.Errorf("failed to distribute rewards: %w", err)
 		}
 
-		log.Info().Msg("Reward payment transferred successfully")
+		log.Info().
+			Str("reward_wei", rewardAmount.String()).
+			Msg("Reward transfer completed successfully")
 		return nil
 	}
 
 	// Get private key from keystore
 	privateKey, err := keystore.GetPrivateKey()
 	if err != nil {
-		log.Error().Err(err).Msg("Failed to get private key")
+		log.Error().
+			Err(err).
+			Msg("Failed to get private key - authentication required")
 		return fmt.Errorf("no private key found - please authenticate first: %w", err)
 	}
 
@@ -100,41 +112,56 @@ func (c *EthereumRewardClient) DistributeRewards(result *models.TaskResult) erro
 		privateKey,
 	)
 	if err != nil {
-		log.Error().Err(err).Msg("Failed to create wallet client")
+		log.Error().
+			Err(err).
+			Str("rpc_endpoint", c.cfg.Ethereum.RPC).
+			Int64("chain_id", c.cfg.Ethereum.ChainID).
+			Msg("Failed to create wallet client")
 		return fmt.Errorf("failed to create wallet client: %w", err)
 	}
 
 	log.Info().
 		Str("wallet_address", client.Address().Hex()).
+		Str("rpc_endpoint", c.cfg.Ethereum.RPC).
+		Int64("chain_id", c.cfg.Ethereum.ChainID).
 		Msg("Wallet client initialized")
 
 	stakeWalletAddr := common.HexToAddress(c.cfg.Ethereum.StakeWalletAddress)
 	stakeWallet, err := stakewallet.NewStakeWallet(stakeWalletAddr, client)
 	if err != nil {
-		log.Error().Err(err).Msg("Failed to create stake wallet")
+		log.Error().
+			Err(err).
+			Str("stake_wallet_address", stakeWalletAddr.Hex()).
+			Msg("Failed to create stake wallet contract")
 		return fmt.Errorf("failed to create stake wallet: %w", err)
 	}
 
 	// Check if runner has staked
 	stakeInfo, err := stakeWallet.GetStakeInfo(&bind.CallOpts{}, result.DeviceID)
 	if err != nil {
-		log.Error().Err(err).Msg("Failed to check stake info")
+		log.Error().
+			Err(err).
+			Msg("Failed to verify stake info")
 		return nil // Don't fail the task
 	}
 
 	if !stakeInfo.Exists {
-		log.Error().Msg("No stake found for runner - please stake tokens first using 'parity stake'")
+		log.Warn().
+			Msg("No stake found for runner - please stake tokens using 'parity stake'")
 		return nil // Don't fail the task
 	}
 
 	log.Info().
 		Str("stake_amount", stakeInfo.Amount.String()).
-		Msg("Found valid stake")
+		Msg("Found valid stake for runner")
 
 	// Get transaction options from the authenticated client
 	txOpts, err := client.GetTransactOpts()
 	if err != nil {
-		log.Error().Err(err).Msg("Failed to get transaction options")
+		log.Error().
+			Err(err).
+			Str("wallet_address", client.Address().Hex()).
+			Msg("Failed to get transaction options")
 		return fmt.Errorf("failed to get transaction options: %w", err)
 	}
 
@@ -145,9 +172,9 @@ func (c *EthereumRewardClient) DistributeRewards(result *models.TaskResult) erro
 	rewardAmount, _ := rewardWei.Int(nil)
 
 	log.Info().
-		Str("reward_amount", rewardAmount.String()).
-		Str("creator_address", result.CreatorAddress).
-		Msg("Transferring reward payment")
+		Str("reward_wei", rewardAmount.String()).
+		Str("creator_id", result.CreatorDeviceID).
+		Msg("Initiating reward transfer")
 
 	tx, err := stakeWallet.TransferPayment(
 		txOpts,
@@ -156,29 +183,42 @@ func (c *EthereumRewardClient) DistributeRewards(result *models.TaskResult) erro
 		rewardAmount,
 	)
 	if err != nil {
-		log.Error().Err(err).Msg("Failed to transfer reward payment")
+		log.Error().
+			Err(err).
+			Str("reward_wei", rewardAmount.String()).
+			Str("creator_id", result.CreatorDeviceID).
+			Msg("Failed to transfer reward")
 		return fmt.Errorf("failed to distribute rewards: %w", err)
 	}
 
 	log.Info().
 		Str("tx_hash", tx.Hash().Hex()).
-		Msg("Reward payment transaction submitted")
+		Str("reward_wei", rewardAmount.String()).
+		Msg("Reward transfer submitted")
 
 	// Wait for transaction confirmation
 	receipt, err := bind.WaitMined(context.Background(), client, tx)
 	if err != nil {
-		log.Error().Err(err).Msg("Failed to confirm reward payment")
+		log.Error().
+			Err(err).
+			Str("tx_hash", tx.Hash().Hex()).
+			Msg("Failed to confirm reward transfer")
 		return fmt.Errorf("failed to confirm reward distribution: %w", err)
 	}
 
 	if receipt.Status == 0 {
-		log.Error().Msg("Reward payment transaction failed")
+		log.Error().
+			Str("tx_hash", tx.Hash().Hex()).
+			Str("reward_wei", rewardAmount.String()).
+			Msg("Reward transfer failed")
 		return fmt.Errorf("reward distribution transaction failed")
 	}
 
 	log.Info().
 		Str("tx_hash", tx.Hash().Hex()).
-		Msg("Reward payment confirmed successfully")
+		Str("reward_wei", rewardAmount.String()).
+		Str("block_number", receipt.BlockNumber.String()).
+		Msg("Reward transfer confirmed")
 
 	return nil
 }

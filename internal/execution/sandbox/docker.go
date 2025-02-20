@@ -31,8 +31,13 @@ type ExecutorConfig struct {
 }
 
 func NewDockerExecutor(config *ExecutorConfig) (*DockerExecutor, error) {
+	log := logger.WithComponent("docker")
+
 	cli, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
 	if err != nil {
+		log.Error().
+			Err(err).
+			Msg("Failed to create Docker client")
 		return nil, fmt.Errorf("failed to create Docker client: %w", err)
 	}
 
@@ -41,8 +46,19 @@ func NewDockerExecutor(config *ExecutorConfig) (*DockerExecutor, error) {
 		APIEndpoint: config.IPFSEndpoint,
 	})
 	if err != nil {
+		log.Error().
+			Err(err).
+			Str("ipfs_endpoint", config.IPFSEndpoint).
+			Msg("Failed to create IPFS client")
 		return nil, fmt.Errorf("failed to create IPFS client: %w", err)
 	}
+
+	log.Info().
+		Str("memory_limit", config.MemoryLimit).
+		Str("cpu_limit", config.CPULimit).
+		Dur("timeout", config.Timeout).
+		Str("ipfs_endpoint", config.IPFSEndpoint).
+		Msg("Docker executor initialized")
 
 	return &DockerExecutor{
 		client:     cli,
@@ -88,7 +104,7 @@ func cleanOutput(output []byte) string {
 }
 
 func (e *DockerExecutor) ExecuteTask(ctx context.Context, task *models.Task) (*models.TaskResult, error) {
-	log := logger.Get().With().Str("component", "docker").Logger()
+	log := logger.WithComponent("docker")
 
 	startTime := time.Now()
 	result := models.NewTaskResult()
@@ -97,21 +113,37 @@ func (e *DockerExecutor) ExecuteTask(ctx context.Context, task *models.Task) (*m
 	// Unmarshal config
 	var config models.TaskConfig
 	if err := json.Unmarshal(task.Config, &config); err != nil {
+		log.Error().
+			Err(err).
+			Str("task_id", task.ID.String()).
+			Str("config", string(task.Config)).
+			Msg("Failed to unmarshal task config")
 		return nil, fmt.Errorf("failed to unmarshal task config: %w", err)
 	}
 
 	if len(config.Command) == 0 {
+		log.Error().
+			Str("task_id", task.ID.String()).
+			Msg("Task config missing required command")
 		return nil, fmt.Errorf("command is required")
 	}
 
 	// Validate required fields
 	image, ok := task.Environment.Config["image"].(string)
 	if !ok || image == "" {
+		log.Error().
+			Str("task_id", task.ID.String()).
+			Interface("environment", task.Environment.Config).
+			Msg("Task environment missing required image")
 		return nil, fmt.Errorf("task environment config must include a valid 'image'")
 	}
 
 	workdir, ok := task.Environment.Config["workdir"].(string)
 	if !ok || workdir == "" {
+		log.Error().
+			Str("task_id", task.ID.String()).
+			Interface("environment", task.Environment.Config).
+			Msg("Task environment missing required workdir")
 		return nil, fmt.Errorf("task environment config must include a valid 'workdir'")
 	}
 
@@ -131,13 +163,18 @@ func (e *DockerExecutor) ExecuteTask(ctx context.Context, task *models.Task) (*m
 	defer cancel()
 
 	// Pull Docker image
-	log.Info().Str("image", image).Msg("Pulling Docker image")
-	reader, err := e.client.ImagePull(
-		ctx,
-		image,
-		types.ImagePullOptions{},
-	)
+	log.Info().
+		Str("task_id", task.ID.String()).
+		Str("image", image).
+		Msg("Pulling Docker image")
+
+	reader, err := e.client.ImagePull(ctx, image, types.ImagePullOptions{})
 	if err != nil {
+		log.Error().
+			Err(err).
+			Str("task_id", task.ID.String()).
+			Str("image", image).
+			Msg("Failed to pull Docker image")
 		return nil, fmt.Errorf("failed to pull image '%s': %w", image, err)
 	}
 	defer reader.Close()
@@ -150,9 +187,20 @@ func (e *DockerExecutor) ExecuteTask(ctx context.Context, task *models.Task) (*m
 			if err == io.EOF {
 				break
 			}
+			log.Error().
+				Err(err).
+				Str("task_id", task.ID.String()).
+				Str("image", image).
+				Msg("Failed to decode image pull status")
 			return nil, fmt.Errorf("failed to decode pull status: %w", err)
 		}
-		log.Debug().Interface("status", pullStatus).Msg("Pull status")
+		if status, ok := pullStatus["status"].(string); ok {
+			log.Debug().
+				Str("task_id", task.ID.String()).
+				Str("image", image).
+				Str("status", status).
+				Msg("Image pull progress")
+		}
 	}
 
 	// Create the container
@@ -165,36 +213,76 @@ func (e *DockerExecutor) ExecuteTask(ctx context.Context, task *models.Task) (*m
 		},
 		nil, nil, nil, "")
 	if err != nil {
+		log.Error().
+			Err(err).
+			Str("task_id", task.ID.String()).
+			Str("image", image).
+			Strs("command", config.Command).
+			Msg("Failed to create container")
 		return nil, fmt.Errorf("failed to create container: %w", err)
 	}
 	containerID := resp.ID
+
+	log.Info().
+		Str("task_id", task.ID.String()).
+		Str("container_id", containerID).
+		Str("image", image).
+		Strs("command", config.Command).
+		Msg("Container created")
 
 	// Ensure container is cleaned up on function exit
 	defer func() {
 		err := e.client.ContainerRemove(ctx, containerID, types.ContainerRemoveOptions{Force: true})
 		if err != nil {
-			log.Error().Err(err).Str("containerID", containerID).Msg("failed to remove container")
+			log.Error().
+				Err(err).
+				Str("task_id", task.ID.String()).
+				Str("container_id", containerID).
+				Msg("Failed to remove container")
 		} else {
-			log.Info().Str("containerID", containerID).Msg("Container removed successfully")
+			log.Debug().
+				Str("task_id", task.ID.String()).
+				Str("container_id", containerID).
+				Msg("Container removed")
 		}
 	}()
 
 	// Start the container
 	if err := e.client.ContainerStart(ctx, containerID, types.ContainerStartOptions{}); err != nil {
+		log.Error().
+			Err(err).
+			Str("task_id", task.ID.String()).
+			Str("container_id", containerID).
+			Msg("Failed to start container")
 		return nil, fmt.Errorf("failed to start container: %w", err)
 	}
+
+	log.Info().
+		Str("task_id", task.ID.String()).
+		Str("container_id", containerID).
+		Msg("Container started")
 
 	// Wait for the container to finish
 	statusCh, errCh := e.client.ContainerWait(ctx, containerID, container.WaitConditionNotRunning)
 	select {
 	case err := <-errCh:
 		if err != nil {
+			log.Error().
+				Err(err).
+				Str("task_id", task.ID.String()).
+				Str("container_id", containerID).
+				Msg("Container execution failed")
 			result.Error = err.Error()
 			result.ExitCode = -1
 			return result, fmt.Errorf("error waiting for container: %w", err)
 		}
 	case status := <-statusCh:
 		result.ExitCode = int(status.StatusCode)
+		log.Info().
+			Str("task_id", task.ID.String()).
+			Str("container_id", containerID).
+			Int("exit_code", result.ExitCode).
+			Msg("Container execution completed")
 	}
 
 	// Fetch container logs
@@ -203,6 +291,11 @@ func (e *DockerExecutor) ExecuteTask(ctx context.Context, task *models.Task) (*m
 		ShowStderr: true,
 	})
 	if err != nil {
+		log.Error().
+			Err(err).
+			Str("task_id", task.ID.String()).
+			Str("container_id", containerID).
+			Msg("Failed to fetch container logs")
 		result.Error = err.Error()
 		return result, fmt.Errorf("failed to get container logs: %w", err)
 	}
@@ -210,6 +303,11 @@ func (e *DockerExecutor) ExecuteTask(ctx context.Context, task *models.Task) (*m
 
 	logs, err := io.ReadAll(out)
 	if err != nil {
+		log.Error().
+			Err(err).
+			Str("task_id", task.ID.String()).
+			Str("container_id", containerID).
+			Msg("Failed to read container logs")
 		result.Error = err.Error()
 		return result, fmt.Errorf("failed to read container logs: %w", err)
 	}
@@ -221,10 +319,20 @@ func (e *DockerExecutor) ExecuteTask(ctx context.Context, task *models.Task) (*m
 	// Upload logs to IPFS
 	logCID, err := e.ipfsClient.UploadData([]byte(cleanedLogs))
 	if err != nil {
-		log.Error().Err(err).Msg("Failed to upload logs to IPFS")
+		log.Error().
+			Err(err).
+			Str("task_id", task.ID.String()).
+			Str("container_id", containerID).
+			Msg("Failed to upload logs to IPFS")
 		// Don't fail the task if IPFS upload fails, just log the error
 	} else {
-		log.Info().Str("cid", logCID).Msg("Container logs uploaded to IPFS")
+		log.Info().
+			Str("task_id", task.ID.String()).
+			Str("container_id", containerID).
+			Str("cid", logCID).
+			Int("log_size", len(cleanedLogs)).
+			Msg("Task logs uploaded to IPFS")
+
 		// Add the CID to the result metadata
 		if result.Metadata == nil {
 			result.Metadata = make(map[string]interface{})
@@ -233,6 +341,13 @@ func (e *DockerExecutor) ExecuteTask(ctx context.Context, task *models.Task) (*m
 	}
 
 	result.ExecutionTime = time.Since(startTime).Nanoseconds()
+
+	log.Info().
+		Str("task_id", task.ID.String()).
+		Str("container_id", containerID).
+		Int("exit_code", result.ExitCode).
+		Int64("execution_time_ns", result.ExecutionTime).
+		Msg("Task execution completed")
 
 	return result, nil
 }
