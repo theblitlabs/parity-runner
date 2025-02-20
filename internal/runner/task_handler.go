@@ -2,10 +2,15 @@ package runner
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
+	"time"
 
+	"github.com/google/uuid"
 	"github.com/rs/zerolog/log"
 	"github.com/theblitlabs/parity-protocol/internal/models"
+	"github.com/theblitlabs/parity-protocol/pkg/device"
 )
 
 type TaskHandler interface {
@@ -29,17 +34,37 @@ func NewTaskHandler(executor TaskExecutor, taskClient TaskClient, rewardClient R
 func (h *DefaultTaskHandler) HandleTask(task *models.Task) error {
 	log := log.With().
 		Str("component", "task_handler").
-		Str("task", task.ID).
+		Str("task", task.ID.String()).
 		Str("type", string(task.Type)).
 		Logger()
 
 	log.Info().
 		Float64("reward", task.Reward).
 		Str("title", task.Title).
+		Str("creator_device_id", task.CreatorDeviceID).
 		Msg("Processing task")
 
+	// Log task details for debugging
+	log.Debug().
+		Str("creator_device_id", task.CreatorDeviceID).
+		Str("creator_address", task.CreatorAddress).
+		Interface("environment", task.Environment).
+		Interface("config", task.Config).
+		Msg("Task details")
+
+	// Validate task before processing
+	if task.CreatorDeviceID == "" {
+		log.Error().Msg("Creator device ID is missing from task")
+		return fmt.Errorf("creator device ID is missing from task")
+	}
+
+	if err := task.Validate(); err != nil {
+		log.Error().Err(err).Msg("Invalid task configuration")
+		return fmt.Errorf("invalid task configuration: %w", err)
+	}
+
 	// Try to start task
-	if err := h.taskClient.StartTask(task.ID); err != nil {
+	if err := h.taskClient.StartTask(task.ID.String()); err != nil {
 		log.Error().Err(err).Msg("Failed to start task")
 		return fmt.Errorf("failed to start task: %w", err)
 	}
@@ -53,24 +78,70 @@ func (h *DefaultTaskHandler) HandleTask(task *models.Task) error {
 		return fmt.Errorf("failed to execute task: %w", err)
 	}
 
-	// Save the task result
-	if err := h.taskClient.SaveTaskResult(task.ID, result); err != nil {
+	// Get device ID
+	deviceID, err := device.VerifyDeviceID()
+	if err != nil {
+		log.Error().Err(err).Msg("Failed to get device ID")
+		return fmt.Errorf("failed to get device ID: %w", err)
+	}
+
+	// Hash the device ID
+	hash := sha256.Sum256([]byte(deviceID))
+	deviceIDHash := hex.EncodeToString(hash[:])
+
+	// Ensure result has required fields
+	if result.ID == uuid.Nil {
+		result.ID = uuid.New()
+	}
+	if result.TaskID == uuid.Nil {
+		result.TaskID = task.ID
+	}
+	if result.CreatedAt.IsZero() {
+		result.CreatedAt = time.Now()
+	}
+
+	// Set all required fields
+	result.DeviceID = deviceID
+	result.DeviceIDHash = deviceIDHash
+	result.SolverDeviceID = deviceID
+	result.CreatorDeviceID = task.CreatorDeviceID
+	result.CreatorAddress = task.CreatorAddress
+	result.RunnerAddress = deviceID
+	result.Reward = task.Reward
+
+	// Log fields for debugging
+	log.Debug().
+		Str("creator_device_id", result.CreatorDeviceID).
+		Str("creator_address", result.CreatorAddress).
+		Str("solver_device_id", result.SolverDeviceID).
+		Str("device_id", result.DeviceID).
+		Str("task_creator_device_id", task.CreatorDeviceID).
+		Msg("Task result fields")
+
+	// Validate result fields
+	if result.CreatorDeviceID == "" {
+		log.Error().Msg("Creator device ID is empty after setting from task")
+		return fmt.Errorf("creator device ID is missing from task")
+	}
+
+	// Save result
+	if err := h.taskClient.SaveTaskResult(task.ID.String(), result); err != nil {
 		log.Error().Err(err).Msg("Failed to save task result")
 		return fmt.Errorf("failed to save task result: %w", err)
 	}
 
-	// Mark task as completed
-	if err := h.taskClient.CompleteTask(task.ID); err != nil {
-		log.Error().Err(err).Msg("Failed to mark task as completed")
+	// Complete task
+	if err := h.taskClient.CompleteTask(task.ID.String()); err != nil {
+		log.Error().Err(err).Msg("Failed to complete task")
 		return fmt.Errorf("failed to complete task: %w", err)
 	}
 
-	// Distribute rewards
-	if err := h.rewardClient.DistributeRewards(result); err != nil {
-		log.Error().Err(err).
-			Float64("reward", task.Reward).
-			Msg("Failed to distribute rewards")
-		// Don't fail the task if reward distribution fails
+	// Distribute rewards if task was successful
+	if result.ExitCode == 0 {
+		if err := h.rewardClient.DistributeRewards(result); err != nil {
+			log.Error().Err(err).Msg("Failed to distribute rewards")
+			// Don't fail the task if reward distribution fails
+		}
 	}
 
 	log.Info().

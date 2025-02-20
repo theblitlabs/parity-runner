@@ -12,6 +12,7 @@ import (
 	"github.com/theblitlabs/parity-protocol/internal/api/handlers"
 	"github.com/theblitlabs/parity-protocol/internal/config"
 	"github.com/theblitlabs/parity-protocol/internal/database/repositories"
+	"github.com/theblitlabs/parity-protocol/internal/ipfs"
 	"github.com/theblitlabs/parity-protocol/internal/services"
 	"github.com/theblitlabs/parity-protocol/pkg/database"
 	"github.com/theblitlabs/parity-protocol/pkg/device"
@@ -53,9 +54,12 @@ func RunServer() {
 
 	log.Info().Msg("Successfully connected to database")
 
+	// Initialize IPFS client
+	ipfsClient := ipfs.NewClient(cfg)
+
 	// Initialize database
 	taskRepo := repositories.NewTaskRepository(dbx)
-	taskService := services.NewTaskService(taskRepo)
+	taskService := services.NewTaskService(taskRepo, ipfsClient)
 	taskHandler := handlers.NewTaskHandler(taskService)
 
 	// Initialize API handlers and start server

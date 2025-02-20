@@ -91,9 +91,8 @@ func (e *DockerExecutor) ExecuteTask(ctx context.Context, task *models.Task) (*m
 	log := logger.Get().With().Str("component", "docker").Logger()
 
 	startTime := time.Now()
-	result := &models.TaskResult{
-		TaskID: task.ID,
-	}
+	result := models.NewTaskResult()
+	result.TaskID = task.ID
 
 	// Unmarshal config
 	var config models.TaskConfig

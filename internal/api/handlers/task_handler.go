@@ -2,14 +2,18 @@ package handlers
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"math/big"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/ethereum/go-ethereum/accounts/abi/bind"
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/google/uuid"
 	"github.com/gorilla/mux"
 	"github.com/gorilla/websocket"
 	"github.com/theblitlabs/parity-protocol/internal/config"
@@ -132,26 +136,41 @@ func (h *TaskHandler) SaveTaskResult(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if task.CreatorID == "" {
+	if task.CreatorID == uuid.Nil {
 		http.Error(w, "Creator device ID is required", http.StatusBadRequest)
 		return
 	}
 
-	if err := h.checkStakeBalance(r.Context(), task); err != nil {
-		http.Error(w, "Task creation failed: "+err.Error(), http.StatusBadRequest)
+	taskUUID, err := uuid.Parse(taskID)
+	if err != nil {
+		http.Error(w, "Invalid task ID format", http.StatusBadRequest)
 		return
 	}
 
-	result.TaskID = taskID
+	// Set all required fields
+	result.TaskID = taskUUID
 	result.DeviceID = deviceID
-	result.CreatorAddress = task.CreatorAddress // Add creator's address to result
+	result.CreatorAddress = task.CreatorAddress
+	result.CreatorDeviceID = task.CreatorDeviceID
+	result.SolverDeviceID = deviceID
+	result.RunnerAddress = deviceID
 	result.CreatedAt = time.Now()
+	result.Reward = task.Reward
+
+	// Hash the device ID
+	hash := sha256.Sum256([]byte(deviceID))
+	result.DeviceIDHash = hex.EncodeToString(hash[:])
+
 	result.Clean()
 
-	// Save the result first
+	// Save the result
 	if err := h.service.SaveTaskResult(r.Context(), &result); err != nil {
 		log.Error().Err(err).Str("task_id", taskID).Msg("Failed to save task result")
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		if strings.Contains(err.Error(), "invalid task result:") {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+		} else {
+			http.Error(w, "Failed to save task result", http.StatusInternalServerError)
+		}
 		return
 	}
 
@@ -242,7 +261,7 @@ func (h *TaskHandler) distributeRewards(ctx context.Context, result *models.Task
 		Msg("Found staked tokens for device")
 
 	// Get the actual task to access creator information
-	task, err := h.service.GetTask(ctx, result.TaskID)
+	task, err := h.service.GetTask(ctx, result.TaskID.String())
 	if err != nil {
 		return fmt.Errorf("failed to get task details: %w", err)
 	}
@@ -268,8 +287,8 @@ func (h *TaskHandler) distributeRewards(ctx context.Context, result *models.Task
 	// Transfer payment from creator to solver
 	tx, err := stakeWallet.TransferPayment(
 		txOpts,
-		task.CreatorID,  // Correct: Use creator's device ID
-		result.DeviceID, // Runner's device ID
+		task.CreatorID.String(), // Correct: Use creator's device ID
+		result.DeviceID,         // Runner's device ID
 		rewardWei,
 	)
 	if err != nil {
@@ -321,7 +340,7 @@ func (h *TaskHandler) checkStakeBalance(_ context.Context, task *models.Task) er
 	rewardAmount, _ := rewardWei.Int(nil)
 
 	// Check device stake balance
-	stakeInfo, err := stakeWallet.GetStakeInfo(&bind.CallOpts{}, task.CreatorID)
+	stakeInfo, err := stakeWallet.GetStakeInfo(&bind.CallOpts{}, task.CreatorDeviceID)
 	if err != nil || !stakeInfo.Exists {
 		return fmt.Errorf("creator device not registered - please stake first")
 	}

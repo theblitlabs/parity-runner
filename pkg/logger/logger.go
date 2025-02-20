@@ -55,7 +55,7 @@ func Init() {
 			msg := fmt.Sprint(i)
 			msg = strings.Replace(msg, "Request started", "→", 1)
 			msg = strings.Replace(msg, "Request completed", "←", 1)
-			return fmt.Sprintf("%-40s", msg) // Reduced padding for better alignment
+			return msg
 		},
 	}
 

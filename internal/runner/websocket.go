@@ -97,7 +97,7 @@ func (w *WebSocketClient) handleMessage(msg WSMessage) {
 		for _, task := range tasks {
 			if err := w.handler.HandleTask(task); err != nil {
 				log.Error().Err(err).
-					Str("task_id", task.ID).
+					Str("task_id", task.ID.String()).
 					Str("type", string(task.Type)).
 					Msg("Failed to handle task")
 			}

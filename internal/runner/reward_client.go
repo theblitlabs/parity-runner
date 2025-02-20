@@ -43,7 +43,7 @@ func (c *EthereumRewardClient) SetStakeWallet(sw StakeWallet) {
 func (c *EthereumRewardClient) DistributeRewards(result *models.TaskResult) error {
 	log := log.With().
 		Str("component", "reward_client").
-		Str("task_id", result.TaskID).
+		Str("task_id", result.TaskID.String()).
 		Str("device_id", result.DeviceID).
 		Logger()
 
