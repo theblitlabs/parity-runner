@@ -151,7 +151,7 @@ func (c *EthereumRewardClient) DistributeRewards(result *models.TaskResult) erro
 
 	tx, err := stakeWallet.TransferPayment(
 		txOpts,
-		result.CreatorAddress,
+		result.CreatorDeviceID,
 		result.DeviceID,
 		rewardAmount,
 	)

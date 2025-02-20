@@ -287,8 +287,8 @@ func (h *TaskHandler) distributeRewards(ctx context.Context, result *models.Task
 	// Transfer payment from creator to solver
 	tx, err := stakeWallet.TransferPayment(
 		txOpts,
-		task.CreatorID.String(), // Correct: Use creator's device ID
-		result.DeviceID,         // Runner's device ID
+		task.CreatorDeviceID, // Use creator's device ID from task
+		result.DeviceID,      // Runner's device ID
 		rewardWei,
 	)
 	if err != nil {
