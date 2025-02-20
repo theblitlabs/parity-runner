@@ -50,15 +50,8 @@ func NewService(cfg *config.Config) (*Service, error) {
 	// Initialize task handler
 	taskHandler := NewTaskHandler(executor, taskClient, rewardClient)
 
-	// Create WebSocket URL
-	wsURL := fmt.Sprintf("ws://%s:%s%s/runners/ws",
-		cfg.Server.Host,
-		cfg.Server.Port,
-		cfg.Server.Endpoint,
-	)
-
 	// Initialize WebSocket client
-	wsClient := NewWebSocketClient(wsURL, taskHandler)
+	wsClient := NewWebSocketClient(cfg.Runner.WebsocketURL, taskHandler)
 
 	log.Debug().Msg("Runner service initialized")
 

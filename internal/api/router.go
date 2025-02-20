@@ -37,17 +37,20 @@ func NewRouter(
 		endpoint:   endpoint,
 	}
 
-	// Create a separate router for WebSocket without middleware
-	wsRouter := mux.NewRouter()
-	wsRouter.HandleFunc(endpoint+"/runners/ws", r.handleWebSocket(taskHandler))
-
-	// Combine the routers
-	r.Router = r.Router.PathPrefix("/").Subrouter()
-	r.Router.NotFoundHandler = wsRouter
-
 	// Setup middleware for regular HTTP routes
 	r.setup()
-	r.registerRoutes(taskHandler)
+
+	// Register WebSocket endpoint first (without middleware)
+	r.Router.HandleFunc(endpoint+"/runners/ws", r.handleWebSocket(taskHandler))
+
+	// Create API subrouter with middleware
+	apiRouter := r.Router.PathPrefix("/").Subrouter()
+	for _, m := range r.middleware {
+		apiRouter.Use(m)
+	}
+
+	// Register HTTP routes on the API subrouter
+	r.registerRoutes(apiRouter, taskHandler)
 
 	return r
 }
@@ -61,8 +64,8 @@ func (r *Router) setup() {
 }
 
 // registerRoutes registers all application routes
-func (r *Router) registerRoutes(taskHandler *handlers.TaskHandler) {
-	api := r.PathPrefix(r.endpoint).Subrouter()
+func (r *Router) registerRoutes(router *mux.Router, taskHandler *handlers.TaskHandler) {
+	api := router.PathPrefix(r.endpoint).Subrouter()
 	tasks := api.PathPrefix("/tasks").Subrouter()
 	runners := api.PathPrefix("/runners").Subrouter()
 

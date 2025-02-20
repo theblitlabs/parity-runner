@@ -1,0 +1,1 @@
+ALTER TABLE task_results ADD COLUMN metadata JSONB DEFAULT '{}'::jsonb; 

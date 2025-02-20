@@ -13,18 +13,21 @@ import (
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/client"
 	"github.com/theblitlabs/parity-protocol/internal/models"
+	"github.com/theblitlabs/parity-protocol/pkg/ipfs"
 	"github.com/theblitlabs/parity-protocol/pkg/logger"
 )
 
 type DockerExecutor struct {
-	client *client.Client
-	config *ExecutorConfig
+	client     *client.Client
+	config     *ExecutorConfig
+	ipfsClient *ipfs.Service
 }
 
 type ExecutorConfig struct {
-	MemoryLimit string
-	CPULimit    string
-	Timeout     time.Duration
+	MemoryLimit  string
+	CPULimit     string
+	Timeout      time.Duration
+	IPFSEndpoint string // IPFS API endpoint
 }
 
 func NewDockerExecutor(config *ExecutorConfig) (*DockerExecutor, error) {
@@ -33,9 +36,18 @@ func NewDockerExecutor(config *ExecutorConfig) (*DockerExecutor, error) {
 		return nil, fmt.Errorf("failed to create Docker client: %w", err)
 	}
 
+	// Initialize IPFS client
+	ipfsClient, err := ipfs.New(ipfs.Config{
+		APIEndpoint: config.IPFSEndpoint,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to create IPFS client: %w", err)
+	}
+
 	return &DockerExecutor{
-		client: cli,
-		config: config,
+		client:     cli,
+		config:     config,
+		ipfsClient: ipfsClient,
 	}, nil
 }
 
@@ -76,7 +88,7 @@ func cleanOutput(output []byte) string {
 }
 
 func (e *DockerExecutor) ExecuteTask(ctx context.Context, task *models.Task) (*models.TaskResult, error) {
-	log := logger.Get()
+	log := logger.Get().With().Str("component", "docker").Logger()
 
 	startTime := time.Now()
 	result := &models.TaskResult{
@@ -203,7 +215,24 @@ func (e *DockerExecutor) ExecuteTask(ctx context.Context, task *models.Task) (*m
 		return result, fmt.Errorf("failed to read container logs: %w", err)
 	}
 
-	result.Output = cleanOutput(logs)
+	// Clean and store the logs
+	cleanedLogs := cleanOutput(logs)
+	result.Output = cleanedLogs
+
+	// Upload logs to IPFS
+	logCID, err := e.ipfsClient.UploadData([]byte(cleanedLogs))
+	if err != nil {
+		log.Error().Err(err).Msg("Failed to upload logs to IPFS")
+		// Don't fail the task if IPFS upload fails, just log the error
+	} else {
+		log.Info().Str("cid", logCID).Msg("Container logs uploaded to IPFS")
+		// Add the CID to the result metadata
+		if result.Metadata == nil {
+			result.Metadata = make(map[string]interface{})
+		}
+		result.Metadata["logs_cid"] = logCID
+	}
+
 	result.ExecutionTime = time.Since(startTime).Nanoseconds()
 
 	return result, nil
