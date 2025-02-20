@@ -17,6 +17,7 @@ COVERAGE_DIR=coverage
 COVERAGE_PROFILE=$(COVERAGE_DIR)/coverage.out
 COVERAGE_HTML=$(COVERAGE_DIR)/coverage.html
 TEST_FLAGS=-race -coverprofile=$(COVERAGE_PROFILE) -covermode=atomic
+TEST_PACKAGES=./...  # This will test all packages
 TEST_PATH=./test/...
 
 # Build flags
@@ -55,7 +56,7 @@ auth: build ## Authenticate with the network
 	./$(BINARY_NAME) auth
 
 test: setup-coverage ## Run tests with coverage
-	$(GOTEST) $(TEST_FLAGS) -v $(TEST_PATH)
+	$(GOTEST) $(TEST_FLAGS) -v $(TEST_PACKAGES)
 	@go tool cover -func=$(COVERAGE_PROFILE)
 	@go tool cover -html=$(COVERAGE_PROFILE) -o $(COVERAGE_HTML)
 

@@ -12,21 +12,28 @@ import (
 	"github.com/theblitlabs/parity-protocol/internal/models"
 	"github.com/theblitlabs/parity-protocol/internal/services"
 	"github.com/theblitlabs/parity-protocol/pkg/logger"
+	"github.com/theblitlabs/parity-protocol/pkg/stakewallet"
 )
 
 type TaskHandler struct {
-	service services.ITaskService
+	service     services.ITaskService
+	stakeWallet stakewallet.StakeWallet
 }
 
 func NewTaskHandler(service services.ITaskService) *TaskHandler {
 	return &TaskHandler{service: service}
 }
 
+// SetStakeWallet sets the stake wallet for the handler
+func (h *TaskHandler) SetStakeWallet(wallet stakewallet.StakeWallet) {
+	h.stakeWallet = wallet
+}
+
 type CreateTaskRequest struct {
 	Title       string                    `json:"title"`
 	Description string                    `json:"description"`
 	Type        models.TaskType           `json:"type"`
-	Config      models.TaskConfig         `json:"config"`
+	Config      json.RawMessage           `json:"config"`
 	Environment *models.EnvironmentConfig `json:"environment,omitempty"`
 	Reward      float64                   `json:"reward"`
 	CreatorID   string                    `json:"creator_id"`
@@ -46,9 +53,15 @@ func (h *TaskHandler) CreateTask(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Validate task type
+	if req.Type != models.TaskTypeFile && req.Type != models.TaskTypeDocker && req.Type != models.TaskTypeCommand {
+		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+
 	// Validate task config
 	if req.Type == models.TaskTypeDocker {
-		if len(req.Config.Command) == 0 {
+		if len(req.Config) == 0 {
 			http.Error(w, "Command is required for Docker tasks", http.StatusBadRequest)
 			return
 		}
@@ -61,36 +74,15 @@ func (h *TaskHandler) CreateTask(w http.ResponseWriter, r *http.Request) {
 	// Generate a new UUID for the task
 	taskID := uuid.New()
 
-	// Convert config to raw JSON message
-	configJSON, err := json.Marshal(req.Config)
-	if err != nil {
-		log.Error().Err(err).Interface("config", req.Config).Msg("Failed to marshal config")
-		http.Error(w, "Invalid config format", http.StatusBadRequest)
-		return
-	}
-
-	log.Debug().
-		Str("task_id", taskID.String()).
-		RawJSON("config", configJSON).
-		Str("device_id", deviceID).
-		Msg("Creating task with config")
-
 	// Generate a new UUID for the creator ID
 	creatorID := uuid.New()
-
-	// Ensure creator device ID is set
-	if deviceID == "" {
-		log.Error().Msg("Device ID is required")
-		http.Error(w, "Device ID is required", http.StatusBadRequest)
-		return
-	}
 
 	task := &models.Task{
 		ID:              taskID,
 		Title:           req.Title,
 		Description:     req.Description,
 		Type:            req.Type,
-		Config:          configJSON,
+		Config:          req.Config,
 		Environment:     req.Environment,
 		Reward:          req.Reward,
 		CreatorID:       creatorID,
@@ -105,6 +97,7 @@ func (h *TaskHandler) CreateTask(w http.ResponseWriter, r *http.Request) {
 		Str("task_id", taskID.String()).
 		Str("creator_id", task.CreatorID.String()).
 		Str("creator_device_id", task.CreatorDeviceID).
+		RawJSON("config", req.Config).
 		Msg("Creating task")
 
 	// Check if sufficient stake exists for reward
@@ -121,12 +114,13 @@ func (h *TaskHandler) CreateTask(w http.ResponseWriter, r *http.Request) {
 	if err := h.service.CreateTask(r.Context(), task); err != nil {
 		log.Error().Err(err).
 			Str("task_id", taskID.String()).
-			RawJSON("config", configJSON).
+			RawJSON("config", req.Config).
 			Msg("Failed to create task")
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 
+	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
 	json.NewEncoder(w).Encode(task)
 }

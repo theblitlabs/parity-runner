@@ -319,22 +319,8 @@ func (h *TaskHandler) distributeRewards(ctx context.Context, result *models.Task
 }
 
 func (h *TaskHandler) checkStakeBalance(_ context.Context, task *models.Task) error {
-	cfg, err := config.LoadConfig("config/config.yaml")
-	if err != nil {
-		return fmt.Errorf("failed to load config: %w", err)
-	}
-
-	client, err := wallet.NewClient(cfg.Ethereum.RPC, cfg.Ethereum.ChainID)
-	if err != nil {
-		return fmt.Errorf("failed to create wallet client: %w", err)
-	}
-
-	stakeWallet, err := stakewallet.NewStakeWallet(
-		common.HexToAddress(cfg.Ethereum.StakeWalletAddress),
-		client,
-	)
-	if err != nil {
-		return fmt.Errorf("failed to create stake wallet contract: %w", err)
+	if h.stakeWallet == nil {
+		return fmt.Errorf("stake wallet not initialized")
 	}
 
 	// Convert reward to wei (assuming reward is in whole tokens)
@@ -345,7 +331,7 @@ func (h *TaskHandler) checkStakeBalance(_ context.Context, task *models.Task) er
 	rewardAmount, _ := rewardWei.Int(nil)
 
 	// Check device stake balance
-	stakeInfo, err := stakeWallet.GetStakeInfo(&bind.CallOpts{}, task.CreatorDeviceID)
+	stakeInfo, err := h.stakeWallet.GetStakeInfo(&bind.CallOpts{}, task.CreatorDeviceID)
 	if err != nil || !stakeInfo.Exists {
 		return fmt.Errorf("creator device not registered - please stake first")
 	}
