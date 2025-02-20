@@ -3,7 +3,6 @@ package services
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"time"
@@ -47,20 +46,17 @@ func NewTaskService(repo TaskRepository, ipfs *ipfs.Client) *TaskService {
 func (s *TaskService) CreateTask(ctx context.Context, task *models.Task) error {
 	log := logger.WithComponent("task_service")
 
-	// Basic validation
 	if err := task.Validate(); err != nil {
-		log.Error().
-			Err(err).
-			Str("title", task.Title).
-			Str("type", string(task.Type)).
-			Float64("reward", task.Reward).
-			Interface("config", task.Config).
-			Interface("environment", task.Environment).
-			Msg("Task validation failed")
+		log.Error().Err(err).
+			Interface("task", map[string]interface{}{
+				"title":  task.Title,
+				"type":   task.Type,
+				"reward": task.Reward,
+				"config": task.Config,
+			}).Msg("Invalid task")
 		return ErrInvalidTask
 	}
 
-	// Set task metadata
 	if task.ID == uuid.Nil {
 		task.ID = uuid.New()
 	}
@@ -73,28 +69,15 @@ func (s *TaskService) CreateTask(ctx context.Context, task *models.Task) error {
 	task.UpdatedAt = time.Now()
 
 	log.Info().
-		Str("task_id", task.ID.String()).
-		Str("title", task.Title).
+		Str("id", task.ID.String()).
 		Str("type", string(task.Type)).
 		Float64("reward", task.Reward).
-		Str("creator_id", task.CreatorDeviceID).
-		Msg("Creating new task")
+		Msg("Creating task")
 
 	if err := s.repo.Create(ctx, task); err != nil {
-		log.Error().
-			Err(err).
-			Str("task_id", task.ID.String()).
-			Str("title", task.Title).
-			Str("type", string(task.Type)).
-			Msg("Failed to create task in database")
+		log.Error().Err(err).Str("id", task.ID.String()).Msg("Failed to create task")
 		return err
 	}
-
-	log.Info().
-		Str("task_id", task.ID.String()).
-		Str("title", task.Title).
-		Str("type", string(task.Type)).
-		Msg("Task created successfully")
 
 	return nil
 }
@@ -104,24 +87,16 @@ func (s *TaskService) GetTask(ctx context.Context, id string) (*models.Task, err
 
 	taskID, err := uuid.Parse(id)
 	if err != nil {
-		log.Warn().
-			Str("task_id", id).
-			Err(err).
-			Msg("Invalid task ID format")
-		return nil, fmt.Errorf("invalid task ID format: %w", err)
+		log.Debug().Str("id", id).Msg("Invalid task ID format")
+		return nil, fmt.Errorf("invalid task ID: %w", err)
 	}
 
 	task, err := s.repo.Get(ctx, taskID)
 	if err != nil {
 		if errors.Is(err, ErrTaskNotFound) {
-			log.Debug().
-				Str("task_id", id).
-				Msg("Task not found")
+			log.Debug().Str("id", id).Msg("Task not found")
 		} else {
-			log.Error().
-				Str("task_id", id).
-				Err(err).
-				Msg("Failed to retrieve task from database")
+			log.Error().Err(err).Str("id", id).Msg("Failed to get task")
 		}
 		return nil, err
 	}
@@ -132,22 +107,13 @@ func (s *TaskService) GetTask(ctx context.Context, id string) (*models.Task, err
 func (s *TaskService) ListAvailableTasks(ctx context.Context) ([]*models.Task, error) {
 	log := logger.WithComponent("task_service")
 
-	log.Info().Msg("Fetching available tasks")
-
 	tasks, err := s.repo.ListByStatus(ctx, models.TaskStatusPending)
 	if err != nil {
-		log.Error().
-			Err(err).
-			Str("status", string(models.TaskStatusPending)).
-			Msg("Failed to fetch available tasks")
-		return nil, fmt.Errorf("failed to fetch available tasks: %w", err)
+		log.Error().Err(err).Msg("Failed to list available tasks")
+		return nil, fmt.Errorf("failed to list tasks: %w", err)
 	}
 
-	log.Info().
-		Int("count", len(tasks)).
-		Str("status", string(models.TaskStatusPending)).
-		Msg("Available tasks retrieved")
-
+	log.Debug().Int("count", len(tasks)).Msg("Retrieved available tasks")
 	return tasks, nil
 }
 
@@ -156,85 +122,49 @@ func (s *TaskService) AssignTaskToRunner(ctx context.Context, taskID string, run
 
 	taskUUID, err := uuid.Parse(taskID)
 	if err != nil {
-		log.Warn().
-			Str("task_id", taskID).
-			Err(err).
-			Msg("Invalid task ID format")
-		return fmt.Errorf("invalid task ID format: %w", err)
+		log.Debug().Str("task", taskID).Msg("Invalid task ID")
+		return fmt.Errorf("invalid task ID: %w", err)
 	}
 
 	task, err := s.repo.Get(ctx, taskUUID)
 	if err != nil {
-		log.Error().
-			Str("task_id", taskID).
-			Err(err).
-			Msg("Failed to retrieve task")
+		log.Error().Err(err).Str("task", taskID).Msg("Failed to get task")
 		return err
 	}
 
-	// Parse runner ID as UUID
 	runnerUUID, err := uuid.Parse(runnerID)
 	if err != nil {
-		log.Warn().
-			Str("task_id", taskID).
-			Str("runner_id", runnerID).
-			Err(err).
-			Msg("Invalid runner ID format")
-		return fmt.Errorf("invalid runner ID format: %w", err)
+		log.Debug().Str("runner", runnerID).Msg("Invalid runner ID")
+		return fmt.Errorf("invalid runner ID: %w", err)
 	}
 
 	if task.Status != models.TaskStatusPending {
-		log.Warn().
-			Str("task_id", taskID).
-			Str("runner_id", runnerID).
-			Str("current_status", string(task.Status)).
-			Msg("Task is not available for assignment")
-		return errors.New("task is not available")
+		log.Debug().
+			Str("task", taskID).
+			Str("status", string(task.Status)).
+			Msg("Task unavailable")
+		return errors.New("task unavailable")
 	}
 
-	// Additional validation for Docker tasks
-	if task.Type == models.TaskTypeDocker {
-		if task.Environment == nil || task.Environment.Type != "docker" {
-			log.Error().
-				Str("task_id", taskID).
-				Str("runner_id", runnerID).
-				Interface("environment", task.Environment).
-				Msg("Invalid Docker task configuration")
-			return errors.New("invalid docker task configuration")
-		}
+	if task.Type == models.TaskTypeDocker && (task.Environment == nil || task.Environment.Type != "docker") {
+		log.Error().Str("task", taskID).Msg("Invalid Docker config")
+		return errors.New("invalid docker config")
 	}
-
-	// Convert config to JSON
-	configJSON, err := json.Marshal(task.Config)
-	if err != nil {
-		log.Error().
-			Str("task_id", taskID).
-			Str("runner_id", runnerID).
-			Err(err).
-			Msg("Failed to marshal task config")
-		return fmt.Errorf("failed to marshal task config: %w", err)
-	}
-	task.Config = configJSON
 
 	task.Status = models.TaskStatusRunning
 	task.RunnerID = &runnerUUID
 	task.UpdatedAt = time.Now()
 
 	if err := s.repo.Update(ctx, task); err != nil {
-		log.Error().
-			Str("task_id", taskID).
-			Str("runner_id", runnerID).
-			Err(err).
-			Msg("Failed to update task assignment")
+		log.Error().Err(err).Str("task", taskID).Msg("Failed to assign task")
 		return err
 	}
 
 	log.Info().
-		Str("task_id", taskID).
-		Str("runner_id", runnerID).
-		Str("title", task.Title).
+		Str("task", taskID).
+		Str("runner", runnerID).
 		Float64("reward", task.Reward).
-		Msg("Task assigned to runner")
+		Msg("Task assigned")
 
 	return nil
 }
@@ -367,58 +297,41 @@ func (s *TaskService) ExecuteTask(ctx context.Context, task *models.Task) error 
 	log := logger.WithComponent("task_service")
 
 	log.Info().
-		Str("task_id", task.ID.String()).
-		Str("title", task.Title).
+		Str("id", task.ID.String()).
 		Str("type", string(task.Type)).
-		Msg("Starting task execution")
+		Msg("Executing task")
 
 	executor, err := sandbox.NewDockerExecutor(&sandbox.ExecutorConfig{
 		MemoryLimit: "512m",
 		CPULimit:    "1.0",
-		Timeout:     5 * time.Minute,
+		Timeout:     5 * time.Second,
 	})
 	if err != nil {
-		log.Error().
-			Str("task_id", task.ID.String()).
-			Err(err).
-			Msg("Failed to create task executor")
-		return fmt.Errorf("failed to create executor: %w", err)
+		log.Error().Err(err).Str("id", task.ID.String()).Msg("Failed to create executor")
+		return fmt.Errorf("executor creation failed: %w", err)
 	}
 
 	result, err := executor.ExecuteTask(ctx, task)
 	if err != nil {
-		log.Error().
-			Str("task_id", task.ID.String()).
-			Err(err).
-			Msg("Task execution failed")
-
-		// Still save the result even if there's an error
+		log.Error().Err(err).Str("id", task.ID.String()).Msg("Task execution failed")
 		if result != nil {
 			if saveErr := s.repo.SaveTaskResult(ctx, result); saveErr != nil {
-				log.Error().
-					Str("task_id", task.ID.String()).
-					Err(saveErr).
-					Msg("Failed to save failed task result")
+				log.Error().Err(saveErr).Str("id", task.ID.String()).Msg("Failed to save failed result")
 			}
 		}
 		return err
 	}
 
-	// Save successful result
 	if err := s.repo.SaveTaskResult(ctx, result); err != nil {
-		log.Error().
-			Str("task_id", task.ID.String()).
-			Err(err).
-			Msg("Failed to save successful task result")
-		return fmt.Errorf("failed to save task result: %w", err)
+		log.Error().Err(err).Str("id", task.ID.String()).Msg("Failed to save result")
+		return fmt.Errorf("failed to save result: %w", err)
 	}
 
 	log.Info().
-		Str("task_id", task.ID.String()).
-		Str("title", task.Title).
+		Str("id", task.ID.String()).
 		Int("exit_code", result.ExitCode).
-		Int64("execution_time_ns", result.ExecutionTime).
-		Msg("Task execution completed")
+		Int64("duration_ns", result.ExecutionTime).
+		Msg("Task completed")
 
 	return nil
 }

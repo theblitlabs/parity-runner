@@ -35,7 +35,9 @@ func GetMigrationFiles(migrationType string) ([]string, error) {
 }
 
 func RunMigrate(down bool) {
-	logger.Init()
+	logger.Init(logger.Config{
+		Level: "debug",
+	})
 	log := logger.Get()
 
 	// Load configuration

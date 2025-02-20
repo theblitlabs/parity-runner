@@ -14,7 +14,9 @@ var rootCmd = &cobra.Command{
 	Short: "Parity Protocol CLI",
 	Long:  `A decentralized computing network powered by blockchain and secure enclaves`,
 	PersistentPreRun: func(cmd *cobra.Command, args []string) {
-		logger.Init()
+		logger.Init(logger.Config{
+			Level: "debug",
+		})
 	},
 }
 

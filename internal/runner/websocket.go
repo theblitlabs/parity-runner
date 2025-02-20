@@ -31,23 +31,15 @@ func NewWebSocketClient(url string, handler TaskHandler) *WebSocketClient {
 
 func (w *WebSocketClient) Connect() error {
 	log := logger.WithComponent("websocket")
-	log.Info().
-		Str("url", w.url).
-		Msg("Connecting to WebSocket server")
+	log.Info().Str("url", w.url).Msg("Connecting")
 
 	conn, _, err := websocket.DefaultDialer.Dial(w.url, nil)
 	if err != nil {
-		log.Error().
-			Err(err).
-			Str("url", w.url).
-			Msg("Failed to connect to WebSocket server")
-		return fmt.Errorf("failed to connect to WebSocket: %w", err)
+		log.Error().Err(err).Str("url", w.url).Msg("Connection failed")
+		return fmt.Errorf("websocket connection failed: %w", err)
 	}
 
-	log.Info().
-		Str("url", w.url).
-		Msg("Successfully connected to WebSocket server")
-
+	log.Debug().Str("url", w.url).Msg("Connected")
 	w.conn = conn
 	return nil
 }
@@ -61,15 +53,10 @@ func (w *WebSocketClient) Stop() {
 	close(w.stopChan)
 	if w.conn != nil {
 		if err := w.conn.WriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseNormalClosure, "")); err != nil {
-			log.Debug().
-				Err(err).
-				Str("url", w.url).
-				Msg("Error sending WebSocket close message") // Debug since this is not critical
+			log.Debug().Err(err).Str("url", w.url).Msg("Close message failed")
 		}
 		w.conn.Close()
-		log.Info().
-			Str("url", w.url).
-			Msg("WebSocket connection closed")
+		log.Debug().Str("url", w.url).Msg("Connection closed")
 	}
 }
 
@@ -85,10 +72,7 @@ func (w *WebSocketClient) listen() {
 			err := w.conn.ReadJSON(&msg)
 			if err != nil {
 				if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseAbnormalClosure) {
-					log.Warn().
-						Err(err).
-						Str("url", w.url).
-						Msg("WebSocket connection closed unexpectedly")
+					log.Warn().Err(err).Str("url", w.url).Msg("Unexpected close")
 				}
 				return
 			}
@@ -105,32 +89,25 @@ func (w *WebSocketClient) handleMessage(msg WSMessage) {
 	case "available_tasks":
 		var tasks []*models.Task
 		if err := json.Unmarshal(msg.Payload, &tasks); err != nil {
-			log.Error().
-				Err(err).
-				Str("payload", string(msg.Payload)).
-				Msg("Failed to parse tasks payload")
+			log.Error().Err(err).Str("payload", string(msg.Payload)).Msg("Task parse failed")
 			return
 		}
 
 		if len(tasks) > 0 {
-			log.Info().
-				Int("count", len(tasks)).
-				Msg("Received new tasks from server")
+			log.Debug().Int("count", len(tasks)).Msg("Tasks received")
 
 			for _, task := range tasks {
 				if err := w.handler.HandleTask(task); err != nil {
-					log.Error().
-						Err(err).
-						Str("task_id", task.ID.String()).
+					log.Error().Err(err).
+						Str("id", task.ID.String()).
 						Str("type", string(task.Type)).
-						Str("creator_id", task.CreatorDeviceID).
 						Float64("reward", task.Reward).
-						Msg("Failed to process task")
+						Msg("Task processing failed")
 				} else {
 					log.Debug().
-						Str("task_id", task.ID.String()).
+						Str("id", task.ID.String()).
 						Str("type", string(task.Type)).
-						Msg("Successfully processed task")
+						Msg("Task processed")
 				}
 			}
 		}
@@ -138,6 +115,6 @@ func (w *WebSocketClient) handleMessage(msg WSMessage) {
 		log.Debug().
 			Str("type", msg.Type).
 			Str("payload", string(msg.Payload)).
-			Msg("Received unknown message type")
+			Msg("Unknown message type")
 	}
 }
