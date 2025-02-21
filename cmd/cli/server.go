@@ -3,10 +3,12 @@ package cli
 import (
 	"context"
 	"fmt"
+	"math/big"
 	"net/http"
 	"os"
 	"time"
 
+	"github.com/ethereum/go-ethereum/common"
 	"github.com/jmoiron/sqlx"
 	"github.com/theblitlabs/parity-protocol/internal/api"
 	"github.com/theblitlabs/parity-protocol/internal/api/handlers"
@@ -16,7 +18,10 @@ import (
 	"github.com/theblitlabs/parity-protocol/internal/services"
 	"github.com/theblitlabs/parity-protocol/pkg/database"
 	"github.com/theblitlabs/parity-protocol/pkg/device"
+	"github.com/theblitlabs/parity-protocol/pkg/keystore"
 	"github.com/theblitlabs/parity-protocol/pkg/logger"
+	"github.com/theblitlabs/parity-protocol/pkg/stakewallet"
+	"github.com/theblitlabs/parity-protocol/pkg/wallet"
 )
 
 func RunServer() {
@@ -61,6 +66,32 @@ func RunServer() {
 	taskRepo := repositories.NewTaskRepository(dbx)
 	taskService := services.NewTaskService(taskRepo, ipfsClient)
 	taskHandler := handlers.NewTaskHandler(taskService)
+
+	// Initialize stake wallet
+	privateKey, err := keystore.GetPrivateKey()
+	if err != nil {
+		log.Fatal().Err(err).Msg("Failed to get private key - please authenticate first")
+	}
+
+	client, err := wallet.NewClientWithKey(
+		cfg.Ethereum.RPC,
+		big.NewInt(cfg.Ethereum.ChainID),
+		privateKey,
+	)
+	if err != nil {
+		log.Fatal().Err(err).Msg("Failed to create wallet client")
+	}
+
+	stakeWallet, err := stakewallet.NewStakeWallet(
+		common.HexToAddress(cfg.Ethereum.StakeWalletAddress),
+		client,
+	)
+	if err != nil {
+		log.Fatal().Err(err).Msg("Failed to create stake wallet")
+	}
+
+	// Set stake wallet in task handler
+	taskHandler.SetStakeWallet(stakeWallet)
 
 	// Initialize API handlers and start server
 	router := api.NewRouter(

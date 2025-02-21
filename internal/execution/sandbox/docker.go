@@ -24,10 +24,10 @@ type DockerExecutor struct {
 }
 
 type ExecutorConfig struct {
-	MemoryLimit  string
-	CPULimit     string
-	Timeout      time.Duration
-	IPFSEndpoint string // IPFS API endpoint
+	MemoryLimit  string        `mapstructure:"memory_limit"`
+	CPULimit     string        `mapstructure:"cpu_limit"`
+	Timeout      time.Duration `mapstructure:"timeout"`
+	IPFSEndpoint string        `mapstructure:"ipfs_endpoint"`
 }
 
 func NewDockerExecutor(config *ExecutorConfig) (*DockerExecutor, error) {

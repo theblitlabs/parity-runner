@@ -57,11 +57,12 @@ func LoadConfig(path string) (*Config, error) {
 }
 
 type RunnerConfig struct {
-	ServerURL    string        `mapstructure:"server_url"`
-	WebsocketURL string        `mapstructure:"websocket_url"`
-	APIPrefix    string        `mapstructure:"api_prefix"`
-	PollInterval time.Duration `mapstructure:"poll_interval"`
-	Docker       DockerConfig  `mapstructure:"docker"`
+	ServerURL    string           `mapstructure:"server_url"`
+	WebsocketURL string           `mapstructure:"websocket_url"`
+	APIPrefix    string           `mapstructure:"api_prefix"`
+	PollInterval time.Duration    `mapstructure:"poll_interval"`
+	Docker       DockerConfig     `mapstructure:"docker"`
+	IPFS         IPFSRunnerConfig `mapstructure:"ipfs"`
 }
 
 type DockerConfig struct {
@@ -72,4 +73,12 @@ type DockerConfig struct {
 
 type IPFSConfig struct {
 	APIURL string `mapstructure:"api_url"`
+}
+
+type IPFSRunnerConfig struct {
+	Image       string `mapstructure:"image"`
+	APIPort     int    `mapstructure:"api_port"`
+	GatewayPort int    `mapstructure:"gateway_port"`
+	SwarmPort   int    `mapstructure:"swarm_port"`
+	DataDir     string `mapstructure:"data_dir"`
 }

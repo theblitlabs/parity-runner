@@ -42,6 +42,7 @@ func RunChain() {
 			Str("method", r.Method).
 			Str("path", path).
 			Str("target_url", targetURL).
+			Str("device_id", deviceID).
 			Msg("Forwarding request")
 
 		var proxyReq *http.Request
@@ -65,7 +66,7 @@ func RunChain() {
 			}
 
 			// Add device ID to request body
-			requestData["creator_id"] = deviceID
+			requestData["creator_device_id"] = deviceID
 
 			// Marshal modified body
 			modifiedBody, err := json.Marshal(requestData)
@@ -95,6 +96,8 @@ func RunChain() {
 				proxyReq.Header.Add(header, value)
 			}
 		}
+
+		// Always add device ID header
 		proxyReq.Header.Set("X-Device-ID", deviceID)
 
 		// Forward the request
