@@ -9,8 +9,8 @@ on:
       - main
 
 permissions:
-  pull-requests: read  # Required for PR title check
-  contents: read      # Required for actions/checkout
+  pull-requests: read
+  contents: read
 
 jobs:
   pr-title:
@@ -20,7 +20,7 @@ jobs:
     steps:
       - uses: amannn/action-semantic-pull-request@v5
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GH_PAT }}
         with:
           types: |
             feat
@@ -60,6 +60,18 @@ jobs:
   test:
     name: Tests
     runs-on: ubuntu-latest
+    services:
+      ipfs:
+        image: ipfs/kubo:latest
+        ports:
+          - 5001:5001
+          - 8080:8080
+        options: >-
+          --health-cmd "ipfs id"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
     steps:
       - uses: actions/checkout@v3
 
@@ -72,8 +84,14 @@ jobs:
       - name: Install dependencies
         run: go mod download
 
+      - name: Wait for IPFS
+        run: |
+          timeout 30s bash -c 'until curl -s http://localhost:5001/api/v0/id > /dev/null; do sleep 1; done'
+
       - name: Run tests
         run: go test -v -race -coverprofile=coverage.txt -covermode=atomic ./...
+        env:
+          IPFS_API: http://localhost:5001
 
       - name: Upload coverage
         uses: codecov/codecov-action@v3
