@@ -65,3 +65,116 @@ jobs:
             echo "$unformatted"
             exit 1
           fi
+
+  vet:
+    name: Go Vet
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Set up Go
+        uses: actions/setup-go@v4
+        with:
+          go-version: "1.21"
+          cache: true
+
+      - name: Run go vet
+        run: go vet ./...
+
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Set up Go
+        uses: actions/setup-go@v4
+        with:
+          go-version: "1.21"
+          cache: true
+
+      - name: Build
+        run: |
+          GOOS=linux GOARCH=amd64 go build -v ./...
+          GOOS=darwin GOARCH=amd64 go build -v ./...
+          GOOS=windows GOARCH=amd64 go build -v ./...
+
+  verify:
+    name: Verify Dependencies
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Set up Go
+        uses: actions/setup-go@v4
+        with:
+          go-version: "1.21"
+          cache: true
+
+      - name: Verify go.mod
+        run: go mod verify
+
+      - name: Check for tidiness
+        run: |
+          go mod tidy
+          git diff --exit-code -- go.mod go.sum
+
+  static-analysis:
+    name: Static Analysis
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Set up Go
+        uses: actions/setup-go@v4
+        with:
+          go-version: "1.21"
+          cache: true
+
+      - name: Run static checks
+        run: |
+          # Check for unused exported identifiers
+          go vet -unusedresult ./...
+          # Check for suspicious constructs
+          go vet -stdmethods ./...
+          # Check for common mistakes
+          go vet -composites ./...
+          # Check for unreachable code
+          go vet -unreachable ./...
+
+  security:
+    name: Security Checks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Check file permissions
+        run: |
+          # Find files with overly permissive permissions (readable/writable by others)
+          bad_perms=$(find . -type f -perm /o=rwx -not -path "./.git/*")
+          if [ -n "$bad_perms" ]; then
+            echo "Error: Files with unsafe permissions found:"
+            echo "$bad_perms"
+            exit 1
+          fi
+
+      - name: Check for large files
+        run: |
+          # Find files larger than 10MB
+          large_files=$(find . -type f -size +10M -not -path "./.git/*")
+          if [ -n "$large_files" ]; then
+            echo "Error: Large files found:"
+            echo "$large_files"
+            exit 1
+          fi
+
+      - name: Check for sensitive files
+        run: |
+          # Check for common sensitive file patterns
+          sensitive_patterns=('.env' '*.pem' '*.key' '*_rsa' '*_dsa' '*.p12' '*.pfx')
+          for pattern in "${sensitive_patterns[@]}"; do
+            if find . -name "$pattern" -not -path "./.git/*" | grep -q .; then
+              echo "Error: Potentially sensitive files found matching pattern: $pattern"
+              exit 1
+            fi
+          done
