@@ -8,6 +8,10 @@ on:
     branches:
       - main
 
+permissions:
+  pull-requests: read  # Required for PR title check
+  contents: read      # Required for actions/checkout
+
 jobs:
   pr-title:
     name: PR Title Check
