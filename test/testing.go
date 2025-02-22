@@ -1,18 +1,23 @@
 package test
 
 import (
+	"encoding/hex"
 	"encoding/json"
 	"math/big"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"testing"
 
+	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
 	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/mock"
 	"github.com/theblitlabs/parity-protocol/internal/config"
 	"github.com/theblitlabs/parity-protocol/internal/models"
+	"github.com/theblitlabs/parity-protocol/pkg/keystore"
 	"github.com/theblitlabs/parity-protocol/pkg/logger"
 	"github.com/theblitlabs/parity-protocol/pkg/stakewallet"
 )
@@ -150,4 +155,45 @@ func AssertRewardDistributed(t *testing.T, mockStakeWallet *MockStakeWallet, exp
 			return amount.Cmp(expectedInt) == 0
 		}),
 	)
+}
+
+// SetupTestKeystore creates a temporary keystore for testing
+func SetupTestKeystore(t *testing.T) func() {
+	// Create a temporary directory for the test keystore
+	tempDir := t.TempDir()
+	originalHomeDir := os.Getenv("HOME")
+
+	// Set HOME to the temporary directory
+	os.Setenv("HOME", tempDir)
+
+	// Create a test private key
+	privateKey, err := crypto.GenerateKey()
+	if err != nil {
+		t.Fatalf("Failed to generate private key: %v", err)
+	}
+
+	// Save the private key to the test keystore
+	privateKeyHex := hex.EncodeToString(crypto.FromECDSA(privateKey))
+	keystorePath := filepath.Join(tempDir, ".parity", "keystore.json")
+	if err := os.MkdirAll(filepath.Join(tempDir, ".parity"), 0700); err != nil {
+		t.Fatalf("Failed to create test keystore directory: %v", err)
+	}
+
+	keystore := keystore.KeyStore{
+		PrivateKey: privateKeyHex,
+	}
+
+	keystoreData, err := json.Marshal(keystore)
+	if err != nil {
+		t.Fatalf("Failed to marshal keystore: %v", err)
+	}
+
+	if err := os.WriteFile(keystorePath, keystoreData, 0600); err != nil {
+		t.Fatalf("Failed to write test keystore: %v", err)
+	}
+
+	// Return cleanup function
+	return func() {
+		os.Setenv("HOME", originalHomeDir)
+	}
 }

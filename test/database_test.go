@@ -17,6 +17,9 @@ import (
 
 func TestTaskRepository(t *testing.T) {
 	SetupTestLogger()
+	cleanup := SetupTestKeystore(t)
+	defer cleanup()
+
 	ctx := context.Background()
 
 	taskConfig := models.TaskConfig{
