@@ -12,6 +12,10 @@ AIR_VERSION=v1.49.0
 GOPATH=$(shell go env GOPATH)
 AIR=$(GOPATH)/bin/air
 
+# Linting tools
+GOLANGCI_LINT=$(GOPATH)/bin/golangci-lint
+GOLANGCI_LINT_VERSION=v1.55.2
+
 # Test related variables
 COVERAGE_DIR=coverage
 COVERAGE_PROFILE=$(COVERAGE_DIR)/coverage.out
@@ -26,7 +30,7 @@ BUILD_FLAGS=-v
 # Add these lines after the existing parameters
 INSTALL_PATH=/usr/local/bin
 
-.PHONY: all build run test clean deps fmt lint help docker-up docker-down docker-logs docker-build docker-clean install-air watch migrate-up migrate-down tools install uninstall
+.PHONY: all build run test clean deps fmt lint help docker-up docker-down docker-logs docker-build docker-clean install-air watch migrate-up migrate-down tools install uninstall install-lint-tools lint lint-fix
 
 all: clean build
 
@@ -105,5 +109,15 @@ uninstall: ## Remove parity command from system
 	@echo "Uninstalling parity from $(INSTALL_PATH)..."
 	@sudo rm -f $(INSTALL_PATH)/$(BINARY_NAME)
 	@echo "Uninstallation complete"
+
+install-lint-tools: ## Install linting tools
+	@if ! command -v golangci-lint > /dev/null; then \
+		echo "Installing golangci-lint..." && \
+		curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b $(GOPATH)/bin $(GOLANGCI_LINT_VERSION); \
+	fi
+
+lint: install-lint-tools ## Run all linters
+	$(GOLANGCI_LINT) run --fix --timeout=5m
+
 
 .DEFAULT_GOAL := help

@@ -1,0 +1,48 @@
+name: Auto Lint Fix on Merge
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - '**/*.go'  # Only trigger on Go file changes
+
+jobs:
+  lint-fix:
+    name: Fix Lint Issues
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write  # Needed for pushing changes
+    
+    steps:
+      - uses: actions/checkout@v3
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Set up Go
+        uses: actions/setup-go@v4
+        with:
+          go-version: '1.21'
+          cache: true
+
+      - name: Install golangci-lint
+        run: |
+          curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b $(go env GOPATH)/bin v1.55.2
+
+      - name: Configure Git
+        run: |
+          git config --global user.name 'github-actions[bot]'
+          git config --global user.email 'github-actions[bot]@users.noreply.github.com'
+
+      - name: Run lint fix and commit
+        run: |
+          # Run linting fixes
+          golangci-lint run --fix --timeout=5m
+          
+          # Check if there are changes
+          if [[ -n "$(git status --porcelain)" ]]; then
+            git add .
+            git commit -m "style: auto-fix linting issues after merge"
+            git push origin main
+          fi
