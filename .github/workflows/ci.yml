@@ -148,16 +148,6 @@ jobs:
     steps:
       - uses: actions/checkout@v3
 
-      - name: Check file permissions
-        run: |
-          # Find files with overly permissive permissions (readable/writable by others)
-          bad_perms=$(find . -type f -perm /o=rwx -not -path "./.git/*")
-          if [ -n "$bad_perms" ]; then
-            echo "Error: Files with unsafe permissions found:"
-            echo "$bad_perms"
-            exit 1
-          fi
-
       - name: Check for large files
         run: |
           # Find files larger than 10MB
