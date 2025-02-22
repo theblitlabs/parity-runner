@@ -45,12 +45,6 @@ jobs:
         env:
           IPFS_API: http://localhost:5001
 
-      - name: Upload coverage
-        uses: codecov/codecov-action@v3
-        with:
-          file: ./coverage.txt
-          fail_ci_if_error: true
-
   lint:
     name: Lint
     runs-on: ubuntu-latest
