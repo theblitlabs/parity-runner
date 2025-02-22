@@ -42,15 +42,37 @@ type CreateTaskRequest struct {
 	CreatorID   string                    `json:"creator_id"`
 }
 
+// TaskService defines the interface for task operations
+type TaskService interface {
+	CreateTask(ctx context.Context, task *models.Task) error
+	GetTask(ctx context.Context, id string) (*models.Task, error)
+	ListAvailableTasks(ctx context.Context) ([]*models.Task, error)
+	AssignTaskToRunner(ctx context.Context, taskID string, runnerID string) error
+	GetTaskReward(ctx context.Context, taskID string) (float64, error)
+	GetTasks(ctx context.Context) ([]models.Task, error)
+	StartTask(ctx context.Context, id string) error
+	CompleteTask(ctx context.Context, id string) error
+	SaveTaskResult(ctx context.Context, result *models.TaskResult) error
+	GetTaskResult(ctx context.Context, taskID string) (*models.TaskResult, error)
+}
+
 // TaskHandler handles task-related HTTP and WebSocket requests
 type TaskHandler struct {
-	service      *services.TaskService
+	service      TaskService
 	stakeWallet  stakewallet.StakeWallet
 	taskUpdateCh chan struct{} // Channel for task updates
 }
 
+var upgrader = websocket.Upgrader{
+	ReadBufferSize:  1024,
+	WriteBufferSize: 1024,
+	CheckOrigin: func(r *http.Request) bool {
+		return true // Allow all origins in development
+	},
+}
+
 // NewTaskHandler creates a new TaskHandler instance
-func NewTaskHandler(service *services.TaskService) *TaskHandler {
+func NewTaskHandler(service TaskService) *TaskHandler {
 	return &TaskHandler{
 		service:      service,
 		taskUpdateCh: make(chan struct{}, 1),
@@ -235,6 +257,7 @@ func (h *TaskHandler) CreateTask(w http.ResponseWriter, r *http.Request) {
 	h.NotifyTaskUpdate() // Notify connected clients about the new task
 
 	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusCreated)
 	json.NewEncoder(w).Encode(task)
 }
 
@@ -536,6 +559,10 @@ func (h *TaskHandler) GetTask(w http.ResponseWriter, r *http.Request) {
 	taskID := mux.Vars(r)["id"]
 	task, err := h.service.GetTask(r.Context(), taskID)
 	if err != nil {
+		if err == services.ErrTaskNotFound {
+			http.Error(w, "Task not found", http.StatusNotFound)
+			return
+		}
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -553,7 +580,15 @@ func (h *TaskHandler) AssignTask(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Invalid request body", http.StatusBadRequest)
 		return
 	}
+	if req.RunnerID == "" {
+		http.Error(w, "Runner ID is required", http.StatusBadRequest)
+		return
+	}
 	if err := h.service.AssignTaskToRunner(r.Context(), taskID, req.RunnerID); err != nil {
+		if err == services.ErrTaskNotFound {
+			http.Error(w, "Task not found", http.StatusNotFound)
+			return
+		}
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -566,6 +601,10 @@ func (h *TaskHandler) GetTaskReward(w http.ResponseWriter, r *http.Request) {
 	taskID := mux.Vars(r)["id"]
 	reward, err := h.service.GetTaskReward(r.Context(), taskID)
 	if err != nil {
+		if err == services.ErrTaskNotFound {
+			http.Error(w, "Task not found", http.StatusNotFound)
+			return
+		}
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -593,4 +632,16 @@ func (h *TaskHandler) CompleteTask(w http.ResponseWriter, r *http.Request) {
 	}
 	h.NotifyTaskUpdate()
 	w.WriteHeader(http.StatusOK)
+}
+
+// WebSocketHandler upgrades the HTTP connection to WebSocket
+func (h *TaskHandler) WebSocketHandler(w http.ResponseWriter, r *http.Request) {
+	conn, err := upgrader.Upgrade(w, r, nil)
+	if err != nil {
+		log.Error().Err(err).Msg("Failed to upgrade connection")
+		return
+	}
+	defer conn.Close()
+
+	h.HandleWebSocket(conn)
 }

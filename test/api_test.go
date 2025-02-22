@@ -58,7 +58,7 @@ func TestGetTasksAPI(t *testing.T) {
 	mockService := new(mocks.MockTaskService)
 	router := setupRouter(mockService)
 
-	mockTasks := []*models.Task{
+	mockTasks := []models.Task{
 		{
 			ID:          uuid.New(),
 			Title:       "Task 1",
@@ -74,7 +74,7 @@ func TestGetTasksAPI(t *testing.T) {
 		},
 	}
 
-	mockService.On("ListAvailableTasks", mock.Anything).Return(mockTasks, nil)
+	mockService.On("GetTasks", mock.Anything).Return(mockTasks, nil)
 
 	req := httptest.NewRequest("GET", "/api/tasks", nil)
 	rr := httptest.NewRecorder()
@@ -83,7 +83,7 @@ func TestGetTasksAPI(t *testing.T) {
 
 	assert.Equal(t, http.StatusOK, rr.Code)
 
-	var response []*models.Task
+	var response []models.Task
 	err := json.NewDecoder(rr.Body).Decode(&response)
 	assert.NoError(t, err)
 	if assert.Len(t, response, 2) {
@@ -187,13 +187,11 @@ func TestAssignTaskAPI(t *testing.T) {
 		},
 		{
 			name:   "missing runner ID",
-			taskID: uuid.New().String(),
+			taskID: "76c1fc13-2d65-4923-bc1b-fdbfe4d83b05",
 			payload: map[string]interface{}{
 				"runner_id": "",
 			},
-			setupMock: func() {
-				// Don't set up mock since validation should fail before service call
-			},
+			setupMock:      func() {},
 			expectedStatus: http.StatusBadRequest,
 		},
 	}
