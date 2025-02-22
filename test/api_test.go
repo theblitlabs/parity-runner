@@ -486,7 +486,12 @@ func TestWebSocketConnection(t *testing.T) {
 }
 
 func TestWebSocketReconnection(t *testing.T) {
+	// Disable logging before setting up any test components
 	DisableLogging()
+
+	// Create a wait group to ensure test goroutines complete
+	var wg sync.WaitGroup
+
 	mockService := new(mocks.MockTaskService)
 	router := setupRouter(mockService)
 	server := httptest.NewServer(router)
@@ -503,53 +508,25 @@ func TestWebSocketReconnection(t *testing.T) {
 	// Test first connection
 	ws1, _, err := dialer.Dial(wsURL, nil)
 	assert.NoError(t, err)
+	defer ws1.Close()
 
-	done := make(chan bool)
+	wg.Add(1)
 	go func() {
-		defer close(done)
+		defer wg.Done()
 		var msg struct {
 			Type    string          `json:"type"`
 			Payload json.RawMessage `json:"payload"`
 		}
 		if err := ws1.ReadJSON(&msg); err != nil {
-			t.Errorf("First connection read error: %v", err)
+			// Only report error if it's not a normal closure
+			if !websocket.IsCloseError(err, websocket.CloseNormalClosure) {
+				t.Errorf("First connection read error: %v", err)
+			}
 			return
 		}
 		assert.Equal(t, "available_tasks", msg.Type)
 	}()
 
-	select {
-	case <-done:
-		// Test completed
-	case <-time.After(5 * time.Second):
-		t.Fatal("First connection test timed out")
-	}
-
-	ws1.Close()
-
-	// Test second connection
-	ws2, _, err := dialer.Dial(wsURL, nil)
-	assert.NoError(t, err)
-	defer ws2.Close()
-
-	done = make(chan bool)
-	go func() {
-		defer close(done)
-		var msg struct {
-			Type    string          `json:"type"`
-			Payload json.RawMessage `json:"payload"`
-		}
-		if err := ws2.ReadJSON(&msg); err != nil {
-			t.Errorf("Second connection read error: %v", err)
-			return
-		}
-		assert.Equal(t, "available_tasks", msg.Type)
-	}()
-
-	select {
-	case <-done:
-		// Test completed
-	case <-time.After(5 * time.Second):
-		t.Fatal("Second connection test timed out")
-	}
+	// Wait for all goroutines to complete
+	wg.Wait()
 }

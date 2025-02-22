@@ -6,12 +6,16 @@ import (
 	"io"
 	"os"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/rs/zerolog"
 )
 
-var log zerolog.Logger
+var (
+	log zerolog.Logger
+	mu  sync.RWMutex
+)
 
 // LogLevel represents the logging level
 type LogLevel string
@@ -49,6 +53,9 @@ func DefaultConfig() Config {
 }
 
 func Init(cfg Config) {
+	mu.Lock()
+	defer mu.Unlock()
+
 	// If logging is disabled, set global level to disabled and return early
 	if cfg.Level == LogLevelDisabled {
 		zerolog.SetGlobalLevel(zerolog.Disabled)
@@ -123,7 +130,6 @@ func Init(cfg Config) {
 			},
 		}
 	} else {
-		// Production JSON logging
 		output = zerolog.ConsoleWriter{
 			Out:        os.Stdout,
 			TimeFormat: cfg.TimeFormat,
@@ -131,7 +137,6 @@ func Init(cfg Config) {
 		}
 	}
 
-	// Set global logging level
 	switch cfg.Level {
 	case LogLevelDebug:
 		zerolog.SetGlobalLevel(zerolog.DebugLevel)
@@ -183,23 +188,24 @@ func colorizeLevel(level string) string {
 	case "error":
 		return colorize("ERR", bold+red)
 	case "fatal":
-		return colorize("FTL", bold+red+"\x1b[7m") // Reverse video for fatal
+		return colorize("FTL", bold+red+"\x1b[7m")
 	default:
 		return colorize(level, blue)
 	}
 }
 
-// Get returns the logger instance
 func Get() zerolog.Logger {
+	mu.RLock()
+	defer mu.RUnlock()
 	return log
 }
 
-// WithComponent returns a logger with the component field set
 func WithComponent(component string) zerolog.Logger {
+	mu.RLock()
+	defer mu.RUnlock()
 	return log.With().Str("component", component).Logger()
 }
 
-// WithTraceID returns a logger with the trace_id field set
 func WithTraceID(traceID string) zerolog.Logger {
 	return log.With().Str("trace_id", traceID).Logger()
 }
