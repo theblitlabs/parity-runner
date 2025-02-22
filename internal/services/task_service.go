@@ -110,11 +110,19 @@ func (s *TaskService) ListAvailableTasks(ctx context.Context) ([]*models.Task, e
 	tasks, err := s.repo.ListByStatus(ctx, models.TaskStatusPending)
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to list available tasks")
-		return nil, fmt.Errorf("failed to list tasks: %w", err)
+		return nil, err
 	}
 
-	log.Debug().Int("count", len(tasks)).Msg("Retrieved available tasks")
-	return tasks, nil
+	// Filter out any tasks that might be in an inconsistent state
+	availableTasks := make([]*models.Task, 0)
+	for _, task := range tasks {
+		if task.Status == models.TaskStatusPending && task.RunnerID == nil {
+			availableTasks = append(availableTasks, task)
+		}
+	}
+
+	log.Debug().Int("count", len(availableTasks)).Msg("Retrieved available tasks")
+	return availableTasks, nil
 }
 
 func (s *TaskService) AssignTaskToRunner(ctx context.Context, taskID string, runnerID string) error {

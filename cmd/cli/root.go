@@ -15,7 +15,8 @@ var rootCmd = &cobra.Command{
 	Long:  `A decentralized computing network powered by blockchain and secure enclaves`,
 	PersistentPreRun: func(cmd *cobra.Command, args []string) {
 		logger.Init(logger.Config{
-			Level: "debug",
+			Level:  "debug",
+			Pretty: true,
 		})
 	},
 }

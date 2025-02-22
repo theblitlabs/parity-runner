@@ -38,6 +38,14 @@ func (h *DefaultTaskHandler) HandleTask(task *models.Task) error {
 		Str("type", string(task.Type)).
 		Logger()
 
+	// Skip if task is not in pending state
+	if task.Status != models.TaskStatusPending {
+		log.Debug().
+			Str("status", string(task.Status)).
+			Msg("Skipping non-pending task")
+		return nil
+	}
+
 	log.Info().
 		Float64("reward", task.Reward).
 		Str("title", task.Title).
@@ -64,6 +72,11 @@ func (h *DefaultTaskHandler) HandleTask(task *models.Task) error {
 
 	// Try to start task
 	if err := h.taskClient.StartTask(task.ID.String()); err != nil {
+		if err.Error() == "task unavailable" {
+			// Task is no longer available (e.g. completed or taken by another runner)
+			log.Debug().Msg("Task is no longer available")
+			return nil // Return nil to avoid retrying
+		}
 		log.Error().Err(err).Msg("Failed to start task")
 		return fmt.Errorf("failed to start task: %w", err)
 	}

@@ -19,13 +19,16 @@ type WebSocketClient struct {
 	url      string
 	handler  TaskHandler
 	stopChan chan struct{}
+	// Track completed tasks to avoid reprocessing
+	completedTasks map[string]bool
 }
 
 func NewWebSocketClient(url string, handler TaskHandler) *WebSocketClient {
 	return &WebSocketClient{
-		url:      url,
-		handler:  handler,
-		stopChan: make(chan struct{}),
+		url:            url,
+		handler:        handler,
+		stopChan:       make(chan struct{}),
+		completedTasks: make(map[string]bool),
 	}
 }
 
@@ -97,6 +100,15 @@ func (w *WebSocketClient) handleMessage(msg WSMessage) {
 			log.Debug().Int("count", len(tasks)).Msg("Tasks received")
 
 			for _, task := range tasks {
+				// Skip tasks that have already been completed
+				if w.completedTasks[task.ID.String()] {
+					log.Debug().
+						Str("id", task.ID.String()).
+						Str("type", string(task.Type)).
+						Msg("Skipping already completed task")
+					continue
+				}
+
 				if err := w.handler.HandleTask(task); err != nil {
 					log.Error().Err(err).
 						Str("id", task.ID.String()).
@@ -108,6 +120,8 @@ func (w *WebSocketClient) handleMessage(msg WSMessage) {
 						Str("id", task.ID.String()).
 						Str("type", string(task.Type)).
 						Msg("Task processed")
+					// Mark task as completed
+					w.completedTasks[task.ID.String()] = true
 				}
 			}
 		}

@@ -67,28 +67,50 @@ func Init(cfg Config) {
 				return colorizeLevel(i.(string))
 			},
 			FormatFieldName: func(i interface{}) string {
-				return colorize(fmt.Sprintf("%s=", i.(string)), gray)
+				name := fmt.Sprint(i)
+				// Skip component and trace_id if they're going to have empty values
+				if name == "component" || name == "trace_id" {
+					return ""
+				}
+				return colorize(fmt.Sprintf("%s=", name), dim+cyan)
 			},
 			FormatFieldValue: func(i interface{}) string {
 				switch v := i.(type) {
 				case string:
+					if v == "" {
+						return ""
+					}
 					return colorize(v, blue)
 				case json.Number:
-					return colorize(v.String(), blue)
+					return colorize(v.String(), magenta)
 				case error:
 					return colorize(v.Error(), red)
 				case nil:
 					return ""
 				default:
-					return colorize(fmt.Sprint(v), blue)
+					s := fmt.Sprint(v)
+					if s == "" {
+						return ""
+					}
+					return colorize(s, blue)
 				}
+			},
+			FormatMessage: func(i interface{}) string {
+				msg := fmt.Sprint(i)
+				msg = strings.Replace(msg, "Request started", colorize("→", bold+green), 1)
+				msg = strings.Replace(msg, "Request completed", colorize("←", bold+green), 1)
+				return colorize(msg, bold)
+			},
+			FormatTimestamp: func(i interface{}) string {
+				t := fmt.Sprint(i)
+				return colorize(t, dim+gray)
 			},
 			PartsOrder: []string{
 				zerolog.TimestampFieldName,
 				zerolog.LevelFieldName,
+				zerolog.CallerFieldName,
 				zerolog.MessageFieldName,
-				"component",
-				"trace_id",
+				"device_id",
 			},
 			PartsExclude: []string{
 				"query",
@@ -96,12 +118,8 @@ func Init(cfg Config) {
 				"user_agent",
 				"remote_addr",
 				"duration_human",
-			},
-			FormatMessage: func(i interface{}) string {
-				msg := fmt.Sprint(i)
-				msg = strings.Replace(msg, "Request started", "→", 1)
-				msg = strings.Replace(msg, "Request completed", "←", 1)
-				return msg
+				"component",
+				"trace_id",
 			},
 		}
 	} else {
@@ -138,12 +156,16 @@ func Init(cfg Config) {
 
 // ANSI color codes
 const (
-	gray  = "\x1b[37m"
-	blue  = "\x1b[34m"
-	cyan  = "\x1b[36m"
-	red   = "\x1b[31m"
-	green = "\x1b[32m"
-	reset = "\x1b[0m"
+	gray    = "\x1b[37m"
+	blue    = "\x1b[34m"
+	cyan    = "\x1b[36m"
+	red     = "\x1b[31m"
+	green   = "\x1b[32m"
+	yellow  = "\x1b[33m"
+	magenta = "\x1b[35m"
+	bold    = "\x1b[1m"
+	dim     = "\x1b[2m"
+	reset   = "\x1b[0m"
 )
 
 func colorize(s, color string) string {
@@ -153,15 +175,15 @@ func colorize(s, color string) string {
 func colorizeLevel(level string) string {
 	switch level {
 	case "debug":
-		return colorize("DBG", gray)
+		return colorize("DBG", dim+magenta)
 	case "info":
-		return colorize("INF", blue)
+		return colorize("INF", bold+green)
 	case "warn":
-		return colorize("WRN", cyan)
+		return colorize("WRN", bold+yellow)
 	case "error":
-		return colorize("ERR", red)
+		return colorize("ERR", bold+red)
 	case "fatal":
-		return colorize("FTL", red)
+		return colorize("FTL", bold+red+"\x1b[7m") // Reverse video for fatal
 	default:
 		return colorize(level, blue)
 	}
