@@ -16,8 +16,11 @@ import (
 	"github.com/google/uuid"
 	"github.com/gorilla/mux"
 	"github.com/gorilla/websocket"
+	"github.com/rs/zerolog/log"
+
 	"github.com/theblitlabs/parity-protocol/internal/config"
 	"github.com/theblitlabs/parity-protocol/internal/models"
+	"github.com/theblitlabs/parity-protocol/internal/services"
 	"github.com/theblitlabs/parity-protocol/pkg/keystore"
 	"github.com/theblitlabs/parity-protocol/pkg/logger"
 	"github.com/theblitlabs/parity-protocol/pkg/stakewallet"
@@ -29,14 +32,58 @@ type WSMessage struct {
 	Payload interface{} `json:"payload"`
 }
 
+type CreateTaskRequest struct {
+	Title       string                    `json:"title"`
+	Description string                    `json:"description"`
+	Type        models.TaskType           `json:"type"`
+	Config      json.RawMessage           `json:"config"`
+	Environment *models.EnvironmentConfig `json:"environment,omitempty"`
+	Reward      float64                   `json:"reward"`
+	CreatorID   string                    `json:"creator_id"`
+}
+
+// TaskHandler handles task-related HTTP and WebSocket requests
+type TaskHandler struct {
+	service      *services.TaskService
+	stakeWallet  stakewallet.StakeWallet
+	taskUpdateCh chan struct{} // Channel for task updates
+}
+
+// NewTaskHandler creates a new TaskHandler instance
+func NewTaskHandler(service *services.TaskService) *TaskHandler {
+	return &TaskHandler{
+		service:      service,
+		taskUpdateCh: make(chan struct{}, 1),
+	}
+}
+
+// SetStakeWallet sets the stake wallet for the handler
+func (h *TaskHandler) SetStakeWallet(wallet stakewallet.StakeWallet) {
+	h.stakeWallet = wallet
+}
+
+// NotifyTaskUpdate notifies connected clients about task updates
+func (h *TaskHandler) NotifyTaskUpdate() {
+	select {
+	case h.taskUpdateCh <- struct{}{}:
+	default:
+		// Channel is full, which means there's already a pending update
+	}
+}
+
+// HandleWebSocket handles WebSocket connections for task updates
 func (h *TaskHandler) HandleWebSocket(conn *websocket.Conn) {
 	log := logger.WithComponent("websocket")
-	ticker := time.NewTicker(time.Second)
-	defer ticker.Stop()
-
 	done := make(chan struct{})
 	defer close(done)
 
+	// Send initial task list
+	if err := h.sendAvailableTasks(conn); err != nil {
+		log.Error().Err(err).Msg("Failed to send initial task list")
+		return
+	}
+
+	// Handle incoming messages
 	go func() {
 		for {
 			select {
@@ -54,32 +101,31 @@ func (h *TaskHandler) HandleWebSocket(conn *websocket.Conn) {
 		}
 	}()
 
+	// Handle task updates
 	for {
 		select {
 		case <-done:
 			return
-		case <-ticker.C:
-			tasks, err := h.service.ListAvailableTasks(context.Background())
-			if err != nil {
-				log.Error().Err(err).Msg("Task fetch failed")
-				if err := conn.WriteJSON(WSMessage{
-					Type:    "error",
-					Payload: "Internal server error",
-				}); err != nil {
-					log.Debug().Err(err).Msg("Error message send failed")
-				}
-				continue
-			}
-
-			if err := conn.WriteJSON(WSMessage{
-				Type:    "available_tasks",
-				Payload: tasks,
-			}); err != nil {
-				log.Debug().Err(err).Msg("Task send failed")
+		case <-h.taskUpdateCh:
+			if err := h.sendAvailableTasks(conn); err != nil {
+				log.Error().Err(err).Msg("Failed to send task updates")
 				return
 			}
 		}
 	}
+}
+
+// sendAvailableTasks sends the list of available tasks to the WebSocket client
+func (h *TaskHandler) sendAvailableTasks(conn *websocket.Conn) error {
+	tasks, err := h.service.ListAvailableTasks(context.Background())
+	if err != nil {
+		return fmt.Errorf("failed to list tasks: %w", err)
+	}
+
+	return conn.WriteJSON(WSMessage{
+		Type:    "available_tasks",
+		Payload: tasks,
+	})
 }
 
 func (h *TaskHandler) GetTaskResult(w http.ResponseWriter, r *http.Request) {
@@ -103,6 +149,133 @@ func (h *TaskHandler) GetTaskResult(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(result)
+}
+
+func (h *TaskHandler) CreateTask(w http.ResponseWriter, r *http.Request) {
+	var req CreateTaskRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	// Get device ID from header
+	deviceID := r.Header.Get("X-Device-ID")
+	if deviceID == "" {
+		http.Error(w, "Device ID is required", http.StatusBadRequest)
+		return
+	}
+
+	// Validate task type
+	if req.Type != models.TaskTypeFile && req.Type != models.TaskTypeDocker && req.Type != models.TaskTypeCommand {
+		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	// Validate task config
+	if req.Type == models.TaskTypeDocker {
+		if len(req.Config) == 0 {
+			http.Error(w, "Command is required for Docker tasks", http.StatusBadRequest)
+			return
+		}
+		if req.Environment == nil || req.Environment.Type != "docker" {
+			http.Error(w, "Docker environment configuration is required", http.StatusBadRequest)
+			return
+		}
+	}
+
+	// Generate a new UUID for the task
+	taskID := uuid.New()
+
+	// Generate a new UUID for the creator ID
+	creatorID := uuid.New()
+
+	task := &models.Task{
+		ID:              taskID,
+		Title:           req.Title,
+		Description:     req.Description,
+		Type:            req.Type,
+		Config:          req.Config,
+		Environment:     req.Environment,
+		Reward:          req.Reward,
+		CreatorID:       creatorID,
+		CreatorDeviceID: deviceID,
+		Status:          models.TaskStatusPending,
+		CreatedAt:       time.Now(),
+		UpdatedAt:       time.Now(),
+	}
+
+	// Log task details for debugging
+	log.Debug().
+		Str("task_id", taskID.String()).
+		Str("creator_id", task.CreatorID.String()).
+		Str("creator_device_id", task.CreatorDeviceID).
+		RawJSON("config", req.Config).
+		Msg("Creating task")
+
+	// Check if sufficient stake exists for reward
+	if err := h.checkStakeBalance(r.Context(), task); err != nil {
+		log.Error().Err(err).
+			Str("device_id", deviceID).
+			Float64("reward", task.Reward).
+			Msg("Insufficient stake balance for task reward")
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	// Continue with task creation
+	if err := h.service.CreateTask(r.Context(), task); err != nil {
+		log.Error().Err(err).
+			Str("task_id", taskID.String()).
+			RawJSON("config", req.Config).
+			Msg("Failed to create task")
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	h.NotifyTaskUpdate() // Notify connected clients about the new task
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(task)
+}
+
+func (h *TaskHandler) StartTask(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	log := logger.Get()
+
+	vars := mux.Vars(r)
+	taskID := vars["id"]
+	if taskID == "" {
+		http.Error(w, "task ID is required", http.StatusBadRequest)
+		return
+	}
+
+	runnerID := r.Header.Get("X-Runner-ID")
+	if runnerID == "" {
+		http.Error(w, "X-Runner-ID header is required", http.StatusBadRequest)
+		return
+	}
+
+	// First assign the task to the runner
+	if err := h.service.AssignTaskToRunner(ctx, taskID, runnerID); err != nil {
+		log.Error().Err(err).Str("task_id", taskID).Msg("Failed to assign task")
+		if err == services.ErrTaskNotFound {
+			http.Error(w, "Task not found", http.StatusNotFound)
+			return
+		}
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	// Then start the task
+	if err := h.service.StartTask(ctx, taskID); err != nil {
+		log.Error().Err(err).Str("task_id", taskID).Msg("Failed to start task")
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	h.NotifyTaskUpdate() // Notify connected clients about task status change
+
+	w.WriteHeader(http.StatusOK)
 }
 
 func (h *TaskHandler) SaveTaskResult(w http.ResponseWriter, r *http.Request) {
@@ -208,6 +381,8 @@ func (h *TaskHandler) SaveTaskResult(w http.ResponseWriter, r *http.Request) {
 			Int("exit", result.ExitCode).
 			Msg("Task completed with error")
 	}
+
+	h.NotifyTaskUpdate() // Notify connected clients about task completion
 
 	w.WriteHeader(http.StatusOK)
 }
@@ -318,7 +493,7 @@ func (h *TaskHandler) distributeRewards(ctx context.Context, result *models.Task
 	return nil
 }
 
-func (h *TaskHandler) checkStakeBalance(_ context.Context, task *models.Task) error {
+func (h *TaskHandler) checkStakeBalance(ctx context.Context, task *models.Task) error {
 	if h.stakeWallet == nil {
 		return fmt.Errorf("stake wallet not initialized")
 	}
@@ -343,4 +518,79 @@ func (h *TaskHandler) checkStakeBalance(_ context.Context, task *models.Task) er
 	}
 
 	return nil
+}
+
+// ListTasks returns all tasks
+func (h *TaskHandler) ListTasks(w http.ResponseWriter, r *http.Request) {
+	tasks, err := h.service.GetTasks(r.Context())
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(tasks)
+}
+
+// GetTask returns a specific task by ID
+func (h *TaskHandler) GetTask(w http.ResponseWriter, r *http.Request) {
+	taskID := mux.Vars(r)["id"]
+	task, err := h.service.GetTask(r.Context(), taskID)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(task)
+}
+
+// AssignTask assigns a task to a runner
+func (h *TaskHandler) AssignTask(w http.ResponseWriter, r *http.Request) {
+	taskID := mux.Vars(r)["id"]
+	var req struct {
+		RunnerID string `json:"runner_id"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+	if err := h.service.AssignTaskToRunner(r.Context(), taskID, req.RunnerID); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	h.NotifyTaskUpdate()
+	w.WriteHeader(http.StatusOK)
+}
+
+// GetTaskReward returns the reward for a task
+func (h *TaskHandler) GetTaskReward(w http.ResponseWriter, r *http.Request) {
+	taskID := mux.Vars(r)["id"]
+	reward, err := h.service.GetTaskReward(r.Context(), taskID)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(reward)
+}
+
+// ListAvailableTasks returns all available tasks
+func (h *TaskHandler) ListAvailableTasks(w http.ResponseWriter, r *http.Request) {
+	tasks, err := h.service.ListAvailableTasks(r.Context())
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(tasks)
+}
+
+// CompleteTask marks a task as completed
+func (h *TaskHandler) CompleteTask(w http.ResponseWriter, r *http.Request) {
+	taskID := mux.Vars(r)["id"]
+	if err := h.service.CompleteTask(r.Context(), taskID); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	h.NotifyTaskUpdate()
+	w.WriteHeader(http.StatusOK)
 }
