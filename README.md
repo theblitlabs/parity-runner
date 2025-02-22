@@ -6,7 +6,7 @@ Parity Protocol is a decentralized compute network where runners can execute com
 
 ### Prerequisites
 
-- Go 1.20 or higher
+- Go 1.22.7 or higher (using Go toolchain 1.23.4)
 - PostgreSQL
 - Make
 - Docker (optional, for containerized database)
@@ -39,7 +39,34 @@ docker run --name parity-db -e POSTGRES_PASSWORD=postgres -p 5432:5432 -d postgr
 4. Run database migrations:
 
 ```bash
-make migrate
+make migrate-up
+```
+
+### Development
+
+The project includes several helpful Makefile commands for development:
+
+```bash
+make build          # Build the application
+make run           # Run the application
+make test          # Run tests with coverage
+make clean         # Clean build files
+make deps          # Download dependencies
+make fmt           # Format code
+make watch         # Run with hot reload (requires air)
+make install       # Install parity command globally
+make uninstall     # Remove parity command from system
+make help          # Display all available commands
+```
+
+For hot reloading during development:
+
+```bash
+# Install air (required for hot reloading)
+make install-air
+
+# Run with hot reload
+make watch
 ```
 
 ### Configuration
@@ -103,21 +130,7 @@ Each command supports the `--help` flag for detailed usage information:
 parity <command> --help
 ```
 
-For example:
-
-```bash
-parity auth --help
-parity stake --help
-```
-
-### Testing
-
-```bash
-# Run all tests with coverage
-make test
-```
-
-## Project Structure
+### Project Structure
 
 ```
 parity-protocol/
@@ -152,13 +165,24 @@ parity-protocol/
 │   ├── logger/           # Logging utilities
 │   ├── stakewallet/      # Stake wallet interface
 │   └── wallet/           # Wallet operations
-└── test/                 # Integration tests
-    └── cli/              # CLI tests
+├── test/                 # Integration tests
+│   └── cli/              # CLI tests
+└── coverage/             # Test coverage reports
+
 ```
 
-## API Documentation
+### Testing
 
-### Task Creator Endpoints
+```bash
+# Run all tests with coverage
+make test
+
+# Coverage report will be generated in coverage/coverage.html
+```
+
+### API Documentation
+
+#### Task Creator Endpoints
 
 | Method | Endpoint               | Description      |
 | ------ | ---------------------- | ---------------- |
@@ -167,7 +191,7 @@ parity-protocol/
 | GET    | /api/tasks/{id}        | Get task details |
 | GET    | /api/tasks/{id}/reward | Get task reward  |
 
-### Runner Endpoints
+#### Runner Endpoints
 
 | Method | Endpoint                         | Description          |
 | ------ | -------------------------------- | -------------------- |
@@ -176,7 +200,7 @@ parity-protocol/
 | POST   | /api/runners/tasks/{id}/complete | Complete task        |
 | WS     | /api/ws                          | WebSocket updates    |
 
-## Contributing
+### Contributing
 
 1. Fork the repository
 2. Create your feature branch (`git checkout -b feature/amazing-feature`)
@@ -184,6 +208,6 @@ parity-protocol/
 4. Push to the branch (`git push origin feature/amazing-feature`)
 5. Open a Pull Request
 
-## License
+### License
 
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
