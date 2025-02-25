@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"strings"
 
@@ -12,6 +13,16 @@ import (
 	"github.com/theblitlabs/parity-protocol/pkg/device"
 	"github.com/theblitlabs/parity-protocol/pkg/logger"
 )
+
+// isPortAvailable verifies if a port is available for use
+func isPortAvailable(port int) error {
+	ln, err := net.Listen("tcp", fmt.Sprintf(":%d", port))
+	if err != nil {
+		return fmt.Errorf("port %d is not available: %w", port, err)
+	}
+	ln.Close()
+	return nil
+}
 
 func RunChain() {
 	log := logger.Get()
@@ -121,11 +132,19 @@ func RunChain() {
 		w.WriteHeader(resp.StatusCode)
 
 		// Copy response body
-		io.Copy(w, resp.Body)
+		if _, err := io.Copy(w, resp.Body); err != nil {
+			log.Error().Err(err).Msg("Failed to copy response body")
+		}
 	})
 
 	// Start local proxy server
 	localAddr := fmt.Sprintf("%s:%s", cfg.Server.Host, "3000")
+
+	// Check if port 3000 is available
+	if err := isPortAvailable(3000); err != nil {
+		log.Fatal().Err(err).Int("port", 3000).Msg("Chain proxy port is not available")
+	}
+
 	log.Info().
 		Str("address", localAddr).
 		Str("device_id", deviceID).

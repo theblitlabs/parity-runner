@@ -15,15 +15,17 @@ import (
 	"github.com/docker/docker/api/types/mount"
 	"github.com/docker/docker/client"
 	"github.com/docker/go-connections/nat"
+	"github.com/google/uuid"
 	"github.com/theblitlabs/parity-protocol/internal/config"
 	"github.com/theblitlabs/parity-protocol/internal/execution/sandbox"
+	"github.com/theblitlabs/parity-protocol/pkg/device"
 	"github.com/theblitlabs/parity-protocol/pkg/keystore"
 	"github.com/theblitlabs/parity-protocol/pkg/logger"
 )
 
 type Service struct {
 	cfg            *config.Config
-	wsClient       *WebSocketClient
+	webhookClient  *WebhookClient
 	taskHandler    TaskHandler
 	taskClient     TaskClient
 	rewardClient   RewardClient
@@ -93,11 +95,40 @@ func NewService(cfg *config.Config) (*Service, error) {
 	// Initialize task handler
 	taskHandler := NewTaskHandler(executor, taskClient, rewardClient)
 
-	// Initialize WebSocket client
-	wsClient := NewWebSocketClient(cfg.Runner.WebsocketURL, taskHandler)
+	// Generate webhook URL and client
+	deviceID, err := device.VerifyDeviceID()
+	if err != nil {
+		log.Error().Err(err).Msg("Failed to get device ID")
+		return nil, fmt.Errorf("failed to get device ID: %w", err)
+	}
+
+	// Generate a random runner ID
+	runnerID := uuid.New().String()
+
+	// Use hostname for webhookURL or fallback to localhost
+	hostname, err := os.Hostname()
+	if err != nil {
+		hostname = "localhost"
+	}
+
+	// Default webhook port if not specified
+	webhookPort := 8090
+	if cfg.Runner.WebhookPort > 0 {
+		webhookPort = cfg.Runner.WebhookPort
+	}
+
+	webhookURL := fmt.Sprintf("http://%s:%d/webhook", hostname, webhookPort)
+	webhookClient := NewWebhookClient(
+		cfg.Runner.ServerURL,
+		webhookURL,
+		webhookPort,
+		taskHandler,
+		runnerID,
+		deviceID,
+	)
 
 	// Set remaining fields
-	svc.wsClient = wsClient
+	svc.webhookClient = webhookClient
 	svc.taskHandler = taskHandler
 	svc.taskClient = taskClient
 	svc.rewardClient = rewardClient
@@ -105,7 +136,7 @@ func NewService(cfg *config.Config) (*Service, error) {
 
 	log.Info().
 		Str("server_url", cfg.Runner.ServerURL).
-		Str("websocket_url", cfg.Runner.WebsocketURL).
+		Str("webhook_url", webhookURL).
 		Str("memory_limit", cfg.Runner.Docker.MemoryLimit).
 		Str("cpu_limit", cfg.Runner.Docker.CPULimit).
 		Msg("Runner service initialized")
@@ -116,38 +147,61 @@ func NewService(cfg *config.Config) (*Service, error) {
 func (s *Service) Start() error {
 	log := logger.WithComponent("runner")
 
-	if err := s.wsClient.Connect(); err != nil {
+	if err := s.webhookClient.Start(); err != nil {
 		log.Error().Err(err).
-			Str("websocket_url", s.cfg.Runner.WebsocketURL).
-			Msg("Failed to connect to WebSocket")
-		return fmt.Errorf("failed to connect to WebSocket: %w", err)
+			Msg("Failed to start webhook client")
+		return fmt.Errorf("failed to start webhook client: %w", err)
 	}
 
-	s.wsClient.Start()
 	log.Info().
 		Str("server_url", s.cfg.Runner.ServerURL).
-		Str("websocket_url", s.cfg.Runner.WebsocketURL).
 		Msg("Runner service started")
 	return nil
 }
 
-func (s *Service) Stop() {
+func (s *Service) Stop(ctx context.Context) error {
 	log := logger.WithComponent("runner")
-	s.wsClient.Stop()
+
+	log.Info().Msg("Stopping runner service...")
+
+	// Stop webhook client
+	if err := s.webhookClient.Stop(); err != nil {
+		log.Error().Err(err).Msg("Error stopping webhook client")
+		// Continue shutdown process despite errors
+	}
 
 	// Stop IPFS container if it's running
 	if s.ipfsContainer != "" {
-		ctx := context.Background()
+		log.Info().Str("container_id", s.ipfsContainer).Msg("Stopping IPFS container")
+
+		// Use the passed context for respecting timeouts
 		timeout := 10 * time.Second
 		if err := s.dockerClient.ContainerStop(ctx, s.ipfsContainer, &timeout); err != nil {
 			log.Error().Err(err).Msg("Failed to stop IPFS container")
+			// Continue with removal anyway
 		}
-		if err := s.dockerClient.ContainerRemove(ctx, s.ipfsContainer, types.ContainerRemoveOptions{Force: true}); err != nil {
+
+		// Use context for container removal as well
+		removeOpts := types.ContainerRemoveOptions{Force: true}
+		if err := s.dockerClient.ContainerRemove(ctx, s.ipfsContainer, removeOpts); err != nil {
 			log.Error().Err(err).Msg("Failed to remove IPFS container")
+			return fmt.Errorf("failed to remove IPFS container: %w", err)
+		}
+
+		log.Info().Str("container_id", s.ipfsContainer).Msg("IPFS container stopped and removed")
+	}
+
+	// Close Docker client if it exists
+	if s.dockerClient != nil {
+		log.Info().Msg("Closing Docker client")
+		if err := s.dockerClient.Close(); err != nil {
+			log.Error().Err(err).Msg("Error closing Docker client")
+			return fmt.Errorf("failed to close docker client: %w", err)
 		}
 	}
 
 	log.Info().Msg("Runner service stopped")
+	return nil
 }
 
 func (s *Service) startIPFSContainer() error {

@@ -4,9 +4,15 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/rs/zerolog/log"
 	"github.com/spf13/cobra"
 
 	"github.com/theblitlabs/parity-protocol/pkg/logger"
+)
+
+var (
+	// Configuration flags
+	logMode string
 )
 
 var rootCmd = &cobra.Command{
@@ -14,10 +20,14 @@ var rootCmd = &cobra.Command{
 	Short: "Parity Protocol CLI",
 	Long:  `A decentralized computing network powered by blockchain and secure enclaves`,
 	PersistentPreRun: func(cmd *cobra.Command, args []string) {
-		logger.Init(logger.Config{
-			Level:  "debug",
-			Pretty: true,
-		})
+		// Initialize logger with the selected mode
+		switch logMode {
+		case "debug", "pretty", "info", "prod", "test":
+			logger.InitWithMode(logger.LogMode(logMode))
+		default:
+			// Default to pretty logging if invalid mode provided
+			logger.InitWithMode(logger.LogModePretty)
+		}
 	},
 }
 
@@ -56,13 +66,20 @@ var balanceCmd = &cobra.Command{
 }
 
 func init() {
+	// Global flags
+	rootCmd.PersistentFlags().StringVar(&logMode, "log", "pretty", "Log mode: debug, pretty, info, prod, test")
+
 	// Auth command flags
 	authCmd.Flags().String("private-key", "", "Private key in hex format")
-	authCmd.MarkFlagRequired("private-key")
+	if err := authCmd.MarkFlagRequired("private-key"); err != nil {
+		log.Error().Err(err).Msg("Failed to mark private-key flag as required")
+	}
 
 	// Stake command flags
 	stakeCmd.Flags().Float64("amount", 1.0, "Amount of PRTY tokens to stake")
-	stakeCmd.MarkFlagRequired("amount")
+	if err := stakeCmd.MarkFlagRequired("amount"); err != nil {
+		log.Error().Err(err).Msg("Failed to mark amount flag as required")
+	}
 
 	// Migrate command flags
 	migrateCmd.Flags().Bool("down", false, "Rollback migrations")

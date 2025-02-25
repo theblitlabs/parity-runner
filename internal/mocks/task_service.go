@@ -69,3 +69,9 @@ func (m *MockTaskService) SaveTaskResult(ctx context.Context, result *models.Tas
 	args := m.Called(ctx, result)
 	return args.Error(0)
 }
+
+// GetTaskLogs returns logs for a task
+func (m *MockTaskService) GetTaskLogs(ctx context.Context, id string) (interface{}, error) {
+	args := m.Called(ctx, id)
+	return args.Get(0), args.Error(1)
+}

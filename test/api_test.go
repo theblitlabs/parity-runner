@@ -6,14 +6,11 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
-	"reflect"
-	"strings"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/gorilla/mux"
-	"github.com/gorilla/websocket"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/theblitlabs/parity-protocol/internal/api/handlers"
@@ -25,7 +22,15 @@ import (
 	"github.com/theblitlabs/parity-protocol/pkg/logger"
 )
 
+// TaskLog represents a log entry for a task
+type TaskLog struct {
+	Timestamp time.Time `json:"timestamp"`
+	Message   string    `json:"message"`
+	Level     string    `json:"level"`
+}
+
 var setupOnce sync.Once
+var testStopCh chan struct{}
 
 func setupRouter(taskService *mocks.MockTaskService) *mux.Router {
 	setupOnce.Do(func() {
@@ -34,6 +39,16 @@ func setupRouter(taskService *mocks.MockTaskService) *mux.Router {
 
 	router := mux.NewRouter()
 	taskHandler := handlers.NewTaskHandler(taskService)
+
+	// Set up expectations for ListAvailableTasks which is called asynchronously
+	taskService.On("ListAvailableTasks", mock.Anything).Return([]*models.Task{}, nil).Maybe()
+
+	// Create and set a stop channel for clean shutdown
+	stopCh := make(chan struct{})
+	taskHandler.SetStopChannel(stopCh)
+
+	// Store the stop channel in the package level variable for tests to use
+	testStopCh = stopCh
 
 	// Task routes (for task creators)
 	tasks := router.PathPrefix("/api/tasks").Subrouter()
@@ -49,7 +64,8 @@ func setupRouter(taskService *mocks.MockTaskService) *mux.Router {
 	runners.HandleFunc("/tasks/available", taskHandler.ListAvailableTasks).Methods("GET")
 	runners.HandleFunc("/tasks/{id}/start", taskHandler.StartTask).Methods("POST")
 	runners.HandleFunc("/tasks/{id}/complete", taskHandler.CompleteTask).Methods("POST")
-	runners.HandleFunc("/ws", taskHandler.WebSocketHandler).Methods("GET")
+	runners.HandleFunc("/webhooks", taskHandler.RegisterWebhook).Methods("POST")
+	runners.HandleFunc("/webhooks/{id}", taskHandler.UnregisterWebhook).Methods("DELETE")
 
 	return router
 }
@@ -57,6 +73,17 @@ func setupRouter(taskService *mocks.MockTaskService) *mux.Router {
 func TestGetTasksAPI(t *testing.T) {
 	mockService := new(mocks.MockTaskService)
 	router := setupRouter(mockService)
+
+	// Create a new stop channel for this test
+	testStopCh = make(chan struct{})
+
+	// Clean up at the end of the test
+	defer func() {
+		// Signal goroutines to stop
+		close(testStopCh)
+		// Give goroutines time to complete
+		time.Sleep(100 * time.Millisecond)
+	}()
 
 	mockTasks := []models.Task{
 		{
@@ -81,6 +108,9 @@ func TestGetTasksAPI(t *testing.T) {
 
 	router.ServeHTTP(rr, req)
 
+	// Give the async goroutine time to complete
+	time.Sleep(50 * time.Millisecond)
+
 	assert.Equal(t, http.StatusOK, rr.Code)
 
 	var response []models.Task
@@ -97,6 +127,17 @@ func TestGetTasksAPI(t *testing.T) {
 func TestGetTaskByIDAPI(t *testing.T) {
 	mockService := new(mocks.MockTaskService)
 	router := setupRouter(mockService)
+
+	// Create a new stop channel for this test
+	testStopCh = make(chan struct{})
+
+	// Clean up at the end of the test
+	defer func() {
+		// Signal goroutines to stop
+		close(testStopCh)
+		// Give goroutines time to complete
+		time.Sleep(100 * time.Millisecond)
+	}()
 
 	mockTask := &models.Task{
 		ID:          uuid.New(),
@@ -131,13 +172,21 @@ func TestGetTaskByIDAPI(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			mockService.ExpectedCalls = nil
+			// Clear previous test's mock expectations, but keep the ListAvailableTasks expectation
+			mockService.ExpectedCalls = mockService.ExpectedCalls[:0]
+
+			// Re-add the ListAvailableTasks expectation that will be called asynchronously
+			mockService.On("ListAvailableTasks", mock.Anything).Return([]*models.Task{}, nil).Maybe()
+
 			tt.setupMock()
 
 			req := httptest.NewRequest("GET", "/api/tasks/"+tt.taskID, nil)
 			rr := httptest.NewRecorder()
 
 			router.ServeHTTP(rr, req)
+
+			// Give the async goroutine time to complete
+			time.Sleep(50 * time.Millisecond)
 
 			assert.Equal(t, tt.expectedStatus, rr.Code)
 			if tt.expectedStatus == http.StatusOK {
@@ -155,6 +204,14 @@ func TestGetTaskByIDAPI(t *testing.T) {
 func TestAssignTaskAPI(t *testing.T) {
 	mockService := new(mocks.MockTaskService)
 	router := setupRouter(mockService)
+
+	// Clean up at the end of the test
+	defer func() {
+		// Signal goroutines to stop
+		close(testStopCh)
+		// Give goroutines time to complete
+		time.Sleep(100 * time.Millisecond)
+	}()
 
 	tests := []struct {
 		name           string
@@ -198,7 +255,12 @@ func TestAssignTaskAPI(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			mockService.ExpectedCalls = nil
+			// Clear previous test's mock expectations, but keep the ListAvailableTasks expectation
+			mockService.ExpectedCalls = mockService.ExpectedCalls[:0]
+
+			// Re-add the ListAvailableTasks expectation that will be called asynchronously
+			mockService.On("ListAvailableTasks", mock.Anything).Return([]*models.Task{}, nil).Maybe()
+
 			tt.setupMock()
 
 			payloadBytes, _ := json.Marshal(tt.payload)
@@ -208,10 +270,11 @@ func TestAssignTaskAPI(t *testing.T) {
 			rr := httptest.NewRecorder()
 			router.ServeHTTP(rr, req)
 
+			// Give the async goroutine time to complete before verifying expectations
+			time.Sleep(50 * time.Millisecond)
+
 			assert.Equal(t, tt.expectedStatus, rr.Code)
-			if tt.expectedStatus == http.StatusOK {
-				mockService.AssertExpectations(t)
-			}
+			mockService.AssertExpectations(t)
 		})
 	}
 }
@@ -219,6 +282,17 @@ func TestAssignTaskAPI(t *testing.T) {
 func TestListTasksAPI(t *testing.T) {
 	mockService := new(mocks.MockTaskService)
 	router := setupRouter(mockService)
+
+	// Create a new stop channel for this test
+	testStopCh = make(chan struct{})
+
+	// Clean up at the end of the test
+	defer func() {
+		// Signal goroutines to stop
+		close(testStopCh)
+		// Give goroutines time to complete
+		time.Sleep(100 * time.Millisecond)
+	}()
 
 	mockTasks := []*models.Task{
 		{
@@ -229,6 +303,10 @@ func TestListTasksAPI(t *testing.T) {
 		},
 	}
 
+	// Clear previous mock expectations and set up new ones
+	mockService.ExpectedCalls = mockService.ExpectedCalls[:0]
+
+	// Set up the mock service to return our mock tasks
 	mockService.On("ListAvailableTasks", mock.Anything).Return(mockTasks, nil)
 
 	req := httptest.NewRequest("GET", "/api/runners/tasks/available", nil)
@@ -236,11 +314,15 @@ func TestListTasksAPI(t *testing.T) {
 
 	router.ServeHTTP(rr, req)
 
+	// Give the async goroutine time to complete
+	time.Sleep(50 * time.Millisecond)
+
 	assert.Equal(t, http.StatusOK, rr.Code)
 	var response []*models.Task
 	err := json.NewDecoder(rr.Body).Decode(&response)
 	assert.NoError(t, err)
 	assert.Len(t, response, 1)
+
 	mockService.AssertExpectations(t)
 }
 
@@ -301,6 +383,17 @@ func TestRunnerRoutes(t *testing.T) {
 	mockService := new(mocks.MockTaskService)
 	router := setupRouter(mockService)
 
+	// Create a new stop channel for this test
+	testStopCh = make(chan struct{})
+
+	// Clean up at the end of the test
+	defer func() {
+		// Signal goroutines to stop
+		close(testStopCh)
+		// Give goroutines time to complete
+		time.Sleep(100 * time.Millisecond)
+	}()
+
 	tests := []struct {
 		name           string
 		method         string
@@ -352,7 +445,12 @@ func TestRunnerRoutes(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			mockService.ExpectedCalls = nil
+			// Clear previous test's mock expectations, but keep the ListAvailableTasks expectation
+			mockService.ExpectedCalls = mockService.ExpectedCalls[:0]
+
+			// Re-add the ListAvailableTasks expectation that will be called asynchronously
+			mockService.On("ListAvailableTasks", mock.Anything).Return([]*models.Task{}, nil).Maybe()
+
 			tt.setupMock()
 
 			req := httptest.NewRequest(tt.method, tt.path, nil)
@@ -363,170 +461,180 @@ func TestRunnerRoutes(t *testing.T) {
 			rr := httptest.NewRecorder()
 			router.ServeHTTP(rr, req)
 
+			// Give the async goroutine time to complete before verifying expectations
+			time.Sleep(50 * time.Millisecond)
+
 			assert.Equal(t, tt.expectedStatus, rr.Code)
 			mockService.AssertExpectations(t)
 		})
 	}
 }
 
-func TestWebSocketConnection(t *testing.T) {
+func TestWebhookRegistration(t *testing.T) {
 	DisableLogging()
 	mockService := new(mocks.MockTaskService)
 	router := setupRouter(mockService)
 	server := httptest.NewServer(router)
-	defer server.Close()
 
-	wsURL := "ws" + strings.TrimPrefix(server.URL, "http") + "/api/runners/ws"
+	// Create cleanup to close server and signal goroutines to stop
+	defer func() {
+		server.Close()
+		close(testStopCh)
+		time.Sleep(100 * time.Millisecond) // Allow goroutines to complete
+	}()
+
+	webhookURL := server.URL + "/api/runners/webhooks"
 
 	tests := []struct {
-		name      string
-		setupMock func()
-		wantTasks []*models.Task
-		wantError bool
+		name         string
+		setupMock    func()
+		requestBody  map[string]string
+		wantStatus   int
+		wantResponse bool
 	}{
 		{
-			name: "successful connection and task updates",
+			name: "successful registration",
 			setupMock: func() {
-				taskID := uuid.MustParse("f47ac10b-58cc-4372-a567-0e02b2c3d479")
-				tasks := []*models.Task{
-					{
-						ID:     taskID,
-						Status: models.TaskStatusPending,
-						Config: json.RawMessage("null"),
-					},
-				}
-				mockService.On("ListAvailableTasks", mock.Anything).Return(tasks, nil).Maybe()
+				// Setup mock expectations if needed
+				mockService.On("ListAvailableTasks", mock.Anything).
+					Return([]*models.Task{}, nil).Maybe()
 			},
-			wantTasks: []*models.Task{
-				{
-					ID:     uuid.MustParse("f47ac10b-58cc-4372-a567-0e02b2c3d479"),
-					Status: models.TaskStatusPending,
-					Config: json.RawMessage("null"),
-				},
+			requestBody: map[string]string{
+				"url":       "http://localhost:8090/webhook",
+				"runner_id": "test-runner-id",
+				"device_id": "test-device-id",
 			},
-			wantError: false,
+			wantStatus:   http.StatusCreated,
+			wantResponse: true,
 		},
 		{
-			name: "service error",
-			setupMock: func() {
-				mockService.On("ListAvailableTasks", mock.Anything).
-					Return(nil, fmt.Errorf("service error")).Maybe()
+			name:      "missing url",
+			setupMock: func() {},
+			requestBody: map[string]string{
+				"runner_id": "test-runner-id",
+				"device_id": "test-device-id",
 			},
-			wantTasks: nil,
-			wantError: true,
+			wantStatus:   http.StatusBadRequest,
+			wantResponse: false,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			mockService.ExpectedCalls = nil
+			// Clear previous test's mock expectations
+			mockService.ExpectedCalls = mockService.ExpectedCalls[:0]
+
+			// Re-add the ListAvailableTasks expectation that will be called asynchronously
+			mockService.On("ListAvailableTasks", mock.Anything).Return([]*models.Task{}, nil).Maybe()
+
 			tt.setupMock()
 
-			dialer := websocket.Dialer{
-				HandshakeTimeout: 5 * time.Second,
-			}
-			ws, _, err := dialer.Dial(wsURL, nil)
+			jsonBody, _ := json.Marshal(tt.requestBody)
+			req, _ := http.NewRequest("POST", webhookURL, bytes.NewBuffer(jsonBody))
+			req.Header.Set("Content-Type", "application/json")
+
+			resp, err := http.DefaultClient.Do(req)
 			if err != nil {
-				t.Fatalf("Failed to connect to WebSocket: %v", err)
+				t.Fatalf("Request failed: %v", err)
 			}
-			defer ws.Close()
+			defer resp.Body.Close()
 
-			done := make(chan bool)
-			go func() {
-				defer close(done)
-				var msg struct {
-					Type    string          `json:"type"`
-					Payload json.RawMessage `json:"payload"`
-				}
-				err := ws.ReadJSON(&msg)
-				if tt.wantError {
-					if err != nil {
-						// Connection error is acceptable for error case
-						return
-					}
-					if msg.Type != "error" {
-						t.Errorf("Expected message type 'error', got %s", msg.Type)
-						return
-					}
-					// Successfully received error message
-					return
-				}
+			// Give the async goroutine time to complete
+			time.Sleep(50 * time.Millisecond)
 
-				if err != nil {
-					t.Errorf("ReadJSON error: %v", err)
-					return
-				}
+			assert.Equal(t, tt.wantStatus, resp.StatusCode)
 
-				if msg.Type != "available_tasks" {
-					t.Errorf("Expected message type 'available_tasks', got %s", msg.Type)
-					return
-				}
-
-				var tasks []*models.Task
-				if err := json.Unmarshal(msg.Payload, &tasks); err != nil {
-					t.Errorf("Failed to unmarshal tasks: %v", err)
-					return
-				}
-
-				if !reflect.DeepEqual(tasks, tt.wantTasks) {
-					t.Errorf("Tasks mismatch\nwant: %+v\ngot: %+v", tt.wantTasks, tasks)
-				}
-			}()
-
-			select {
-			case <-done:
-				// Test completed
-			case <-time.After(2 * time.Second): // Reduced timeout for error case
-				if !tt.wantError {
-					t.Fatal("Test timed out")
-				}
+			if tt.wantResponse {
+				var response map[string]string
+				err := json.NewDecoder(resp.Body).Decode(&response)
+				assert.NoError(t, err)
+				assert.NotEmpty(t, response["id"])
 			}
+
+			mockService.AssertExpectations(t)
 		})
 	}
 }
 
-func TestWebSocketReconnection(t *testing.T) {
-	// Disable logging before setting up any test components
+func TestWebhookUnregistration(t *testing.T) {
 	DisableLogging()
-
-	// Create a wait group to ensure test goroutines complete
-	var wg sync.WaitGroup
-
 	mockService := new(mocks.MockTaskService)
 	router := setupRouter(mockService)
 	server := httptest.NewServer(router)
-	defer server.Close()
 
-	wsURL := "ws" + strings.TrimPrefix(server.URL, "http") + "/api/runners/ws"
-	tasks := []*models.Task{{ID: uuid.New(), Config: json.RawMessage("null")}}
-	mockService.On("ListAvailableTasks", mock.Anything).Return(tasks, nil).Maybe()
-
-	dialer := websocket.Dialer{
-		HandshakeTimeout: 5 * time.Second,
-	}
-
-	// Test first connection
-	ws1, _, err := dialer.Dial(wsURL, nil)
-	assert.NoError(t, err)
-	defer ws1.Close()
-
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		var msg struct {
-			Type    string          `json:"type"`
-			Payload json.RawMessage `json:"payload"`
-		}
-		if err := ws1.ReadJSON(&msg); err != nil {
-			// Only report error if it's not a normal closure
-			if !websocket.IsCloseError(err, websocket.CloseNormalClosure) {
-				t.Errorf("First connection read error: %v", err)
-			}
-			return
-		}
-		assert.Equal(t, "available_tasks", msg.Type)
+	// Create cleanup to close server and signal goroutines to stop
+	defer func() {
+		server.Close()
+		close(testStopCh)
+		time.Sleep(100 * time.Millisecond) // Allow goroutines to complete
 	}()
 
-	// Wait for all goroutines to complete
-	wg.Wait()
+	// Re-add the ListAvailableTasks expectation that will be called asynchronously
+	mockService.On("ListAvailableTasks", mock.Anything).Return([]*models.Task{}, nil).Maybe()
+
+	// First register a webhook
+	registerURL := server.URL + "/api/runners/webhooks"
+	registerBody := map[string]string{
+		"url":       "http://localhost:8090/webhook",
+		"runner_id": "test-runner-id",
+		"device_id": "test-device-id",
+	}
+	jsonBody, _ := json.Marshal(registerBody)
+
+	req, _ := http.NewRequest("POST", registerURL, bytes.NewBuffer(jsonBody))
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("Registration request failed: %v", err)
+	}
+
+	// Give the async goroutine time to complete
+	time.Sleep(50 * time.Millisecond)
+
+	var registerResponse map[string]string
+	err = json.NewDecoder(resp.Body).Decode(&registerResponse)
+	resp.Body.Close()
+	assert.NoError(t, err)
+	assert.NotEmpty(t, registerResponse["id"])
+
+	webhookID := registerResponse["id"]
+
+	// Now test unregistration
+	unregisterURL := fmt.Sprintf("%s/api/runners/webhooks/%s", server.URL, webhookID)
+	req, _ = http.NewRequest("DELETE", unregisterURL, nil)
+
+	resp, err = http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("Unregistration request failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	// Give the async goroutine time to complete
+	time.Sleep(50 * time.Millisecond)
+
+	assert.Equal(t, http.StatusOK, resp.StatusCode)
+
+	// Test unregistration of non-existent webhook
+	nonExistentURL := fmt.Sprintf("%s/api/runners/webhooks/%s", server.URL, "non-existent-id")
+	req, _ = http.NewRequest("DELETE", nonExistentURL, nil)
+
+	resp, err = http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("Non-existent webhook request failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	// Give the async goroutine time to complete
+	time.Sleep(50 * time.Millisecond)
+
+	assert.Equal(t, http.StatusNotFound, resp.StatusCode)
+
+	mockService.AssertExpectations(t)
+}
+
+// DisableTaskLogsTest is a placeholder for a future GetTaskLogs test
+// Once the API endpoint is implemented, this can be converted back to a test
+func DisableTaskLogsTest() {
+	// This will be implemented when the GetTaskLogs endpoint is available
 }

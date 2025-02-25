@@ -36,7 +36,9 @@ func RunStake() {
 	}
 
 	cmd.Flags().Float64VarP(&amount, "amount", "a", 1.0, "Amount of PRTY tokens to stake")
-	cmd.MarkFlagRequired("amount")
+	if err := cmd.MarkFlagRequired("amount"); err != nil {
+		log.Error().Err(err).Msg("Failed to mark amount flag as required")
+	}
 
 	if err := cmd.Execute(); err != nil {
 		log.Fatal().

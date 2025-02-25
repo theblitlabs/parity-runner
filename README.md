@@ -193,12 +193,13 @@ make test
 
 #### Runner Endpoints
 
-| Method | Endpoint                         | Description          |
-| ------ | -------------------------------- | -------------------- |
-| GET    | /api/runners/tasks/available     | List available tasks |
-| POST   | /api/runners/tasks/{id}/start    | Start task           |
-| POST   | /api/runners/tasks/{id}/complete | Complete task        |
-| WS     | /api/ws                          | WebSocket updates    |
+| Method | Endpoint                         | Description                 |
+| ------ | -------------------------------- | --------------------------- |
+| GET    | /api/runners/tasks/available     | List available tasks        |
+| POST   | /api/runners/tasks/{id}/start    | Start task                  |
+| POST   | /api/runners/tasks/{id}/complete | Complete task               |
+| POST   | /api/runners/webhooks            | Register webhook endpoint   |
+| DELETE | /api/runners/webhooks/{id}       | Unregister webhook endpoint |
 
 ### Contributing
 

@@ -82,10 +82,15 @@ func TestLoadToken_Expired(t *testing.T) {
 	}
 
 	keystorePath, _ := keystore.GetKeystorePath()
-	os.MkdirAll(filepath.Dir(keystorePath), 0700)
+	if err := os.MkdirAll(filepath.Dir(keystorePath), 0700); err != nil {
+		t.Fatalf("Failed to create keystore directory: %v", err)
+	}
 	file, _ := os.OpenFile(keystorePath, os.O_CREATE|os.O_WRONLY, 0600)
 	encoder := json.NewEncoder(file)
-	encoder.Encode(ks)
+	if err := encoder.Encode(ks); err != nil {
+		file.Close()
+		t.Fatalf("Failed to encode keystore: %v", err)
+	}
 	file.Close()
 
 	_, err := keystore.LoadToken()

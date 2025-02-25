@@ -36,11 +36,11 @@ type TaskConfig struct {
 func (c *TaskConfig) Validate(taskType TaskType) error {
 	switch taskType {
 	case TaskTypeDocker:
-		if c.Command == nil || len(c.Command) == 0 {
+		if len(c.Command) == 0 {
 			return errors.New("command is required for Docker tasks")
 		}
 	case TaskTypeCommand:
-		if c.Command == nil || len(c.Command) == 0 {
+		if len(c.Command) == 0 {
 			return errors.New("command is required for Command tasks")
 		}
 	case TaskTypeFile:

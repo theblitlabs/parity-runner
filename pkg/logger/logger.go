@@ -33,6 +33,22 @@ const (
 	LogLevelDisabled LogLevel = "disabled"
 )
 
+// LogMode represents a predefined logging configuration
+type LogMode string
+
+const (
+	// LogModeDebug is verbose logging with pretty formatting for development
+	LogModeDebug LogMode = "debug"
+	// LogModePretty is nicely formatted logs with info level for development
+	LogModePretty LogMode = "pretty"
+	// LogModeInfo is standard info-level logging without pretty formatting
+	LogModeInfo LogMode = "info"
+	// LogModeProd is production-optimized logging (minimal, focused on important info)
+	LogModeProd LogMode = "prod"
+	// LogModeTest is minimal logging for test environments
+	LogModeTest LogMode = "test"
+)
+
 // Config represents logger configuration
 type Config struct {
 	// Level sets the logging level (debug, info, warn, error)
@@ -41,15 +57,74 @@ type Config struct {
 	Pretty bool
 	// TimeFormat sets the time format string
 	TimeFormat string
+	// CallerEnabled determines if the caller information is included
+	CallerEnabled bool
+	// NoColor disables color output when Pretty is true
+	NoColor bool
 }
 
 // DefaultConfig returns the default logger configuration
 func DefaultConfig() Config {
 	return Config{
-		Level:      LogLevelInfo,
-		Pretty:     false,
-		TimeFormat: time.RFC3339,
+		Level:         LogLevelInfo,
+		Pretty:        false,
+		TimeFormat:    time.RFC3339,
+		CallerEnabled: true,
+		NoColor:       false,
 	}
+}
+
+// ConfigForMode returns a logger configuration for the specified mode
+func ConfigForMode(mode LogMode) Config {
+	switch mode {
+	case LogModeDebug:
+		return Config{
+			Level:         LogLevelDebug,
+			Pretty:        true,
+			TimeFormat:    time.RFC3339,
+			CallerEnabled: true,
+			NoColor:       false,
+		}
+	case LogModePretty:
+		return Config{
+			Level:         LogLevelInfo,
+			Pretty:        true,
+			TimeFormat:    time.RFC3339,
+			CallerEnabled: true,
+			NoColor:       false,
+		}
+	case LogModeInfo:
+		return Config{
+			Level:         LogLevelInfo,
+			Pretty:        false,
+			TimeFormat:    time.RFC3339,
+			CallerEnabled: true,
+			NoColor:       false,
+		}
+	case LogModeProd:
+		return Config{
+			Level:         LogLevelInfo,
+			Pretty:        false,
+			TimeFormat:    time.RFC3339Nano,
+			CallerEnabled: false,
+			NoColor:       true,
+		}
+	case LogModeTest:
+		return Config{
+			Level:         LogLevelError,
+			Pretty:        false,
+			TimeFormat:    time.RFC3339,
+			CallerEnabled: false,
+			NoColor:       true,
+		}
+	default:
+		return DefaultConfig()
+	}
+}
+
+// InitWithMode initializes the logger with a predefined mode
+func InitWithMode(mode LogMode) {
+	Init(ConfigForMode(mode))
 }
 
 func Init(cfg Config) {
@@ -64,12 +139,13 @@ func Init(cfg Config) {
 		return
 	}
 
-	var output zerolog.ConsoleWriter
+	var output io.Writer = os.Stdout
+
 	if cfg.Pretty {
-		output = zerolog.ConsoleWriter{
+		consoleWriter := zerolog.ConsoleWriter{
 			Out:        os.Stdout,
 			TimeFormat: cfg.TimeFormat,
-			NoColor:    false,
+			NoColor:    cfg.NoColor,
 			FormatLevel: func(i interface{}) string {
 				return colorizeLevel(i.(string))
 			},
@@ -129,12 +205,7 @@ func Init(cfg Config) {
 				"trace_id",
 			},
 		}
-	} else {
-		output = zerolog.ConsoleWriter{
-			Out:        os.Stdout,
-			TimeFormat: cfg.TimeFormat,
-			NoColor:    true,
-		}
+		output = consoleWriter
 	}
 
 	switch cfg.Level {
@@ -151,11 +222,14 @@ func Init(cfg Config) {
 	}
 
 	zerolog.TimeFieldFormat = cfg.TimeFormat
-	log = zerolog.New(output).
-		With().
-		Timestamp().
-		Caller().
-		Logger()
+
+	// Create the logger with or without caller info
+	logCtx := zerolog.New(output).With().Timestamp()
+	if cfg.CallerEnabled {
+		logCtx = logCtx.Caller()
+	}
+
+	log = logCtx.Logger()
 	zerolog.DefaultContextLogger = &log
 }
 

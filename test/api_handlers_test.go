@@ -73,6 +73,22 @@ func TestCreateTaskHandler(t *testing.T) {
 	handler := handlers.NewTaskHandler(mockService)
 	handler.SetStakeWallet(mockStakeWallet)
 
+	// Create and set a stop channel for clean shutdown
+	stopCh := make(chan struct{})
+	handler.SetStopChannel(stopCh)
+
+	// Always set up mock expectations for ListAvailableTasks to handle the async call in NotifyTaskUpdate
+	mockService.On("ListAvailableTasks", mock.Anything).Return([]*models.Task{}, nil).Maybe()
+
+	// Create a cleanup function to close the stop channel and wait for goroutines
+	cleanup2 := func() {
+		// Signal goroutines to stop
+		close(stopCh)
+		// Give goroutines time to complete
+		time.Sleep(100 * time.Millisecond)
+	}
+	defer cleanup2()
+
 	// Create router with our handler
 	router := mux.NewRouter()
 	router.HandleFunc("/api/tasks", handler.CreateTask).Methods("POST")
@@ -201,7 +217,11 @@ func TestCreateTaskHandler(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			mockService.ExpectedCalls = nil
+			// Clear previous test's mock expectations, but keep the ListAvailableTasks expectation
+			mockService.ExpectedCalls = mockService.ExpectedCalls[:0]
+
+			// Re-add the ListAvailableTasks expectation that will be called asynchronously
+			mockService.On("ListAvailableTasks", mock.Anything).Return([]*models.Task{}, nil).Maybe()
 
 			// Create a new task for mock setup
 			task := &models.Task{
@@ -236,6 +256,9 @@ func TestCreateTaskHandler(t *testing.T) {
 				assert.Equal(t, tt.payload["title"], response.Title)
 				assert.Equal(t, tt.payload["description"], response.Description)
 			}
+
+			// Give the async goroutine time to complete before verifying expectations
+			time.Sleep(50 * time.Millisecond)
 
 			mockService.AssertExpectations(t)
 		})
