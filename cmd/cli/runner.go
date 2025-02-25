@@ -89,18 +89,6 @@ func RunRunner() {
 		cancel()
 	}()
 
-	// Create a context that will be cancelled when shutdown is triggered
-	ctx, cancel = context.WithCancel(context.Background())
-
-	// Run a goroutine that will cancel the context when a signal is received
-	go func() {
-		sig := <-stopChan
-		log.Info().
-			Str("signal", sig.String()).
-			Msg("Shutdown signal received, gracefully shutting down runner...")
-		cancel()
-	}()
-
 	// Create and start runner service in a separate goroutine to avoid blocking
 	// the signal handler if service creation or startup takes too long
 	serviceChan := make(chan *runner.Service, 1)
