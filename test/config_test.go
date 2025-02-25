@@ -86,7 +86,6 @@ func TestLoadConfig(t *testing.T) {
 		// Verify runner config
 		assert.Equal(t, "ws://localhost:8080", cfg.Runner.ServerURL)
 		assert.Equal(t, "/api", cfg.Runner.APIPrefix)
-		assert.Equal(t, time.Duration(5), cfg.Runner.PollInterval)
 		assert.Equal(t, "512m", cfg.Runner.Docker.MemoryLimit)
 		assert.Equal(t, "1.0", cfg.Runner.Docker.CPULimit)
 		assert.Equal(t, time.Duration(300), cfg.Runner.Docker.Timeout)

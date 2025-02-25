@@ -59,8 +59,8 @@ func LoadConfig(path string) (*Config, error) {
 type RunnerConfig struct {
 	ServerURL    string           `mapstructure:"server_url"`
 	WebsocketURL string           `mapstructure:"websocket_url"`
+	WebhookPort  int              `mapstructure:"webhook_port"`
 	APIPrefix    string           `mapstructure:"api_prefix"`
-	PollInterval time.Duration    `mapstructure:"poll_interval"`
 	Docker       DockerConfig     `mapstructure:"docker"`
 	IPFS         IPFSRunnerConfig `mapstructure:"ipfs"`
 }

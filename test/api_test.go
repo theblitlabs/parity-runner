@@ -6,14 +6,10 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
-	"reflect"
-	"strings"
 	"sync"
 	"testing"
-	"time"
 
 	"github.com/gorilla/mux"
-	"github.com/gorilla/websocket"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/theblitlabs/parity-protocol/internal/api/handlers"
@@ -49,7 +45,8 @@ func setupRouter(taskService *mocks.MockTaskService) *mux.Router {
 	runners.HandleFunc("/tasks/available", taskHandler.ListAvailableTasks).Methods("GET")
 	runners.HandleFunc("/tasks/{id}/start", taskHandler.StartTask).Methods("POST")
 	runners.HandleFunc("/tasks/{id}/complete", taskHandler.CompleteTask).Methods("POST")
-	runners.HandleFunc("/ws", taskHandler.WebSocketHandler).Methods("GET")
+	runners.HandleFunc("/webhooks", taskHandler.RegisterWebhook).Methods("POST")
+	runners.HandleFunc("/webhooks/{id}", taskHandler.UnregisterWebhook).Methods("DELETE")
 
 	return router
 }
@@ -369,51 +366,46 @@ func TestRunnerRoutes(t *testing.T) {
 	}
 }
 
-func TestWebSocketConnection(t *testing.T) {
+func TestWebhookRegistration(t *testing.T) {
 	DisableLogging()
 	mockService := new(mocks.MockTaskService)
 	router := setupRouter(mockService)
 	server := httptest.NewServer(router)
 	defer server.Close()
 
-	wsURL := "ws" + strings.TrimPrefix(server.URL, "http") + "/api/runners/ws"
+	webhookURL := server.URL + "/api/runners/webhooks"
 
 	tests := []struct {
-		name      string
-		setupMock func()
-		wantTasks []*models.Task
-		wantError bool
+		name         string
+		setupMock    func()
+		requestBody  map[string]string
+		wantStatus   int
+		wantResponse bool
 	}{
 		{
-			name: "successful connection and task updates",
+			name: "successful registration",
 			setupMock: func() {
-				taskID := uuid.MustParse("f47ac10b-58cc-4372-a567-0e02b2c3d479")
-				tasks := []*models.Task{
-					{
-						ID:     taskID,
-						Status: models.TaskStatusPending,
-						Config: json.RawMessage("null"),
-					},
-				}
-				mockService.On("ListAvailableTasks", mock.Anything).Return(tasks, nil).Maybe()
+				// Setup mock expectations if needed
+				mockService.On("ListAvailableTasks", mock.Anything).
+					Return([]*models.Task{}, nil).Maybe()
 			},
-			wantTasks: []*models.Task{
-				{
-					ID:     uuid.MustParse("f47ac10b-58cc-4372-a567-0e02b2c3d479"),
-					Status: models.TaskStatusPending,
-					Config: json.RawMessage("null"),
-				},
+			requestBody: map[string]string{
+				"url":       "http://localhost:8090/webhook",
+				"runner_id": "test-runner-id",
+				"device_id": "test-device-id",
 			},
-			wantError: false,
+			wantStatus:   http.StatusCreated,
+			wantResponse: true,
 		},
 		{
-			name: "service error",
-			setupMock: func() {
-				mockService.On("ListAvailableTasks", mock.Anything).
-					Return(nil, fmt.Errorf("service error")).Maybe()
+			name:      "missing url",
+			setupMock: func() {},
+			requestBody: map[string]string{
+				"runner_id": "test-runner-id",
+				"device_id": "test-device-id",
 			},
-			wantTasks: nil,
-			wantError: true,
+			wantStatus:   http.StatusBadRequest,
+			wantResponse: false,
 		},
 	}
 
@@ -422,111 +414,81 @@ func TestWebSocketConnection(t *testing.T) {
 			mockService.ExpectedCalls = nil
 			tt.setupMock()
 
-			dialer := websocket.Dialer{
-				HandshakeTimeout: 5 * time.Second,
-			}
-			ws, _, err := dialer.Dial(wsURL, nil)
+			jsonBody, _ := json.Marshal(tt.requestBody)
+			req, _ := http.NewRequest("POST", webhookURL, bytes.NewBuffer(jsonBody))
+			req.Header.Set("Content-Type", "application/json")
+
+			resp, err := http.DefaultClient.Do(req)
 			if err != nil {
-				t.Fatalf("Failed to connect to WebSocket: %v", err)
+				t.Fatalf("Request failed: %v", err)
 			}
-			defer ws.Close()
+			defer resp.Body.Close()
 
-			done := make(chan bool)
-			go func() {
-				defer close(done)
-				var msg struct {
-					Type    string          `json:"type"`
-					Payload json.RawMessage `json:"payload"`
-				}
-				err := ws.ReadJSON(&msg)
-				if tt.wantError {
-					if err != nil {
-						// Connection error is acceptable for error case
-						return
-					}
-					if msg.Type != "error" {
-						t.Errorf("Expected message type 'error', got %s", msg.Type)
-						return
-					}
-					// Successfully received error message
-					return
-				}
+			assert.Equal(t, tt.wantStatus, resp.StatusCode)
 
-				if err != nil {
-					t.Errorf("ReadJSON error: %v", err)
-					return
-				}
-
-				if msg.Type != "available_tasks" {
-					t.Errorf("Expected message type 'available_tasks', got %s", msg.Type)
-					return
-				}
-
-				var tasks []*models.Task
-				if err := json.Unmarshal(msg.Payload, &tasks); err != nil {
-					t.Errorf("Failed to unmarshal tasks: %v", err)
-					return
-				}
-
-				if !reflect.DeepEqual(tasks, tt.wantTasks) {
-					t.Errorf("Tasks mismatch\nwant: %+v\ngot: %+v", tt.wantTasks, tasks)
-				}
-			}()
-
-			select {
-			case <-done:
-				// Test completed
-			case <-time.After(2 * time.Second): // Reduced timeout for error case
-				if !tt.wantError {
-					t.Fatal("Test timed out")
-				}
+			if tt.wantResponse {
+				var response map[string]string
+				err := json.NewDecoder(resp.Body).Decode(&response)
+				assert.NoError(t, err)
+				assert.NotEmpty(t, response["id"])
 			}
 		})
 	}
 }
 
-func TestWebSocketReconnection(t *testing.T) {
-	// Disable logging before setting up any test components
+func TestWebhookUnregistration(t *testing.T) {
 	DisableLogging()
-
-	// Create a wait group to ensure test goroutines complete
-	var wg sync.WaitGroup
-
 	mockService := new(mocks.MockTaskService)
 	router := setupRouter(mockService)
 	server := httptest.NewServer(router)
 	defer server.Close()
 
-	wsURL := "ws" + strings.TrimPrefix(server.URL, "http") + "/api/runners/ws"
-	tasks := []*models.Task{{ID: uuid.New(), Config: json.RawMessage("null")}}
-	mockService.On("ListAvailableTasks", mock.Anything).Return(tasks, nil).Maybe()
+	// First register a webhook
+	registerURL := server.URL + "/api/runners/webhooks"
+	registerBody := map[string]string{
+		"url":       "http://localhost:8090/webhook",
+		"runner_id": "test-runner-id",
+		"device_id": "test-device-id",
+	}
+	jsonBody, _ := json.Marshal(registerBody)
 
-	dialer := websocket.Dialer{
-		HandshakeTimeout: 5 * time.Second,
+	req, _ := http.NewRequest("POST", registerURL, bytes.NewBuffer(jsonBody))
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("Registration request failed: %v", err)
 	}
 
-	// Test first connection
-	ws1, _, err := dialer.Dial(wsURL, nil)
+	var registerResponse map[string]string
+	err = json.NewDecoder(resp.Body).Decode(&registerResponse)
+	resp.Body.Close()
 	assert.NoError(t, err)
-	defer ws1.Close()
+	assert.NotEmpty(t, registerResponse["id"])
 
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		var msg struct {
-			Type    string          `json:"type"`
-			Payload json.RawMessage `json:"payload"`
-		}
-		if err := ws1.ReadJSON(&msg); err != nil {
-			// Only report error if it's not a normal closure
-			if !websocket.IsCloseError(err, websocket.CloseNormalClosure) {
-				t.Errorf("First connection read error: %v", err)
-			}
-			return
-		}
-		assert.Equal(t, "available_tasks", msg.Type)
-	}()
+	webhookID := registerResponse["id"]
 
-	// Wait for all goroutines to complete
-	wg.Wait()
+	// Now test unregistration
+	unregisterURL := fmt.Sprintf("%s/api/runners/webhooks/%s", server.URL, webhookID)
+	req, _ = http.NewRequest("DELETE", unregisterURL, nil)
+
+	resp, err = http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("Unregistration request failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	assert.Equal(t, http.StatusOK, resp.StatusCode)
+
+	// Test unregistration of non-existent webhook
+	nonExistentURL := fmt.Sprintf("%s/api/runners/webhooks/%s", server.URL, "non-existent-id")
+	req, _ = http.NewRequest("DELETE", nonExistentURL, nil)
+
+	resp, err = http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("Non-existent webhook request failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	assert.Equal(t, http.StatusNotFound, resp.StatusCode)
 }

@@ -1,23 +1,10 @@
 package api
 
 import (
-	"net/http"
-
 	"github.com/gorilla/mux"
-	"github.com/gorilla/websocket"
 	"github.com/theblitlabs/parity-protocol/internal/api/handlers"
 	"github.com/theblitlabs/parity-protocol/internal/api/middleware"
-	"github.com/theblitlabs/parity-protocol/pkg/logger"
 )
-
-var upgrader = websocket.Upgrader{
-	ReadBufferSize:  1024,
-	WriteBufferSize: 1024,
-	CheckOrigin: func(r *http.Request) bool {
-		// TODO: Add origin check
-		return true
-	},
-}
 
 // Router wraps mux.Router to add more functionality
 type Router struct {
@@ -39,9 +26,6 @@ func NewRouter(
 
 	// Setup middleware for regular HTTP routes
 	r.setup()
-
-	// Register WebSocket endpoint first (without middleware)
-	r.Router.HandleFunc(endpoint+"/runners/ws", r.handleWebSocket(taskHandler))
 
 	// Create API subrouter with middleware
 	apiRouter := r.Router.PathPrefix("/").Subrouter()
@@ -82,23 +66,10 @@ func (r *Router) registerRoutes(router *mux.Router, taskHandler *handlers.TaskHa
 	runners.HandleFunc("/tasks/{id}/start", taskHandler.StartTask).Methods("POST")
 	runners.HandleFunc("/tasks/{id}/complete", taskHandler.CompleteTask).Methods("POST")
 	runners.HandleFunc("/tasks/{id}/result", taskHandler.SaveTaskResult).Methods("POST")
-}
 
-func (r *Router) handleWebSocket(taskHandler *handlers.TaskHandler) http.HandlerFunc {
-	log := logger.Get()
-	log.Info().Msg("WebSocket handler registered")
-	return func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Access-Control-Allow-Origin", "*")
-
-		conn, err := upgrader.Upgrade(w, r, nil)
-		if err != nil {
-			logger.Error("WebSocket", err, "WebSocket upgrade failed")
-			return
-		}
-		defer conn.Close()
-
-		taskHandler.HandleWebSocket(conn)
-	}
+	// Webhook routes
+	runners.HandleFunc("/webhooks", taskHandler.RegisterWebhook).Methods("POST")
+	runners.HandleFunc("/webhooks/{id}", taskHandler.UnregisterWebhook).Methods("DELETE")
 }
 
 // AddMiddleware adds a new middleware to the router

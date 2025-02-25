@@ -6,7 +6,7 @@ A decentralized compute protocol that enables secure and efficient task executio
 
 - Secure task execution in isolated environments
 - Docker container support with resource limits
-- WebSocket-based real-time task updates
+- Webhook-based real-time task updates
 - ERC20 token integration for task rewards
 - Robust error handling and logging
 
