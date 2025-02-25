@@ -22,7 +22,8 @@ run:
 # Default is 3 lines of context, which is often insufficient
 output:
   sort-results: true
-  format: colored-line-number
+  formats:
+    - colored-line-number
 
 issues:
   exclude-dirs:

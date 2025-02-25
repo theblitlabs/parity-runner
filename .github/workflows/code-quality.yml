@@ -58,6 +58,9 @@ jobs:
         with:
           version: latest
           args: --timeout=5m --out-format=colored-line-number
+          skip-cache: true
+          skip-pkg-cache: true
+          skip-build-cache: true
 
   static-analysis:
     name: Static Analysis
