@@ -129,22 +129,11 @@ func RunRunner() {
 		return
 	}
 
-	// Wait for context cancellation (shutdown signal) or forced exit after timeout
+	// Wait for context cancellation (shutdown signal)
 	forceExitChan := make(chan struct{})
 	go func() {
-		select {
-		case <-ctx.Done():
-			// Normal shutdown path, do nothing
-		case <-time.After(60 * time.Second):
-			// If we've been running for 60 seconds with no activity, check if webhook
-			// registration failed and force exit if needed
-			log.Warn().Msg("No activity detected for 60 seconds, checking if stuck...")
-
-			// Force exit after notice
-			time.Sleep(5 * time.Second)
-			log.Error().Msg("Forcing exit due to possible stalled state")
-			os.Exit(1)
-		}
+		<-ctx.Done()
+		// Normal shutdown path, do nothing
 	}()
 
 	// Wait for context cancellation (shutdown signal)
