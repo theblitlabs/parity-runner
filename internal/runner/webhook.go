@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"sync"
@@ -74,15 +75,43 @@ func (w *WebhookClient) Register() error {
 	}
 	req.Header.Set("Content-Type", "application/json")
 
-	// Send registration request
-	client := &http.Client{Timeout: 10 * time.Second}
-	resp, err := client.Do(req)
-	if err != nil {
-		return fmt.Errorf("webhook registration failed: %w", err)
+	// Send registration request with retry
+	var resp *http.Response
+	maxRetries := 3
+	backoff := 1 * time.Second
+
+	for attempt := 1; attempt <= maxRetries; attempt++ {
+		if attempt > 1 {
+			log.Info().Int("attempt", attempt).Dur("wait", backoff).Msg("Retrying webhook registration")
+			time.Sleep(backoff)
+			backoff *= 2 // Exponential backoff
+		}
+
+		// Use a client with short timeout to avoid blocking indefinitely
+		client := &http.Client{Timeout: 5 * time.Second}
+		var reqErr error
+		resp, reqErr = client.Do(req)
+
+		if reqErr == nil {
+			break // Success, exit retry loop
+		}
+
+		log.Warn().Err(reqErr).Int("attempt", attempt).Int("max_retries", maxRetries).
+			Msg("Webhook registration attempt failed")
+
+		if attempt == maxRetries {
+			return fmt.Errorf("webhook registration failed after %d attempts: %w", maxRetries, reqErr)
+		}
 	}
+
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusCreated {
+		bodyBytes, _ := io.ReadAll(resp.Body)
+		log.Warn().
+			Str("status", resp.Status).
+			Str("body", string(bodyBytes)).
+			Msg("Webhook registration failed with non-201 status")
 		return fmt.Errorf("webhook registration failed with status: %d", resp.StatusCode)
 	}
 
@@ -155,24 +184,65 @@ func (w *WebhookClient) Start() error {
 		Handler: mux,
 	}
 
+	startCh := make(chan struct{})
 	go func() {
+		close(startCh) // Signal that we've started the goroutine
 		log.Info().Str("port", fmt.Sprintf("%d", w.serverPort)).Msg("Starting webhook server")
 		if err := w.server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			log.Error().Err(err).Msg("Webhook server error")
 		}
 	}()
 
-	// Register the webhook
-	if err := w.Register(); err != nil {
-		log.Error().Err(err).Msg("Webhook registration failed")
-		if stopErr := w.Stop(); stopErr != nil {
-			log.Error().Err(stopErr).Msg("Failed to stop webhook server after registration failure")
+	// Wait a bit to ensure server started
+	<-startCh
+	time.Sleep(100 * time.Millisecond)
+
+	// Register the webhook with context timeout
+	registerCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	registerDone := make(chan error, 1)
+	go func() {
+		registerDone <- w.Register()
+	}()
+
+	// Wait for registration with timeout
+	select {
+	case err := <-registerDone:
+		if err != nil {
+			log.Error().Err(err).Msg("Webhook registration failed")
+			// Try to stop server but continue without failing the start operation
+			// This allows the runner to operate in "offline" mode
+			if stopErr := w.stopServer(); stopErr != nil {
+				log.Error().Err(stopErr).Msg("Failed to stop webhook server after registration failure")
+			}
+			// Return warning but don't fail completely - runner can still function without webhook
+			log.Warn().Msg("Runner will operate in offline mode without webhook notifications")
+			w.started = true
+			return nil
 		}
-		return err
+	case <-registerCtx.Done():
+		log.Warn().Msg("Webhook registration timed out")
+		// Don't fail - allow runner to operate in offline mode
+		log.Warn().Msg("Runner will operate in offline mode without webhook notifications")
+		w.started = true
+		return nil
 	}
 
 	w.started = true
 	return nil
+}
+
+// stopServer is a helper to just stop the HTTP server
+func (w *WebhookClient) stopServer() error {
+	if w.server == nil {
+		return nil
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	return w.server.Shutdown(ctx)
 }
 
 // Stop stops the webhook server
@@ -182,13 +252,32 @@ func (w *WebhookClient) Stop() error {
 
 	log := logger.WithComponent("webhook")
 	if !w.started {
+		log.Info().Msg("Webhook server not started, nothing to stop")
 		return nil
 	}
 
-	// Unregister the webhook
-	if err := w.Unregister(); err != nil {
-		log.Error().Err(err).Msg("Webhook unregistration failed")
-		// Continue with shutdown despite unregistration errors
+	log.Info().Msg("Stopping webhook server...")
+
+	// Unregister the webhook with a short timeout
+	unregisterCtx, unregisterCancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer unregisterCancel()
+
+	unregisterDone := make(chan error, 1)
+	go func() {
+		unregisterDone <- w.Unregister()
+	}()
+
+	// Wait for unregistration with timeout
+	select {
+	case err := <-unregisterDone:
+		if err != nil {
+			log.Error().Err(err).Msg("Webhook unregistration failed")
+			// Continue with shutdown despite unregistration errors
+		} else {
+			log.Info().Msg("Webhook unregistered successfully")
+		}
+	case <-unregisterCtx.Done():
+		log.Warn().Msg("Webhook unregistration timed out, continuing with shutdown")
 	}
 
 	// Close the stop channel
@@ -196,16 +285,31 @@ func (w *WebhookClient) Stop() error {
 
 	// Shutdown the HTTP server
 	if w.server != nil {
+		// Create a robust shutdown context
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
-		if err := w.server.Shutdown(ctx); err != nil {
-			log.Error().Err(err).Msg("Webhook server shutdown error")
-			return fmt.Errorf("webhook server shutdown error: %w", err)
+
+		shutdownDone := make(chan error, 1)
+		go func() {
+			shutdownDone <- w.server.Shutdown(ctx)
+		}()
+
+		// Wait for shutdown with timeout
+		select {
+		case err := <-shutdownDone:
+			if err != nil {
+				log.Error().Err(err).Msg("Webhook server shutdown error")
+				return fmt.Errorf("webhook server shutdown error: %w", err)
+			}
+			log.Info().Msg("Webhook server shut down gracefully")
+		case <-ctx.Done():
+			log.Warn().Msg("Webhook server shutdown timed out, forcing shutdown")
+			return fmt.Errorf("webhook server shutdown timed out")
 		}
 	}
 
 	w.started = false
-	log.Info().Msg("Webhook server stopped")
+	log.Info().Msg("Webhook server stopped completely")
 	return nil
 }
 

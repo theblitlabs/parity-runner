@@ -147,10 +147,13 @@ func NewService(cfg *config.Config) (*Service, error) {
 func (s *Service) Start() error {
 	log := logger.WithComponent("runner")
 
+	// Start the webhook client, but don't fail the service if it doesn't work
 	if err := s.webhookClient.Start(); err != nil {
-		log.Error().Err(err).
-			Msg("Failed to start webhook client")
-		return fmt.Errorf("failed to start webhook client: %w", err)
+		log.Warn().Err(err).
+			Msg("Webhook client failed to start properly. The runner will operate in offline mode")
+		// Continue without webhook functionality
+	} else {
+		log.Info().Msg("Webhook client started successfully")
 	}
 
 	log.Info().
@@ -163,32 +166,93 @@ func (s *Service) Stop(ctx context.Context) error {
 	log := logger.WithComponent("runner")
 
 	log.Info().Msg("Stopping runner service...")
+	var shutdownErrors []error
 
-	// Stop webhook client
-	if err := s.webhookClient.Stop(); err != nil {
-		log.Error().Err(err).Msg("Error stopping webhook client")
-		// Continue shutdown process despite errors
+	// Set a timeout for the entire shutdown operation
+	shutdownTimeout := 25 * time.Second
+	if deadline, ok := ctx.Deadline(); ok {
+		// Use context deadline if available, minus a small buffer
+		timeLeft := time.Until(deadline) - 1*time.Second
+		if timeLeft > 0 {
+			shutdownTimeout = timeLeft
+		}
+	}
+	log.Info().Dur("timeout", shutdownTimeout).Msg("Service shutdown initiated with timeout")
+
+	// Stop webhook client with a deadline
+	webhookCtx, webhookCancel := context.WithTimeout(ctx, 10*time.Second)
+	defer webhookCancel()
+
+	webhookDone := make(chan error, 1)
+	go func() {
+		if s.webhookClient != nil {
+			webhookDone <- s.webhookClient.Stop()
+		} else {
+			webhookDone <- nil
+		}
+	}()
+
+	// Wait for webhook client to stop with timeout
+	select {
+	case err := <-webhookDone:
+		if err != nil {
+			log.Error().Err(err).Msg("Error stopping webhook client")
+			shutdownErrors = append(shutdownErrors, fmt.Errorf("webhook client shutdown error: %w", err))
+			// Continue shutdown process despite errors
+		}
+	case <-webhookCtx.Done():
+		log.Warn().Msg("Webhook client shutdown timed out, continuing with other shutdown tasks")
+		shutdownErrors = append(shutdownErrors, fmt.Errorf("webhook client shutdown timed out"))
 	}
 
 	// Stop IPFS container if it's running
 	if s.ipfsContainer != "" {
 		log.Info().Str("container_id", s.ipfsContainer).Msg("Stopping IPFS container")
 
-		// Use the passed context for respecting timeouts
-		timeout := 10 * time.Second
-		if err := s.dockerClient.ContainerStop(ctx, s.ipfsContainer, &timeout); err != nil {
-			log.Error().Err(err).Msg("Failed to stop IPFS container")
-			// Continue with removal anyway
+		// Create a separate context for container operations
+		containerCtx, containerCancel := context.WithTimeout(ctx, 10*time.Second)
+		defer containerCancel()
+
+		// Use the container context for respecting timeouts
+		timeout := 8 * time.Second
+		stopDone := make(chan error, 1)
+		go func() {
+			stopDone <- s.dockerClient.ContainerStop(containerCtx, s.ipfsContainer, &timeout)
+		}()
+
+		// Wait for container stop with timeout
+		select {
+		case err := <-stopDone:
+			if err != nil {
+				log.Error().Err(err).Msg("Failed to stop IPFS container")
+				shutdownErrors = append(shutdownErrors, fmt.Errorf("IPFS container stop error: %w", err))
+				// Continue with removal anyway
+			}
+		case <-containerCtx.Done():
+			log.Warn().Msg("IPFS container stop timed out, attempting forced removal")
+			shutdownErrors = append(shutdownErrors, fmt.Errorf("IPFS container stop timed out"))
 		}
 
-		// Use context for container removal as well
+		// Use separate context for container removal as well
 		removeOpts := types.ContainerRemoveOptions{Force: true}
-		if err := s.dockerClient.ContainerRemove(ctx, s.ipfsContainer, removeOpts); err != nil {
-			log.Error().Err(err).Msg("Failed to remove IPFS container")
-			return fmt.Errorf("failed to remove IPFS container: %w", err)
-		}
+		removeDone := make(chan error, 1)
+		go func() {
+			removeDone <- s.dockerClient.ContainerRemove(containerCtx, s.ipfsContainer, removeOpts)
+		}()
 
-		log.Info().Str("container_id", s.ipfsContainer).Msg("IPFS container stopped and removed")
+		// Wait for container removal with timeout
+		select {
+		case err := <-removeDone:
+			if err != nil {
+				log.Error().Err(err).Msg("Failed to remove IPFS container")
+				shutdownErrors = append(shutdownErrors, fmt.Errorf("failed to remove IPFS container: %w", err))
+			} else {
+				log.Info().Str("container_id", s.ipfsContainer).Msg("IPFS container stopped and removed")
+			}
+		case <-containerCtx.Done():
+			log.Warn().Msg("IPFS container removal timed out")
+			shutdownErrors = append(shutdownErrors, fmt.Errorf("IPFS container removal timed out"))
+		}
 	}
 
 	// Close Docker client if it exists
@@ -196,11 +260,17 @@ func (s *Service) Stop(ctx context.Context) error {
 		log.Info().Msg("Closing Docker client")
 		if err := s.dockerClient.Close(); err != nil {
 			log.Error().Err(err).Msg("Error closing Docker client")
-			return fmt.Errorf("failed to close docker client: %w", err)
+			shutdownErrors = append(shutdownErrors, fmt.Errorf("failed to close docker client: %w", err))
 		}
 	}
 
-	log.Info().Msg("Runner service stopped")
+	if len(shutdownErrors) > 0 {
+		log.Warn().Int("error_count", len(shutdownErrors)).Msg("Runner service stopped with errors")
+		return fmt.Errorf("shutdown completed with %d errors, first error: %w",
+			len(shutdownErrors), shutdownErrors[0])
+	}
+
+	log.Info().Msg("Runner service stopped successfully")
 	return nil
 }
 
