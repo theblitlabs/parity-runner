@@ -159,25 +159,49 @@ func (s *Service) Start() error {
 	return nil
 }
 
-func (s *Service) Stop() {
+func (s *Service) Stop(ctx context.Context) error {
 	log := logger.WithComponent("runner")
 
+	log.Info().Msg("Stopping runner service...")
+
 	// Stop webhook client
-	s.webhookClient.Stop()
+	if err := s.webhookClient.Stop(); err != nil {
+		log.Error().Err(err).Msg("Error stopping webhook client")
+		// Continue shutdown process despite errors
+	}
 
 	// Stop IPFS container if it's running
 	if s.ipfsContainer != "" {
-		ctx := context.Background()
+		log.Info().Str("container_id", s.ipfsContainer).Msg("Stopping IPFS container")
+
+		// Use the passed context for respecting timeouts
 		timeout := 10 * time.Second
 		if err := s.dockerClient.ContainerStop(ctx, s.ipfsContainer, &timeout); err != nil {
 			log.Error().Err(err).Msg("Failed to stop IPFS container")
+			// Continue with removal anyway
 		}
-		if err := s.dockerClient.ContainerRemove(ctx, s.ipfsContainer, types.ContainerRemoveOptions{Force: true}); err != nil {
+
+		// Use context for container removal as well
+		removeOpts := types.ContainerRemoveOptions{Force: true}
+		if err := s.dockerClient.ContainerRemove(ctx, s.ipfsContainer, removeOpts); err != nil {
 			log.Error().Err(err).Msg("Failed to remove IPFS container")
+			return fmt.Errorf("failed to remove IPFS container: %w", err)
+		}
+
+		log.Info().Str("container_id", s.ipfsContainer).Msg("IPFS container stopped and removed")
+	}
+
+	// Close Docker client if it exists
+	if s.dockerClient != nil {
+		log.Info().Msg("Closing Docker client")
+		if err := s.dockerClient.Close(); err != nil {
+			log.Error().Err(err).Msg("Error closing Docker client")
+			return fmt.Errorf("failed to close docker client: %w", err)
 		}
 	}
 
 	log.Info().Msg("Runner service stopped")
+	return nil
 }
 
 func (s *Service) startIPFSContainer() error {

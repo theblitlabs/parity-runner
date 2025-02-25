@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net"
 	"net/http"
 	"sync"
 	"time"
@@ -138,6 +139,14 @@ func (w *WebhookClient) Start() error {
 	}
 
 	log := logger.WithComponent("webhook")
+
+	// Check if the webhook port is available
+	ln, err := net.Listen("tcp", fmt.Sprintf(":%d", w.serverPort))
+	if err != nil {
+		return fmt.Errorf("webhook port %d is not available: %w", w.serverPort, err)
+	}
+	ln.Close()
+
 	mux := http.NewServeMux()
 	mux.HandleFunc("/webhook", w.handleWebhook)
 
@@ -165,18 +174,19 @@ func (w *WebhookClient) Start() error {
 }
 
 // Stop stops the webhook server
-func (w *WebhookClient) Stop() {
+func (w *WebhookClient) Stop() error {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 
 	log := logger.WithComponent("webhook")
 	if !w.started {
-		return
+		return nil
 	}
 
 	// Unregister the webhook
 	if err := w.Unregister(); err != nil {
 		log.Error().Err(err).Msg("Webhook unregistration failed")
+		// Continue with shutdown despite unregistration errors
 	}
 
 	// Close the stop channel
@@ -188,11 +198,13 @@ func (w *WebhookClient) Stop() {
 		defer cancel()
 		if err := w.server.Shutdown(ctx); err != nil {
 			log.Error().Err(err).Msg("Webhook server shutdown error")
+			return fmt.Errorf("webhook server shutdown error: %w", err)
 		}
 	}
 
 	w.started = false
 	log.Info().Msg("Webhook server stopped")
+	return nil
 }
 
 // handleWebhook processes incoming webhook notifications

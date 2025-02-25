@@ -9,15 +9,24 @@ import (
 	"github.com/theblitlabs/parity-protocol/pkg/logger"
 )
 
+var (
+	// Configuration flags
+	logMode string
+)
+
 var rootCmd = &cobra.Command{
 	Use:   "parity",
 	Short: "Parity Protocol CLI",
 	Long:  `A decentralized computing network powered by blockchain and secure enclaves`,
 	PersistentPreRun: func(cmd *cobra.Command, args []string) {
-		logger.Init(logger.Config{
-			Level:  "debug",
-			Pretty: true,
-		})
+		// Initialize logger with the selected mode
+		switch logMode {
+		case "debug", "pretty", "info", "prod", "test":
+			logger.InitWithMode(logger.LogMode(logMode))
+		default:
+			// Default to pretty logging if invalid mode provided
+			logger.InitWithMode(logger.LogModePretty)
+		}
 	},
 }
 
@@ -56,6 +65,9 @@ var balanceCmd = &cobra.Command{
 }
 
 func init() {
+	// Global flags
+	rootCmd.PersistentFlags().StringVar(&logMode, "log", "pretty", "Log mode: debug, pretty, info, prod, test")
+
 	// Auth command flags
 	authCmd.Flags().String("private-key", "", "Private key in hex format")
 	authCmd.MarkFlagRequired("private-key")

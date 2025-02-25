@@ -73,11 +73,14 @@ type TaskService interface {
 
 // TaskHandler handles task-related HTTP and webhook requests
 type TaskHandler struct {
-	service      TaskService
-	stakeWallet  stakewallet.StakeWallet
-	taskUpdateCh chan struct{} // Channel for task updates
-	webhooks     map[string]WebhookRegistration
-	webhookMutex sync.RWMutex
+	service         TaskService
+	stakeWallet     stakewallet.StakeWallet
+	taskUpdateCh    chan struct{} // Channel for task updates
+	webhooks        map[string]WebhookRegistration
+	webhookMutex    sync.RWMutex
+	stopCh          chan struct{} // Channel for shutdown signal
+	closeOnce       sync.Once     // Ensure stopCh is closed only once
+	taskUpdateClose sync.Once     // Ensure taskUpdateCh is closed only once
 }
 
 // NewTaskHandler creates a new TaskHandler instance
@@ -86,6 +89,7 @@ func NewTaskHandler(service TaskService) *TaskHandler {
 		service:      service,
 		taskUpdateCh: make(chan struct{}, 1),
 		webhooks:     make(map[string]WebhookRegistration),
+		stopCh:       make(chan struct{}),
 	}
 }
 
@@ -94,12 +98,20 @@ func (h *TaskHandler) SetStakeWallet(wallet stakewallet.StakeWallet) {
 	h.stakeWallet = wallet
 }
 
+// SetStopChannel sets a stop channel for graceful shutdown
+func (h *TaskHandler) SetStopChannel(stopCh chan struct{}) {
+	h.stopCh = stopCh
+}
+
 // NotifyTaskUpdate notifies registered webhook clients about task updates
 func (h *TaskHandler) NotifyTaskUpdate() {
 	select {
 	case h.taskUpdateCh <- struct{}{}:
 		// Trigger notification to webhooks
 		go h.notifyWebhooks()
+	case <-h.stopCh:
+		// We're shutting down, don't start new notifications
+		log.Debug().Msg("NotifyTaskUpdate: Ignoring update during shutdown")
 	default:
 		// Channel is full, which means there's already a pending update
 	}
@@ -108,6 +120,16 @@ func (h *TaskHandler) NotifyTaskUpdate() {
 // notifyWebhooks sends notifications to all registered webhook endpoints
 func (h *TaskHandler) notifyWebhooks() {
 	log := logger.WithComponent("webhook")
+
+	// Check if we're shutting down
+	select {
+	case <-h.stopCh:
+		log.Debug().Msg("notifyWebhooks: Ignoring webhook notification during shutdown")
+		return
+	default:
+		// Continue if not shutting down
+	}
+
 	tasks, err := h.service.ListAvailableTasks(context.Background())
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to list tasks for webhook notification")
@@ -120,14 +142,58 @@ func (h *TaskHandler) notifyWebhooks() {
 	}
 
 	h.webhookMutex.RLock()
-	defer h.webhookMutex.RUnlock()
+
+	// If no webhooks are registered, just return
+	if len(h.webhooks) == 0 {
+		h.webhookMutex.RUnlock()
+		log.Debug().Msg("No webhooks registered, skipping notifications")
+		return
+	}
+
+	// Create a copy of webhooks to avoid holding the lock during HTTP requests
+	webhooks := make([]WebhookRegistration, 0, len(h.webhooks))
+	for _, webhook := range h.webhooks {
+		webhooks = append(webhooks, webhook)
+	}
+	h.webhookMutex.RUnlock()
 
 	client := &http.Client{
 		Timeout: 5 * time.Second,
 	}
 
-	for _, webhook := range h.webhooks {
+	// Create a wait group to keep track of goroutines
+	var wg sync.WaitGroup
+
+	for _, webhook := range webhooks {
+		// Check again if we're shutting down before spawning each goroutine
+		select {
+		case <-h.stopCh:
+			log.Debug().Msg("Cancelling webhook notifications due to shutdown")
+			return
+		default:
+			// Continue if not shutting down
+		}
+
+		wg.Add(1)
 		go func(webhook WebhookRegistration) {
+			defer wg.Done()
+
+			// Create a context with timeout that also respects the stop channel
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+
+			// Create a channel that will be closed when the stop channel is closed
+			done := make(chan struct{})
+			go func() {
+				select {
+				case <-h.stopCh:
+					cancel() // Cancel the context if we're shutting down
+					close(done)
+				case <-ctx.Done():
+					close(done)
+				}
+			}()
+
 			payloadBytes, err := json.Marshal(payload)
 			if err != nil {
 				log.Error().
@@ -138,7 +204,7 @@ func (h *TaskHandler) notifyWebhooks() {
 				return
 			}
 
-			req, err := http.NewRequest("POST", webhook.URL, strings.NewReader(string(payloadBytes)))
+			req, err := http.NewRequestWithContext(ctx, "POST", webhook.URL, strings.NewReader(string(payloadBytes)))
 			if err != nil {
 				log.Error().
 					Err(err).
@@ -153,6 +219,21 @@ func (h *TaskHandler) notifyWebhooks() {
 
 			startTime := time.Now()
 			resp, err := client.Do(req)
+
+			// Check if operation was canceled due to shutdown
+			select {
+			case <-done:
+				if ctx.Err() == context.Canceled {
+					log.Debug().
+						Str("webhook_id", webhook.ID).
+						Str("url", webhook.URL).
+						Msg("Webhook notification canceled due to shutdown")
+					return
+				}
+			default:
+				// Continue normally
+			}
+
 			if err != nil {
 				log.Error().
 					Err(err).
@@ -190,6 +271,23 @@ func (h *TaskHandler) notifyWebhooks() {
 				Msg("Webhook notification sent successfully")
 		}(webhook)
 	}
+
+	// Use a separate goroutine to wait for all webhook notifications to complete
+	// This prevents blocking but still gives us proper cleanup
+	go func() {
+		done := make(chan struct{})
+		go func() {
+			wg.Wait()
+			close(done)
+		}()
+
+		select {
+		case <-done:
+			log.Debug().Msg("All webhook notifications completed")
+		case <-h.stopCh:
+			log.Debug().Msg("Shutdown initiated while webhook notifications were in progress")
+		}
+	}()
 }
 
 // RegisterWebhook registers a new webhook endpoint
@@ -838,4 +936,38 @@ func (h *TaskHandler) CompleteTask(w http.ResponseWriter, r *http.Request) {
 	}
 	h.NotifyTaskUpdate()
 	w.WriteHeader(http.StatusOK)
+}
+
+// CleanupResources cleans up the TaskHandler's resources during server shutdown
+func (h *TaskHandler) CleanupResources() {
+	log := logger.WithComponent("webhook")
+
+	// Log webhook count before cleanup
+	h.webhookMutex.RLock()
+	webhookCount := len(h.webhooks)
+	h.webhookMutex.RUnlock()
+
+	log.Info().
+		Int("total_webhooks", webhookCount).
+		Msg("Starting webhook cleanup")
+
+	// The channel is now managed externally via SetStopChannel, so we no longer close it here
+	// We only perform the actual resource cleanup
+
+	// Safely close taskUpdateCh only once
+	h.taskUpdateClose.Do(func() {
+		log.Debug().Msg("Closing task update channel")
+		select {
+		case <-h.taskUpdateCh: // Try to drain the channel first
+		default:
+		}
+		close(h.taskUpdateCh)
+	})
+
+	// Clean up any other resources
+	// We could add more detailed cleanup steps here if needed
+
+	log.Info().
+		Int("total_webhooks_cleaned", webhookCount).
+		Msg("Webhook cleanup completed")
 }
