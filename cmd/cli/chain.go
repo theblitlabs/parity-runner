@@ -41,18 +41,24 @@ func RunChain() {
 
 	// Proxy request to the server
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		// Get the path and ensure it starts with /api
-		path := r.URL.Path
-		if !strings.HasPrefix(path, "/api") {
-			path = "/api" + path
-		}
+		log.Debug().
+			Str("original_path", r.URL.Path).
+			Str("method", r.Method).
+			Str("content_type", r.Header.Get("Content-Type")).
+			Msg("Received request")
+
+		// Get the path and ensure it doesn't have a leading slash
+		path := strings.TrimPrefix(r.URL.Path, "/")
+		path = strings.TrimPrefix(path, "api/")
 
 		// Create new request to forward to the server
-		targetURL := fmt.Sprintf("%s%s", cfg.Runner.ServerURL, path)
-		log.Debug().
+		targetURL := fmt.Sprintf("%s/%s", strings.TrimSuffix(cfg.Runner.ServerURL, "/"), path)
+		log.Info().
 			Str("method", r.Method).
-			Str("path", path).
+			Str("original_path", r.URL.Path).
+			Str("modified_path", path).
 			Str("target_url", targetURL).
+			Str("server_url", cfg.Runner.ServerURL).
 			Str("device_id", deviceID).
 			Msg("Forwarding request")
 
