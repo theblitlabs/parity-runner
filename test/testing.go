@@ -3,6 +3,7 @@ package test
 import (
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"math/big"
 	"net/http"
 	"net/http/httptest"
@@ -164,7 +165,9 @@ func SetupTestKeystore(t *testing.T) func() {
 	originalHomeDir := os.Getenv("HOME")
 
 	// Set HOME to the temporary directory
-	os.Setenv("HOME", tempDir)
+	if err := os.Setenv("HOME", tempDir); err != nil {
+		t.Fatalf("Failed to set HOME environment variable: %v", err)
+	}
 
 	// Create a test private key
 	privateKey, err := crypto.GenerateKey()
@@ -194,6 +197,9 @@ func SetupTestKeystore(t *testing.T) func() {
 
 	// Return cleanup function
 	return func() {
-		os.Setenv("HOME", originalHomeDir)
+		if err := os.Setenv("HOME", originalHomeDir); err != nil {
+			// Can't use t.Fatalf in a cleanup function as it may run after the test completes
+			fmt.Printf("Failed to restore HOME environment variable: %v\n", err)
+		}
 	}
 }

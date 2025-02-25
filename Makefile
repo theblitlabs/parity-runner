@@ -107,7 +107,7 @@ uninstall: ## Remove parity command from system
 	@echo "Uninstallation complete"
 
 lint: ## Run linting
-	golangci-lint run
+	golangci-lint run --timeout=5m
 
 install-lint-tools: ## Install linting tools
 	go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest
