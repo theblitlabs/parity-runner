@@ -35,7 +35,9 @@ func TestGetAvailableTasks(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		assert.Equal(t, "/api/runners/tasks/available", r.URL.Path)
 		assert.Equal(t, "GET", r.Method)
-		json.NewEncoder(w).Encode(mockTasks)
+		if err := json.NewEncoder(w).Encode(mockTasks); err != nil {
+			t.Errorf("Failed to encode mock response: %v", err)
+		}
 	}))
 	defer server.Close()
 

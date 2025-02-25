@@ -26,7 +26,7 @@ BUILD_FLAGS=-v
 # Add these lines after the existing parameters
 INSTALL_PATH=/usr/local/bin
 
-.PHONY: all build run test clean deps fmt lint help docker-up docker-down docker-logs docker-build docker-clean install-air watch migrate-up migrate-down tools install uninstall install-lint-tools lint lint-fix
+.PHONY: all build run test clean deps fmt help docker-up docker-down docker-logs docker-build docker-clean install-air watch migrate-up migrate-down tools install uninstall install-lint-tools lint
 
 all: clean build
 
@@ -105,5 +105,11 @@ uninstall: ## Remove parity command from system
 	@echo "Uninstalling parity from $(INSTALL_PATH)..."
 	@sudo rm -f $(INSTALL_PATH)/$(BINARY_NAME)
 	@echo "Uninstallation complete"
+
+lint: ## Run linting
+	golangci-lint run
+
+install-lint-tools: ## Install linting tools
+	go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest
 
 .DEFAULT_GOAL := help

@@ -73,14 +73,12 @@ type TaskService interface {
 
 // TaskHandler handles task-related HTTP and webhook requests
 type TaskHandler struct {
-	service         TaskService
-	stakeWallet     stakewallet.StakeWallet
-	taskUpdateCh    chan struct{} // Channel for task updates
-	webhooks        map[string]WebhookRegistration
-	webhookMutex    sync.RWMutex
-	stopCh          chan struct{} // Channel for shutdown signal
-	closeOnce       sync.Once     // Ensure stopCh is closed only once
-	taskUpdateClose sync.Once     // Ensure taskUpdateCh is closed only once
+	service      TaskService
+	stakeWallet  stakewallet.StakeWallet
+	taskUpdateCh chan struct{} // Channel for task updates
+	webhooks     map[string]WebhookRegistration
+	webhookMutex sync.RWMutex
+	stopCh       chan struct{} // Channel for shutdown signal
 }
 
 // NewTaskHandler creates a new TaskHandler instance
@@ -415,9 +413,11 @@ func (h *TaskHandler) RegisterWebhook(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
-	json.NewEncoder(w).Encode(map[string]string{
+	if err := json.NewEncoder(w).Encode(map[string]string{
 		"id": webhookID,
-	})
+	}); err != nil {
+		log.Error().Err(err).Str("webhook_id", webhookID).Msg("Failed to encode webhook registration response")
+	}
 }
 
 // UnregisterWebhook removes a registered webhook
@@ -474,7 +474,9 @@ func (h *TaskHandler) GetTaskResult(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(result)
+	if err := json.NewEncoder(w).Encode(result); err != nil {
+		log.Error().Err(err).Str("task_id", taskID).Msg("Failed to encode task result response")
+	}
 }
 
 func (h *TaskHandler) CreateTask(w http.ResponseWriter, r *http.Request) {
@@ -562,7 +564,9 @@ func (h *TaskHandler) CreateTask(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
-	json.NewEncoder(w).Encode(task)
+	if err := json.NewEncoder(w).Encode(task); err != nil {
+		log.Error().Err(err).Str("task_id", task.ID.String()).Msg("Failed to encode task response")
+	}
 }
 
 func (h *TaskHandler) StartTask(w http.ResponseWriter, r *http.Request) {
@@ -855,7 +859,9 @@ func (h *TaskHandler) ListTasks(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(tasks)
+	if err := json.NewEncoder(w).Encode(tasks); err != nil {
+		log.Error().Err(err).Msg("Failed to encode tasks response")
+	}
 }
 
 // GetTask returns a specific task by ID
@@ -871,7 +877,9 @@ func (h *TaskHandler) GetTask(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(task)
+	if err := json.NewEncoder(w).Encode(task); err != nil {
+		log.Error().Err(err).Msg("Failed to encode task response")
+	}
 }
 
 // AssignTask assigns a task to a runner
@@ -913,7 +921,9 @@ func (h *TaskHandler) GetTaskReward(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(reward)
+	if err := json.NewEncoder(w).Encode(reward); err != nil {
+		log.Error().Err(err).Msg("Failed to encode reward response")
+	}
 }
 
 // ListAvailableTasks returns all available tasks
@@ -924,7 +934,9 @@ func (h *TaskHandler) ListAvailableTasks(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(tasks)
+	if err := json.NewEncoder(w).Encode(tasks); err != nil {
+		log.Error().Err(err).Msg("Failed to encode available tasks response")
+	}
 }
 
 // CompleteTask marks a task as completed
@@ -955,14 +967,11 @@ func (h *TaskHandler) CleanupResources() {
 	// We only perform the actual resource cleanup
 
 	// Safely close taskUpdateCh only once
-	h.taskUpdateClose.Do(func() {
-		log.Debug().Msg("Closing task update channel")
-		select {
-		case <-h.taskUpdateCh: // Try to drain the channel first
-		default:
-		}
-		close(h.taskUpdateCh)
-	})
+	select {
+	case <-h.taskUpdateCh: // Try to drain the channel first
+	default:
+	}
+	close(h.taskUpdateCh)
 
 	// Clean up any other resources
 	// We could add more detailed cleanup steps here if needed

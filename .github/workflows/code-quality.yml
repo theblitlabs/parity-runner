@@ -39,6 +39,19 @@ jobs:
       - name: Run go vet
         run: go vet ./...
 
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - name: Set up Go
+        uses: actions/setup-go@v4
+        with:
+          go-version: "1.21"
+          cache: true
+      - name: Run lint
+        run: golangci-lint run
+
   static-analysis:
     name: Static Analysis
     runs-on: ubuntu-latest

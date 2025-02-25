@@ -132,7 +132,9 @@ func RunChain() {
 		w.WriteHeader(resp.StatusCode)
 
 		// Copy response body
-		io.Copy(w, resp.Body)
+		if _, err := io.Copy(w, resp.Body); err != nil {
+			log.Error().Err(err).Msg("Failed to copy response body")
+		}
 	})
 
 	// Start local proxy server

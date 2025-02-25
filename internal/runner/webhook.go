@@ -165,7 +165,9 @@ func (w *WebhookClient) Start() error {
 	// Register the webhook
 	if err := w.Register(); err != nil {
 		log.Error().Err(err).Msg("Webhook registration failed")
-		w.Stop()
+		if stopErr := w.Stop(); stopErr != nil {
+			log.Error().Err(stopErr).Msg("Failed to stop webhook server after registration failure")
+		}
 		return err
 	}
 

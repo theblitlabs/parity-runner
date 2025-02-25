@@ -150,7 +150,10 @@ func TestLoggingResponseWriter(t *testing.T) {
 				if tt.writeHeader {
 					w.WriteHeader(tt.statusCode)
 				}
-				w.Write([]byte(tt.body))
+				_, err := w.Write([]byte(tt.body))
+				if err != nil {
+					t.Fatalf("Failed to write response: %v", err)
+				}
 			}))
 
 			// Create a test request

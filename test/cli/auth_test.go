@@ -37,7 +37,11 @@ func TestExecuteAuth(t *testing.T) {
 	originalWd, err := os.Getwd()
 	require.NoError(t, err)
 	require.NoError(t, os.Chdir(tempDir))
-	defer os.Chdir(originalWd)
+	defer func() {
+		if err := os.Chdir(originalWd); err != nil {
+			t.Logf("Failed to change back to original directory: %v", err)
+		}
+	}()
 
 	tests := []struct {
 		name       string

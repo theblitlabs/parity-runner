@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/rs/zerolog/log"
 	"github.com/spf13/cobra"
 
 	"github.com/theblitlabs/parity-protocol/pkg/logger"
@@ -70,11 +71,15 @@ func init() {
 
 	// Auth command flags
 	authCmd.Flags().String("private-key", "", "Private key in hex format")
-	authCmd.MarkFlagRequired("private-key")
+	if err := authCmd.MarkFlagRequired("private-key"); err != nil {
+		log.Error().Err(err).Msg("Failed to mark private-key flag as required")
+	}
 
 	// Stake command flags
 	stakeCmd.Flags().Float64("amount", 1.0, "Amount of PRTY tokens to stake")
-	stakeCmd.MarkFlagRequired("amount")
+	if err := stakeCmd.MarkFlagRequired("amount"); err != nil {
+		log.Error().Err(err).Msg("Failed to mark amount flag as required")
+	}
 
 	// Migrate command flags
 	migrateCmd.Flags().Bool("down", false, "Rollback migrations")

@@ -33,7 +33,9 @@ func RunAuth() {
 	}
 
 	cmd.Flags().StringVarP(&privateKey, "private-key", "k", "", "Private key in hex format")
-	cmd.MarkFlagRequired("private-key")
+	if err := cmd.MarkFlagRequired("private-key"); err != nil {
+		log.Fatal().Err(err).Msg("Failed to mark flag as required")
+	}
 
 	if err := cmd.Execute(); err != nil {
 		log.Fatal().Err(err).Msg("Failed to execute auth command")
