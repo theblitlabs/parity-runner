@@ -3,7 +3,6 @@ server:
   host:
   endpoint:
   websocket:
-    ping_interval:
     write_wait:
     pong_wait:
     max_message_size:
@@ -36,24 +35,19 @@ runner:
     cpu_limit:
     timeout:
   ipfs:
-    image: "ipfs/kubo:v0.25.0"
+    image: "ipfs/kubo:latest"
     api_port: 5001
     gateway_port: 8081
     swarm_port: 4001
     data_dir:
+    sysctl:
+      - "net.core.rmem_max=7500000"
+      - "net.core.wmem_max=7500000"
+      - "net.core.rmem_default=7500000"
+      - "net.core.wmem_default=7500000"
 
 ipfs:
   api_url: http://localhost:5001
-
-p2p:
-  listen_addrs:
-    - "/ip4/0.0.0.0/tcp/9000"
-  bootstrap_peers:
-    - "/ip4/123.45.67.89/tcp/9000/p2p/QmPeerID"
-    - "/dns4/bootstrap.example.com/tcp/9000/p2p/QmOtherPeerID"
-  subgroup:
-    min_size: 3
-    max_size: 7
-  consensus:
-    timeout: 30s
-    threshold: 0.67
+  udp_buffer:
+    receive_size: "7168KB"
+    send_size: "7168KB"

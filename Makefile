@@ -12,6 +12,7 @@ AIR_VERSION=v1.49.0
 GOPATH=$(shell go env GOPATH)
 AIR=$(GOPATH)/bin/air
 
+
 # Test related variables
 COVERAGE_DIR=coverage
 COVERAGE_PROFILE=$(COVERAGE_DIR)/coverage.out
@@ -34,26 +35,26 @@ build: ## Build the application
 	$(GOBUILD) $(BUILD_FLAGS) -o $(BINARY_NAME) ./cmd
 	chmod +x $(BINARY_NAME)
 
-run: build ## Run the application
-	./$(BINARY_NAME) --help
+run:  ## Run the application
+	$(GOCMD) run $(MAIN_PATH) --help
 
-server: build ## Start the parity server
-	./$(BINARY_NAME) server
+server:  ## Start the parity server
+	$(GOCMD) run $(MAIN_PATH) server
 
-runner: build ## Start the task runner
-	./$(BINARY_NAME) runner
+runner:  ## Start the task runner
+	$(GOCMD) run $(MAIN_PATH) runner
 
-chain: build ## Start the chain proxy server
-	./$(BINARY_NAME) chain
+chain:  ## Start the chain proxy server
+	$(GOCMD) run $(MAIN_PATH) chain
 
-stake: build ## Stake tokens in the network
-	./$(BINARY_NAME) stake --amount <amount>
+stake:  ## Stake tokens in the network
+	$(GOCMD) run $(MAIN_PATH) stake --amount 10
 
-balance: build ## Check token balances
-	./$(BINARY_NAME) balance
+balance:  ## Check token balances
+	$(GOCMD) run $(MAIN_PATH) balance
 
-auth: build ## Authenticate with the network
-	./$(BINARY_NAME) auth
+auth:  ## Authenticate with the network
+	$(GOCMD) run $(MAIN_PATH) auth
 
 test: setup-coverage ## Run tests with coverage
 	$(GOTEST) $(TEST_FLAGS) -v $(TEST_PACKAGES)
@@ -88,10 +89,10 @@ watch: install-air ## Run the application with hot reload
 	$(AIR)
 
 migrate-up: ## Run database migrations up
-	./$(BINARY_NAME) migrate
+	$(GOCMD) run $(MAIN_PATH) migrate
 
 migrate-down: ## Run database migrations down
-	./$(BINARY_NAME) migrate --down
+	$(GOCMD) run $(MAIN_PATH) migrate --down
 
 help: ## Display this help screen
 	@grep -h -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "\033[36m%-30s\033[0m %s\n", $$1, $$2}'

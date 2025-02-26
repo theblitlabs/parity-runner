@@ -5,7 +5,9 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"time"
 
 	shell "github.com/ipfs/go-ipfs-api"
 	"github.com/theblitlabs/parity-protocol/pkg/logger"
@@ -21,12 +23,29 @@ type Service struct {
 // Config represents the IPFS service configuration
 type Config struct {
 	APIEndpoint string // IPFS API endpoint (e.g., "localhost:5001")
+	UDPBuffer   struct {
+		ReceiveSize string // UDP receive buffer size (e.g., "7168KB")
+		SendSize    string // UDP send buffer size (e.g., "7168KB")
+	}
 }
 
 // New creates a new IPFS service instance
 func New(config Config) (*Service, error) {
 	if config.APIEndpoint == "" {
 		config.APIEndpoint = "localhost:5001" // Default IPFS API endpoint
+	}
+
+	// Set default UDP buffer sizes if not specified
+	if config.UDPBuffer.ReceiveSize == "" {
+		config.UDPBuffer.ReceiveSize = "7168KB"
+	}
+	if config.UDPBuffer.SendSize == "" {
+		config.UDPBuffer.SendSize = "7168KB"
+	}
+
+	// Set UDP buffer sizes using sysctl
+	if err := setUDPBufferSizes(config.UDPBuffer.ReceiveSize, config.UDPBuffer.SendSize); err != nil {
+		logger.Warn(component, fmt.Sprintf("Failed to set UDP buffer sizes: %v", err))
 	}
 
 	sh := shell.NewShell(config.APIEndpoint)
@@ -39,7 +58,113 @@ func New(config Config) (*Service, error) {
 	return &Service{shell: sh}, nil
 }
 
-// UploadFile uploads a file to IPFS and returns its CID
+// setUDPBufferSizes attempts to set the system's UDP buffer sizes
+func setUDPBufferSizes(receiveSize, sendSize string) error {
+	// Convert sizes to bytes
+	recvBytes, err := parseSize(receiveSize)
+	if err != nil {
+		return fmt.Errorf("invalid receive size: %w", err)
+	}
+
+	sendBytes, err := parseSize(sendSize)
+	if err != nil {
+		return fmt.Errorf("invalid send size: %w", err)
+	}
+
+	// Run sysctl commands to set buffer sizes
+	commands := []struct {
+		param string
+		value int
+	}{
+		{"net.core.rmem_max", recvBytes},
+		{"net.core.wmem_max", sendBytes},
+		{"net.core.rmem_default", recvBytes},
+		{"net.core.wmem_default", sendBytes},
+	}
+
+	for _, cmd := range commands {
+		if err := runSysctl(cmd.param, cmd.value); err != nil {
+			return fmt.Errorf("failed to set %s: %w", cmd.param, err)
+		}
+	}
+
+	return nil
+}
+
+// parseSize converts a size string (e.g., "7168KB") to bytes
+func parseSize(size string) (int, error) {
+	var value int
+	var unit string
+	if _, err := fmt.Sscanf(size, "%d%s", &value, &unit); err != nil {
+		return 0, fmt.Errorf("invalid size format: %s", size)
+	}
+
+	multiplier := 1
+	switch unit {
+	case "KB", "kb":
+		multiplier = 1024
+	case "MB", "mb":
+		multiplier = 1024 * 1024
+	case "GB", "gb":
+		multiplier = 1024 * 1024 * 1024
+	default:
+		return 0, fmt.Errorf("unknown unit: %s", unit)
+	}
+
+	return value * multiplier, nil
+}
+
+// runSysctl attempts to set a sysctl parameter
+func runSysctl(param string, value int) error {
+	cmd := exec.Command("sysctl", "-w", fmt.Sprintf("%s=%d", param, value))
+	if output, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("sysctl failed: %s: %w", string(output), err)
+	}
+	return nil
+}
+
+// verifyContentAvailability checks if the content with given CID is available on the IPFS network
+func (s *Service) verifyContentAvailability(cid string, timeout time.Duration) error {
+	// Check if we can actually retrieve the content
+	reader, err := s.shell.Cat(cid)
+	if err != nil {
+		return fmt.Errorf("content not retrievable: %w", err)
+	}
+	defer reader.Close()
+
+	// Try reading a small amount of data to verify it's actually available
+	buf := make([]byte, 1024)
+	_, err = reader.Read(buf)
+	if err != nil && err != io.EOF {
+		return fmt.Errorf("content not readable: %w", err)
+	}
+
+	logger.Info(component, fmt.Sprintf("Content preview for CID %s: %s", cid, string(buf)))
+
+	// Ensure the content is pinned locally
+	err = s.shell.Pin(cid)
+	if err != nil {
+		logger.Error(component, err, fmt.Sprintf("Failed to pin content for CID %s", cid))
+		return fmt.Errorf("content not pinnable: %w", err)
+	}
+
+	// Verify pin status
+	pins, err := s.shell.Pins()
+	if err != nil {
+		logger.Error(component, err, fmt.Sprintf("Failed to check pins for CID %s", cid))
+		return fmt.Errorf("failed to verify pin status: %w", err)
+	}
+
+	_, isPinned := pins[cid]
+	if !isPinned {
+		return fmt.Errorf("content uploaded but not pinned")
+	}
+	logger.Info(component, fmt.Sprintf("Content successfully pinned for CID: %s", cid))
+
+	return nil
+}
+
+// UploadFile uploads a file to IPFS, pins it, returns its CID, and verifies its availability
 func (s *Service) UploadFile(filePath string) (string, error) {
 	file, err := os.Open(filePath)
 	if err != nil {
@@ -48,26 +173,42 @@ func (s *Service) UploadFile(filePath string) (string, error) {
 	}
 	defer file.Close()
 
-	cid, err := s.shell.Add(file)
+	cid, err := s.shell.Add(file, shell.Pin(true), shell.CidVersion(1))
 	if err != nil {
 		logger.Error(component, err, "Failed to upload file to IPFS")
 		return "", fmt.Errorf("failed to upload file to IPFS: %w", err)
 	}
 
-	logger.Info(component, fmt.Sprintf("File uploaded successfully with CID: %s", cid))
+	logger.Info(component, fmt.Sprintf("File uploaded with CID: %s, verifying availability and pinning...", cid))
+
+	// Verify content availability and pin with a timeout
+	if err := s.verifyContentAvailability(cid, 30*time.Second); err != nil {
+		logger.Warn(component, fmt.Sprintf("Content availability verification or pinning failed for CID %s: %v", cid, err))
+		return cid, fmt.Errorf("content uploaded but availability or pinning uncertain: %w", err)
+	}
+
+	logger.Info(component, fmt.Sprintf("File uploaded, pinned, and verified available with CID: %s", cid))
 	return cid, nil
 }
 
-// UploadData uploads raw data to IPFS and returns its CID
+// UploadData uploads raw data to IPFS, pins it, returns its CID, and verifies its availability
 func (s *Service) UploadData(data []byte) (string, error) {
 	reader := bytes.NewReader(data)
-	cid, err := s.shell.Add(reader)
+	cid, err := s.shell.Add(reader, shell.Pin(true), shell.CidVersion(1))
 	if err != nil {
 		logger.Error(component, err, "Failed to upload data to IPFS")
 		return "", fmt.Errorf("failed to upload data to IPFS: %w", err)
 	}
 
-	logger.Info(component, fmt.Sprintf("Data uploaded successfully with CID: %s", cid))
+	logger.Info(component, fmt.Sprintf("Data uploaded with CID: %s, verifying availability and pinning...", cid))
+
+	// Verify content availability and pin with a timeout
+	if err := s.verifyContentAvailability(cid, 30*time.Second); err != nil {
+		logger.Warn(component, fmt.Sprintf("Content availability verification or pinning failed for CID %s: %v", cid, err))
+		return cid, fmt.Errorf("content uploaded but availability or pinning uncertain: %w", err)
+	}
+
+	logger.Info(component, fmt.Sprintf("Data uploaded, pinned, and verified available with CID: %s", cid))
 	return cid, nil
 }
 

@@ -1,11 +1,13 @@
 package handlers
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
 	"math/big"
 	"net/http"
 	"strings"
@@ -85,9 +87,8 @@ type TaskHandler struct {
 func NewTaskHandler(service TaskService) *TaskHandler {
 	return &TaskHandler{
 		service:      service,
-		taskUpdateCh: make(chan struct{}, 1),
 		webhooks:     make(map[string]WebhookRegistration),
-		stopCh:       make(chan struct{}),
+		taskUpdateCh: make(chan struct{}, 100), // Buffer for task updates
 	}
 }
 
@@ -134,158 +135,107 @@ func (h *TaskHandler) notifyWebhooks() {
 		return
 	}
 
+	if len(tasks) == 0 {
+		log.Debug().Msg("No available tasks to notify about")
+		return
+	}
+
 	payload := WSMessage{
 		Type:    "available_tasks",
 		Payload: tasks,
 	}
 
-	h.webhookMutex.RLock()
-
-	// If no webhooks are registered, just return
-	if len(h.webhooks) == 0 {
-		h.webhookMutex.RUnlock()
-		log.Debug().Msg("No webhooks registered, skipping notifications")
+	// Marshal payload once for all webhooks
+	payloadBytes, err := json.Marshal(payload)
+	if err != nil {
+		log.Error().Err(err).Msg("Failed to marshal webhook payload")
 		return
 	}
 
-	// Create a copy of webhooks to avoid holding the lock during HTTP requests
+	h.webhookMutex.RLock()
 	webhooks := make([]WebhookRegistration, 0, len(h.webhooks))
 	for _, webhook := range h.webhooks {
 		webhooks = append(webhooks, webhook)
 	}
 	h.webhookMutex.RUnlock()
 
-	client := &http.Client{
-		Timeout: 5 * time.Second,
+	if len(webhooks) == 0 {
+		log.Debug().Msg("No webhooks registered, skipping notifications")
+		return
 	}
 
-	// Create a wait group to keep track of goroutines
+	// Create a client with appropriate timeouts
+	client := &http.Client{
+		Timeout: 5 * time.Second,
+		Transport: &http.Transport{
+			MaxIdleConns:       100,
+			IdleConnTimeout:    90 * time.Second,
+			DisableCompression: true,
+		},
+	}
+
+	// Send notifications concurrently with a maximum of 10 concurrent requests
+	sem := make(chan struct{}, 10)
 	var wg sync.WaitGroup
 
 	for _, webhook := range webhooks {
-		// Check again if we're shutting down before spawning each goroutine
 		select {
 		case <-h.stopCh:
 			log.Debug().Msg("Cancelling webhook notifications due to shutdown")
 			return
 		default:
-			// Continue if not shutting down
-		}
+			sem <- struct{}{} // Acquire semaphore
+			wg.Add(1)
 
-		wg.Add(1)
-		go func(webhook WebhookRegistration) {
-			defer wg.Done()
+			go func(webhook WebhookRegistration) {
+				defer func() {
+					<-sem // Release semaphore
+					wg.Done()
+				}()
 
-			// Create a context with timeout that also respects the stop channel
-			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-			defer cancel()
-
-			// Create a channel that will be closed when the stop channel is closed
-			done := make(chan struct{})
-			go func() {
-				select {
-				case <-h.stopCh:
-					cancel() // Cancel the context if we're shutting down
-					close(done)
-				case <-ctx.Done():
-					close(done)
-				}
-			}()
-
-			payloadBytes, err := json.Marshal(payload)
-			if err != nil {
-				log.Error().
-					Err(err).
-					Str("webhook_id", webhook.ID).
-					Str("url", webhook.URL).
-					Msg("Failed to marshal webhook payload")
-				return
-			}
-
-			req, err := http.NewRequestWithContext(ctx, "POST", webhook.URL, strings.NewReader(string(payloadBytes)))
-			if err != nil {
-				log.Error().
-					Err(err).
-					Str("webhook_id", webhook.ID).
-					Str("url", webhook.URL).
-					Msg("Failed to create webhook request")
-				return
-			}
-
-			req.Header.Set("Content-Type", "application/json")
-			req.Header.Set("X-Webhook-ID", webhook.ID)
-
-			startTime := time.Now()
-			resp, err := client.Do(req)
-
-			// Check if operation was canceled due to shutdown
-			select {
-			case <-done:
-				if ctx.Err() == context.Canceled {
-					log.Debug().
+				req, err := http.NewRequest("POST", webhook.URL, bytes.NewReader(payloadBytes))
+				if err != nil {
+					log.Error().Err(err).
 						Str("webhook_id", webhook.ID).
 						Str("url", webhook.URL).
-						Msg("Webhook notification canceled due to shutdown")
+						Msg("Failed to create webhook request")
 					return
 				}
-			default:
-				// Continue normally
-			}
 
-			if err != nil {
-				log.Error().
-					Err(err).
+				req.Header.Set("Content-Type", "application/json")
+				req.Header.Set("X-Webhook-ID", webhook.ID)
+
+				resp, err := client.Do(req)
+				if err != nil {
+					log.Error().Err(err).
+						Str("webhook_id", webhook.ID).
+						Str("url", webhook.URL).
+						Msg("Failed to send webhook notification")
+					return
+				}
+				defer resp.Body.Close()
+
+				if resp.StatusCode != http.StatusOK {
+					body, _ := io.ReadAll(resp.Body)
+					log.Error().
+						Str("webhook_id", webhook.ID).
+						Str("url", webhook.URL).
+						Int("status", resp.StatusCode).
+						Str("response", string(body)).
+						Msg("Webhook notification failed")
+					return
+				}
+
+				log.Debug().
 					Str("webhook_id", webhook.ID).
 					Str("url", webhook.URL).
-					Dur("attempt_duration", time.Since(startTime)).
-					Msg("Failed to send webhook notification")
-				return
-			}
-
-			// Record the time taken for the webhook request
-			defer resp.Body.Close()
-			requestDuration := time.Since(startTime)
-
-			if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-				log.Warn().
-					Int("status", resp.StatusCode).
-					Str("webhook_id", webhook.ID).
-					Str("url", webhook.URL).
-					Dur("response_time_ms", requestDuration).
-					Int("payload_size_bytes", len(payloadBytes)).
-					Str("runner_id", webhook.RunnerID).
-					Msg("Webhook notification returned non-success status")
-				return
-			}
-
-			log.Info().
-				Str("webhook_id", webhook.ID).
-				Str("url", webhook.URL).
-				Int("status", resp.StatusCode).
-				Int("payload_size_bytes", len(payloadBytes)).
-				Dur("response_time_ms", requestDuration).
-				Int("tasks_count", len(tasks)).
-				Str("runner_id", webhook.RunnerID).
-				Msg("Webhook notification sent successfully")
-		}(webhook)
+					Int("task_count", len(tasks)).
+					Msg("Webhook notification sent successfully")
+			}(webhook)
+		}
 	}
 
-	// Use a separate goroutine to wait for all webhook notifications to complete
-	// This prevents blocking but still gives us proper cleanup
-	go func() {
-		done := make(chan struct{})
-		go func() {
-			wg.Wait()
-			close(done)
-		}()
-
-		select {
-		case <-done:
-			log.Debug().Msg("All webhook notifications completed")
-		case <-h.stopCh:
-			log.Debug().Msg("Shutdown initiated while webhook notifications were in progress")
-		}
-	}()
+	wg.Wait()
 }
 
 // RegisterWebhook registers a new webhook endpoint

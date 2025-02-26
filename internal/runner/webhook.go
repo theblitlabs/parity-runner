@@ -32,8 +32,10 @@ type WebhookClient struct {
 	mu         sync.Mutex
 	started    bool
 	serverPort int
-	// Track completed tasks to avoid reprocessing
-	completedTasks map[string]bool
+	// Track completed tasks with timestamps to enable cleanup
+	completedTasks     map[string]time.Time
+	lastCleanupTime    time.Time
+	completedTasksLock sync.RWMutex
 }
 
 // NewWebhookClient creates a new webhook client
@@ -46,7 +48,7 @@ func NewWebhookClient(serverURL string, webhookURL string, serverPort int, handl
 		deviceID:       deviceID,
 		stopChan:       make(chan struct{}),
 		serverPort:     serverPort,
-		completedTasks: make(map[string]bool),
+		completedTasks: make(map[string]time.Time),
 	}
 }
 
@@ -313,6 +315,40 @@ func (w *WebhookClient) Stop() error {
 	return nil
 }
 
+// cleanupCompletedTasks removes completed tasks older than 24 hours
+func (w *WebhookClient) cleanupCompletedTasks() {
+	w.completedTasksLock.Lock()
+	defer w.completedTasksLock.Unlock()
+
+	// Only cleanup once per hour
+	if time.Since(w.lastCleanupTime) < time.Hour {
+		return
+	}
+
+	cutoff := time.Now().Add(-24 * time.Hour)
+	for taskID, completedAt := range w.completedTasks {
+		if completedAt.Before(cutoff) {
+			delete(w.completedTasks, taskID)
+		}
+	}
+	w.lastCleanupTime = time.Now()
+}
+
+// isTaskCompleted checks if a task has been completed
+func (w *WebhookClient) isTaskCompleted(taskID string) bool {
+	w.completedTasksLock.RLock()
+	defer w.completedTasksLock.RUnlock()
+	_, exists := w.completedTasks[taskID]
+	return exists
+}
+
+// markTaskCompleted marks a task as completed
+func (w *WebhookClient) markTaskCompleted(taskID string) {
+	w.completedTasksLock.Lock()
+	defer w.completedTasksLock.Unlock()
+	w.completedTasks[taskID] = time.Now()
+}
+
 // handleWebhook processes incoming webhook notifications
 func (w *WebhookClient) handleWebhook(resp http.ResponseWriter, req *http.Request) {
 	log := logger.WithComponent("webhook")
@@ -322,6 +358,9 @@ func (w *WebhookClient) handleWebhook(resp http.ResponseWriter, req *http.Reques
 		http.Error(resp, "Method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
+
+	// Cleanup old completed tasks
+	w.cleanupCompletedTasks()
 
 	// Parse the webhook message
 	var message WebhookMessage
@@ -346,10 +385,11 @@ func (w *WebhookClient) handleWebhook(resp http.ResponseWriter, req *http.Reques
 
 			// Process tasks
 			for _, task := range tasks {
+				taskID := task.ID.String()
 				// Skip tasks that have already been completed
-				if w.completedTasks[task.ID.String()] {
+				if w.isTaskCompleted(taskID) {
 					log.Debug().
-						Str("id", task.ID.String()).
+						Str("id", taskID).
 						Str("type", string(task.Type)).
 						Msg("Skipping already completed task")
 					continue
@@ -357,17 +397,18 @@ func (w *WebhookClient) handleWebhook(resp http.ResponseWriter, req *http.Reques
 
 				if err := w.handler.HandleTask(task); err != nil {
 					log.Error().Err(err).
-						Str("id", task.ID.String()).
+						Str("id", taskID).
 						Str("type", string(task.Type)).
 						Float64("reward", task.Reward).
 						Msg("Task processing failed")
+					// Don't mark failed tasks as completed
 				} else {
 					log.Debug().
-						Str("id", task.ID.String()).
+						Str("id", taskID).
 						Str("type", string(task.Type)).
-						Msg("Task processed")
-					// Mark task as completed
-					w.completedTasks[task.ID.String()] = true
+						Msg("Task processed successfully")
+					// Only mark successful tasks as completed
+					w.markTaskCompleted(taskID)
 				}
 			}
 		}

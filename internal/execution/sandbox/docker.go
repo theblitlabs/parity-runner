@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"strconv"
 	"strings"
 	"time"
 
@@ -97,6 +98,43 @@ func cleanOutput(output []byte) string {
 	return strings.TrimSpace(string(cleaned))
 }
 
+// parseMemoryLimit converts a memory limit string (e.g., "1g", "512m") to bytes
+func parseMemoryLimit(limit string) int64 {
+	if limit == "" {
+		return 0
+	}
+
+	var value int64
+	var unit string
+	fmt.Sscanf(limit, "%d%s", &value, &unit)
+
+	switch strings.ToLower(unit) {
+	case "g", "gb":
+		return value * 1024 * 1024 * 1024
+	case "m", "mb":
+		return value * 1024 * 1024
+	case "k", "kb":
+		return value * 1024
+	default:
+		return value
+	}
+}
+
+// parseCPULimit converts a CPU limit string (e.g., "1", "0.5") to nano CPUs
+func parseCPULimit(limit string) int64 {
+	if limit == "" {
+		return 0
+	}
+
+	cpu, err := strconv.ParseFloat(limit, 64)
+	if err != nil {
+		return 0
+	}
+
+	// Convert to nano CPUs (1 CPU = 1000000000 nano CPUs)
+	return int64(cpu * 1000000000)
+}
+
 func (e *DockerExecutor) ExecuteTask(ctx context.Context, task *models.Task) (*models.TaskResult, error) {
 	log := logger.WithComponent("docker")
 	startTime := time.Now()
@@ -170,7 +208,12 @@ func (e *DockerExecutor) ExecuteTask(ctx context.Context, task *models.Task) (*m
 			Env:        envVars,
 			WorkingDir: workdir,
 		},
-		nil, nil, nil, "")
+		&container.HostConfig{
+			Resources: container.Resources{
+				Memory:   parseMemoryLimit(e.config.MemoryLimit),
+				NanoCPUs: parseCPULimit(e.config.CPULimit),
+			},
+		}, nil, nil, "")
 	if err != nil {
 		log.Error().Err(err).
 			Str("id", task.ID.String()).
