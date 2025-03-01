@@ -12,6 +12,7 @@ import (
 	"github.com/theblitlabs/parity-protocol/internal/execution/sandbox"
 	"github.com/theblitlabs/parity-protocol/internal/ipfs"
 	"github.com/theblitlabs/parity-protocol/internal/models"
+	"github.com/theblitlabs/parity-protocol/internal/telemetry"
 	"github.com/theblitlabs/parity-protocol/pkg/logger"
 )
 
@@ -45,6 +46,7 @@ func NewTaskService(repo TaskRepository, ipfs *ipfs.Client) *TaskService {
 
 func (s *TaskService) CreateTask(ctx context.Context, task *models.Task) error {
 	log := logger.WithComponent("task_service")
+	startTime := time.Now()
 
 	if err := task.Validate(); err != nil {
 		log.Error().Err(err).
@@ -54,6 +56,8 @@ func (s *TaskService) CreateTask(ctx context.Context, task *models.Task) error {
 				"reward": task.Reward,
 				"config": task.Config,
 			}).Msg("Invalid task")
+		telemetry.RecordTaskWithType("error", string(task.Type), time.Since(startTime))
+		telemetry.RecordError("validation", "task_service")
 		return ErrInvalidTask
 	}
 
@@ -76,9 +80,12 @@ func (s *TaskService) CreateTask(ctx context.Context, task *models.Task) error {
 
 	if err := s.repo.Create(ctx, task); err != nil {
 		log.Error().Err(err).Str("id", task.ID.String()).Msg("Failed to create task")
+		telemetry.RecordTaskWithType("error", string(task.Type), time.Since(startTime))
+		telemetry.RecordError("database", "task_service")
 		return err
 	}
 
+	telemetry.RecordTaskWithType("created", string(task.Type), time.Since(startTime))
 	return nil
 }
 
@@ -121,28 +128,40 @@ func (s *TaskService) ListAvailableTasks(ctx context.Context) ([]*models.Task, e
 		}
 	}
 
+	// Update active tasks metric
+	activeTasks, err := s.repo.ListByStatus(ctx, models.TaskStatusRunning)
+	if err != nil {
+		log.Error().Err(err).Msg("Failed to get active task count")
+	} else {
+		telemetry.UpdateActiveTasks(float64(len(activeTasks)))
+	}
+
 	log.Debug().Int("count", len(availableTasks)).Msg("Retrieved available tasks")
 	return availableTasks, nil
 }
 
 func (s *TaskService) AssignTaskToRunner(ctx context.Context, taskID string, runnerID string) error {
 	log := logger.WithComponent("task_service")
+	startTime := time.Now()
 
 	taskUUID, err := uuid.Parse(taskID)
 	if err != nil {
 		log.Debug().Str("task", taskID).Msg("Invalid task ID")
+		telemetry.RecordError("validation", "task_service")
 		return fmt.Errorf("invalid task ID: %w", err)
 	}
 
 	task, err := s.repo.Get(ctx, taskUUID)
 	if err != nil {
 		log.Error().Err(err).Str("task", taskID).Msg("Failed to get task")
+		telemetry.RecordError("database", "task_service")
 		return err
 	}
 
 	runnerUUID, err := uuid.Parse(runnerID)
 	if err != nil {
 		log.Debug().Str("runner", runnerID).Msg("Invalid runner ID")
+		telemetry.RecordError("validation", "task_service")
 		return fmt.Errorf("invalid runner ID: %w", err)
 	}
 
@@ -151,11 +170,13 @@ func (s *TaskService) AssignTaskToRunner(ctx context.Context, taskID string, run
 			Str("task", taskID).
 			Str("status", string(task.Status)).
 			Msg("Task unavailable")
+		telemetry.RecordError("status", "task_service")
 		return errors.New("task unavailable")
 	}
 
 	if task.Type == models.TaskTypeDocker && (task.Environment == nil || task.Environment.Type != "docker") {
 		log.Error().Str("task", taskID).Msg("Invalid Docker config")
+		telemetry.RecordError("config", "task_service")
 		return errors.New("invalid docker config")
 	}
 
@@ -165,7 +186,18 @@ func (s *TaskService) AssignTaskToRunner(ctx context.Context, taskID string, run
 
 	if err := s.repo.Update(ctx, task); err != nil {
 		log.Error().Err(err).Str("task", taskID).Msg("Failed to assign task")
+		telemetry.RecordTaskWithType("error", string(task.Type), time.Since(startTime))
+		telemetry.RecordError("database", "task_service")
 		return err
+	}
+
+	// Update active tasks count
+	activeTasks, err := s.repo.ListByStatus(ctx, models.TaskStatusRunning)
+	if err != nil {
+		log.Error().Err(err).Msg("Failed to get active task count")
+		telemetry.RecordError("database", "task_service")
+	} else {
+		telemetry.UpdateActiveTasks(float64(len(activeTasks)))
 	}
 
 	log.Info().
@@ -174,6 +206,7 @@ func (s *TaskService) AssignTaskToRunner(ctx context.Context, taskID string, run
 		Float64("reward", task.Reward).
 		Msg("Task assigned")
 
+	telemetry.RecordTaskWithType("assigned", string(task.Type), time.Since(startTime))
 	return nil
 }
 
@@ -221,6 +254,7 @@ func (s *TaskService) GetTasks(ctx context.Context) ([]models.Task, error) {
 
 func (s *TaskService) StartTask(ctx context.Context, id string) error {
 	log := logger.WithComponent("task_service")
+	startTime := time.Now()
 
 	taskUUID, err := uuid.Parse(id)
 	if err != nil {
@@ -228,6 +262,7 @@ func (s *TaskService) StartTask(ctx context.Context, id string) error {
 			Str("task_id", id).
 			Err(err).
 			Msg("Invalid task ID format")
+		telemetry.RecordTask("error", time.Since(startTime))
 		return fmt.Errorf("invalid task ID format: %w", err)
 	}
 
@@ -237,6 +272,7 @@ func (s *TaskService) StartTask(ctx context.Context, id string) error {
 			Str("task_id", id).
 			Err(err).
 			Msg("Failed to retrieve task")
+		telemetry.RecordTask("error", time.Since(startTime))
 		return err
 	}
 
@@ -246,7 +282,16 @@ func (s *TaskService) StartTask(ctx context.Context, id string) error {
 			Str("task_id", id).
 			Err(err).
 			Msg("Failed to update task status to running")
+		telemetry.RecordTask("error", time.Since(startTime))
 		return err
+	}
+
+	// Update active tasks count
+	activeTasks, err := s.repo.ListByStatus(ctx, models.TaskStatusRunning)
+	if err != nil {
+		log.Error().Err(err).Msg("Failed to get active task count")
+	} else {
+		telemetry.UpdateActiveTasks(float64(len(activeTasks)))
 	}
 
 	log.Info().
@@ -255,11 +300,13 @@ func (s *TaskService) StartTask(ctx context.Context, id string) error {
 		Str("type", string(task.Type)).
 		Msg("Task started")
 
+	telemetry.RecordTask("started", time.Since(startTime))
 	return nil
 }
 
 func (s *TaskService) CompleteTask(ctx context.Context, id string) error {
 	log := logger.WithComponent("task_service")
+	startTime := time.Now()
 
 	taskUUID, err := uuid.Parse(id)
 	if err != nil {
@@ -267,6 +314,7 @@ func (s *TaskService) CompleteTask(ctx context.Context, id string) error {
 			Str("task_id", id).
 			Err(err).
 			Msg("Invalid task ID format")
+		telemetry.RecordError("validation", "task_service")
 		return fmt.Errorf("invalid task ID format: %w", err)
 	}
 
@@ -276,6 +324,7 @@ func (s *TaskService) CompleteTask(ctx context.Context, id string) error {
 			Str("task_id", id).
 			Err(err).
 			Msg("Failed to retrieve task")
+		telemetry.RecordError("database", "task_service")
 		return err
 	}
 
@@ -288,7 +337,18 @@ func (s *TaskService) CompleteTask(ctx context.Context, id string) error {
 			Str("task_id", id).
 			Err(err).
 			Msg("Failed to update task status to completed")
+		telemetry.RecordTaskWithType("error", string(task.Type), time.Since(startTime))
+		telemetry.RecordError("database", "task_service")
 		return err
+	}
+
+	// Update active tasks count
+	activeTasks, err := s.repo.ListByStatus(ctx, models.TaskStatusRunning)
+	if err != nil {
+		log.Error().Err(err).Msg("Failed to get active task count")
+		telemetry.RecordError("database", "task_service")
+	} else {
+		telemetry.UpdateActiveTasks(float64(len(activeTasks)))
 	}
 
 	log.Info().
@@ -298,6 +358,7 @@ func (s *TaskService) CompleteTask(ctx context.Context, id string) error {
 		Time("completed_at", now).
 		Msg("Task completed")
 
+	telemetry.RecordTaskWithType("completed", string(task.Type), time.Since(startTime))
 	return nil
 }
 

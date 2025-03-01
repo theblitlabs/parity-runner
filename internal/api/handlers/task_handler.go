@@ -23,6 +23,7 @@ import (
 	"github.com/theblitlabs/parity-protocol/internal/config"
 	"github.com/theblitlabs/parity-protocol/internal/models"
 	"github.com/theblitlabs/parity-protocol/internal/services"
+	"github.com/theblitlabs/parity-protocol/internal/telemetry"
 	"github.com/theblitlabs/parity-protocol/pkg/keystore"
 	"github.com/theblitlabs/parity-protocol/pkg/logger"
 	"github.com/theblitlabs/parity-protocol/pkg/stakewallet"
@@ -274,6 +275,9 @@ func (h *TaskHandler) RegisterWebhook(w http.ResponseWriter, r *http.Request) {
 	h.webhooks[webhookID] = webhook
 	h.webhookMutex.Unlock()
 
+	// Record webhook connection
+	telemetry.RecordWebhookConnection(1)
+
 	log := logger.WithComponent("webhook")
 	log.Info().
 		Str("webhook_id", webhookID).
@@ -388,6 +392,9 @@ func (h *TaskHandler) UnregisterWebhook(w http.ResponseWriter, r *http.Request) 
 
 	delete(h.webhooks, webhookID)
 	h.webhookMutex.Unlock()
+
+	// Record webhook disconnection
+	telemetry.RecordWebhookConnection(-1)
 
 	log := logger.WithComponent("webhook")
 	log.Info().

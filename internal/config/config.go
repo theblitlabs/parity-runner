@@ -7,11 +7,12 @@ import (
 )
 
 type Config struct {
-	Server   ServerConfig   `mapstructure:"server"`
-	Database DatabaseConfig `mapstructure:"database"`
-	Ethereum EthereumConfig `mapstructure:"ethereum"`
-	Runner   RunnerConfig   `mapstructure:"runner"`
-	IPFS     IPFSConfig     `mapstructure:"ipfs"`
+	Server    ServerConfig    `mapstructure:"server"`
+	Database  DatabaseConfig  `mapstructure:"database"`
+	Ethereum  EthereumConfig  `mapstructure:"ethereum"`
+	Runner    RunnerConfig    `mapstructure:"runner"`
+	IPFS      IPFSConfig      `mapstructure:"ipfs"`
+	Telemetry TelemetryConfig `mapstructure:"telemetry"`
 }
 
 type ServerConfig struct {
@@ -81,4 +82,17 @@ type IPFSRunnerConfig struct {
 	GatewayPort int    `mapstructure:"gateway_port"`
 	SwarmPort   int    `mapstructure:"swarm_port"`
 	DataDir     string `mapstructure:"data_dir"`
+}
+
+type TelemetryConfig struct {
+	Enabled       bool   `mapstructure:"enabled"`
+	ServiceName   string `mapstructure:"service_name"`
+	OTELCollector struct {
+		Host string `mapstructure:"host"`
+		Port int    `mapstructure:"port"`
+	} `mapstructure:"otel_collector"`
+	Metrics struct {
+		Enabled  bool          `mapstructure:"enabled"`
+		Interval time.Duration `mapstructure:"interval"`
+	} `mapstructure:"metrics"`
 }

@@ -20,6 +20,7 @@ import (
 	"github.com/theblitlabs/parity-protocol/internal/database/repositories"
 	"github.com/theblitlabs/parity-protocol/internal/ipfs"
 	"github.com/theblitlabs/parity-protocol/internal/services"
+	"github.com/theblitlabs/parity-protocol/internal/telemetry"
 	"github.com/theblitlabs/parity-protocol/pkg/database"
 	"github.com/theblitlabs/parity-protocol/pkg/device"
 	"github.com/theblitlabs/parity-protocol/pkg/keystore"
@@ -59,11 +60,23 @@ func RunServer() {
 		log.Error().Err(err).Msg("Failed to load config")
 	}
 
+	// Initialize OpenTelemetry
+	ctx := context.Background()
+	cleanup, err := telemetry.InitTelemetry(ctx, cfg)
+	if err != nil {
+		log.Fatal().Err(err).Msg("Failed to initialize telemetry")
+	}
+	defer func() {
+		if err := cleanup(context.Background()); err != nil {
+			log.Error().Err(err).Msg("Failed to clean up telemetry")
+		}
+	}()
+
 	// Create database connection with timeout context
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	dbCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	db, err := database.Connect(ctx, cfg.Database.URL)
+	db, err := database.Connect(dbCtx, cfg.Database.URL)
 	if err != nil {
 		log.Fatal().Err(err).Msg("Failed to connect to database")
 	}
@@ -72,7 +85,7 @@ func RunServer() {
 	dbx := sqlx.NewDb(db, "postgres")
 
 	// Ping database to verify connection
-	if err := db.PingContext(ctx); err != nil {
+	if err := db.PingContext(dbCtx); err != nil {
 		log.Fatal().Err(err).Msg("Database connection check failed")
 	}
 
@@ -125,14 +138,25 @@ func RunServer() {
 		log.Fatal().Err(err).Msg("Failed to create stake wallet")
 	}
 
+	// Wrap stake wallet with metrics
+	metricsStakeWallet := stakewallet.NewMetricsStakeWallet(stakeWallet)
+
 	// Set stake wallet in task handler
-	taskHandler.SetStakeWallet(stakeWallet)
+	taskHandler.SetStakeWallet(metricsStakeWallet)
 
 	// Initialize API handlers and start server
 	router := api.NewRouter(
 		taskHandler,
 		cfg.Server.Endpoint,
 	)
+
+	// Add telemetry middleware
+	handler := telemetry.MetricsMiddleware(router)
+
+	// Add metrics endpoint
+	metricsRouter := http.NewServeMux()
+	metricsRouter.Handle("/metrics", telemetry.MetricsHandler())
+	metricsRouter.Handle("/", handler)
 
 	// Check if the server port is available before starting
 	if err := verifyPortAvailable(cfg.Server.Host, cfg.Server.Port); err != nil {
@@ -145,7 +169,7 @@ func RunServer() {
 
 	server := &http.Server{
 		Addr:    fmt.Sprintf("%s:%s", cfg.Server.Host, cfg.Server.Port),
-		Handler: router,
+		Handler: metricsRouter,
 	}
 
 	// Wait for shutdown signal in a goroutine

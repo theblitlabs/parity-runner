@@ -12,6 +12,12 @@ AIR_VERSION=v1.49.0
 GOPATH=$(shell go env GOPATH)
 AIR=$(GOPATH)/bin/air
 
+# Docker metrics configuration
+DOCKER_COMPOSE=docker-compose
+METRICS_COMPOSE_FILE=docker-compose.metrics.yml
+OBSERVABILITY_COMPOSE_FILE=docker-compose.observability.yml
+PROMETHEUS_CONTAINER=prometheus
+GRAFANA_CONTAINER=grafana
 
 # Test related variables
 COVERAGE_DIR=coverage
@@ -27,7 +33,7 @@ BUILD_FLAGS=-v
 # Add these lines after the existing parameters
 INSTALL_PATH=/usr/local/bin
 
-.PHONY: all build run test clean deps fmt help docker-up docker-down docker-logs docker-build docker-clean install-air watch migrate-up migrate-down tools install uninstall install-lint-tools lint
+.PHONY: all build run test clean deps fmt help docker-up docker-down docker-logs docker-build docker-clean install-air watch migrate-up migrate-down tools install uninstall install-lint-tools lint metrics-up metrics-down metrics-logs metrics-restart prometheus-logs grafana-logs
 
 all: clean build
 
@@ -112,5 +118,30 @@ lint: ## Run linting
 
 install-lint-tools: ## Install linting tools
 	go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest
+
+metrics-up: ## Start metrics containers (Prometheus & Grafana)
+	$(DOCKER_COMPOSE) -f $(METRICS_COMPOSE_FILE) up -d
+	$(DOCKER_COMPOSE) -f $(OBSERVABILITY_COMPOSE_FILE) up -d
+
+metrics-down: ## Stop metrics containers
+	$(DOCKER_COMPOSE) -f $(METRICS_COMPOSE_FILE) down
+	$(DOCKER_COMPOSE) -f $(OBSERVABILITY_COMPOSE_FILE) down
+
+metrics-logs: ## View metrics containers logs
+	$(DOCKER_COMPOSE) -f $(METRICS_COMPOSE_FILE) logs -f
+
+metrics-delete: ## Delete metrics containers
+	$(DOCKER_COMPOSE) -f $(METRICS_COMPOSE_FILE) down -v
+	$(DOCKER_COMPOSE) -f $(OBSERVABILITY_COMPOSE_FILE) down -v
+
+metrics-restart: ## Restart metrics containers
+	$(DOCKER_COMPOSE) -f $(METRICS_COMPOSE_FILE) restart
+	$(DOCKER_COMPOSE) -f $(OBSERVABILITY_COMPOSE_FILE) restart
+
+prometheus-logs: ## View Prometheus logs
+	docker logs -f $(PROMETHEUS_CONTAINER)
+
+grafana-logs: ## View Grafana logs
+	docker logs -f $(GRAFANA_CONTAINER)
 
 .DEFAULT_GOAL := help
