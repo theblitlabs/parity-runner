@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -111,11 +112,19 @@ func NewService(cfg *config.Config) (*Service, error) {
 		hostname = "localhost"
 	}
 
-	// Default webhook port if not specified
+	// Find an available webhook port
 	webhookPort := 8090
 	if cfg.Runner.WebhookPort > 0 {
 		webhookPort = cfg.Runner.WebhookPort
 	}
+
+	// Try to find an available port
+	port, err := findAvailablePort(webhookPort)
+	if err != nil {
+		log.Fatal().Err(err).Int("base_port", webhookPort).Msg("No available ports found")
+	}
+	webhookPort = port
+	log.Info().Int("port", webhookPort).Msg("Found available port for webhook")
 
 	webhookURL := fmt.Sprintf("http://%s:%d/webhook", hostname, webhookPort)
 	webhookClient := NewWebhookClient(
@@ -538,4 +547,17 @@ func checkDockerAvailability(cli *client.Client) error {
 		Msg("Docker daemon ready")
 
 	return nil
+}
+
+// findAvailablePort tries to find an available port starting from the given base port
+func findAvailablePort(basePort int) (int, error) {
+	// Try ports from basePort to basePort + 100
+	for port := basePort; port < basePort+100; port++ {
+		ln, err := net.Listen("tcp", fmt.Sprintf(":%d", port))
+		if err == nil {
+			ln.Close()
+			return port, nil
+		}
+	}
+	return 0, fmt.Errorf("no available ports found in range %d-%d", basePort, basePort+100)
 }
