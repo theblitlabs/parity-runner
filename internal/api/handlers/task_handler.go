@@ -167,76 +167,80 @@ func (h *TaskHandler) notifyWebhooks() {
 
 	// Create a client with appropriate timeouts
 	client := &http.Client{
-		Timeout: 5 * time.Second,
-		Transport: &http.Transport{
-			MaxIdleConns:       100,
-			IdleConnTimeout:    90 * time.Second,
-			DisableCompression: true,
-		},
+		Timeout: 30 * time.Second, // Increased timeout
 	}
 
-	// Send notifications concurrently with a maximum of 10 concurrent requests
-	sem := make(chan struct{}, 10)
-	var wg sync.WaitGroup
-
-	for _, webhook := range webhooks {
-		select {
-		case <-h.stopCh:
-			log.Debug().Msg("Cancelling webhook notifications due to shutdown")
-			return
-		default:
-			sem <- struct{}{} // Acquire semaphore
-			wg.Add(1)
-
-			go func(webhook WebhookRegistration) {
-				defer func() {
-					<-sem // Release semaphore
-					wg.Done()
-				}()
-
-				req, err := http.NewRequest("POST", webhook.URL, bytes.NewReader(payloadBytes))
-				if err != nil {
-					log.Error().Err(err).
-						Str("webhook_id", webhook.ID).
-						Str("url", webhook.URL).
-						Msg("Failed to create webhook request")
-					return
-				}
-
-				req.Header.Set("Content-Type", "application/json")
-				req.Header.Set("X-Webhook-ID", webhook.ID)
-
-				resp, err := client.Do(req)
-				if err != nil {
-					log.Error().Err(err).
-						Str("webhook_id", webhook.ID).
-						Str("url", webhook.URL).
-						Msg("Failed to send webhook notification")
-					return
-				}
-				defer resp.Body.Close()
-
-				if resp.StatusCode != http.StatusOK {
-					body, _ := io.ReadAll(resp.Body)
-					log.Error().
-						Str("webhook_id", webhook.ID).
-						Str("url", webhook.URL).
-						Int("status", resp.StatusCode).
-						Str("response", string(body)).
-						Msg("Webhook notification failed")
-					return
-				}
-
-				log.Debug().
-					Str("webhook_id", webhook.ID).
-					Str("url", webhook.URL).
-					Int("task_count", len(tasks)).
-					Msg("Webhook notification sent successfully")
-			}(webhook)
+	// Add retry logic with exponential backoff
+	maxRetries := 3
+	for attempt := 0; attempt < maxRetries; attempt++ {
+		if attempt > 0 {
+			// Exponential backoff: 2s, 4s, 8s
+			time.Sleep(time.Duration(1<<attempt) * time.Second)
 		}
-	}
 
-	wg.Wait()
+		// Send notifications concurrently with a maximum of 10 concurrent requests
+		sem := make(chan struct{}, 10)
+		var wg sync.WaitGroup
+
+		for _, webhook := range webhooks {
+			select {
+			case <-h.stopCh:
+				log.Debug().Msg("Cancelling webhook notifications due to shutdown")
+				return
+			default:
+				sem <- struct{}{} // Acquire semaphore
+				wg.Add(1)
+
+				go func(webhook WebhookRegistration) {
+					defer func() {
+						<-sem // Release semaphore
+						wg.Done()
+					}()
+
+					req, err := http.NewRequest("POST", webhook.URL, bytes.NewReader(payloadBytes))
+					if err != nil {
+						log.Error().Err(err).
+							Str("webhook_id", webhook.ID).
+							Str("url", webhook.URL).
+							Msg("Failed to create webhook request")
+						return
+					}
+
+					req.Header.Set("Content-Type", "application/json")
+					req.Header.Set("X-Webhook-ID", webhook.ID)
+
+					resp, err := client.Do(req)
+					if err != nil {
+						log.Error().Err(err).
+							Str("webhook_id", webhook.ID).
+							Str("url", webhook.URL).
+							Msg("Failed to send webhook notification")
+						return
+					}
+					defer resp.Body.Close()
+
+					if resp.StatusCode != http.StatusOK {
+						body, _ := io.ReadAll(resp.Body)
+						log.Error().
+							Str("webhook_id", webhook.ID).
+							Str("url", webhook.URL).
+							Int("status", resp.StatusCode).
+							Str("response", string(body)).
+							Msg("Webhook notification failed")
+						return
+					}
+
+					log.Debug().
+						Str("webhook_id", webhook.ID).
+						Str("url", webhook.URL).
+						Int("task_count", len(tasks)).
+						Msg("Webhook notification sent successfully")
+				}(webhook)
+			}
+		}
+
+		wg.Wait()
+	}
 }
 
 // RegisterWebhook registers a new webhook endpoint
@@ -314,55 +318,64 @@ func (h *TaskHandler) RegisterWebhook(w http.ResponseWriter, r *http.Request) {
 		}
 
 		client := &http.Client{
-			Timeout: 5 * time.Second,
+			Timeout: 30 * time.Second, // Increased timeout
 		}
 
-		req, err := http.NewRequest("POST", webhook.URL, strings.NewReader(string(payloadBytes)))
-		if err != nil {
-			log.Error().
-				Err(err).
-				Str("webhook_id", webhookID).
-				Msg("Failed to create initial webhook request")
-			return
-		}
+		// Add retry logic with exponential backoff
+		maxRetries := 3
+		for attempt := 0; attempt < maxRetries; attempt++ {
+			if attempt > 0 {
+				// Exponential backoff: 2s, 4s, 8s
+				time.Sleep(time.Duration(1<<attempt) * time.Second)
+			}
 
-		req.Header.Set("Content-Type", "application/json")
-		req.Header.Set("X-Webhook-ID", webhookID)
+			req, err := http.NewRequest("POST", webhook.URL, strings.NewReader(string(payloadBytes)))
+			if err != nil {
+				log.Error().
+					Err(err).
+					Str("webhook_id", webhookID).
+					Msg("Failed to create initial webhook request")
+				return
+			}
 
-		startTime := time.Now()
-		resp, err := client.Do(req)
-		if err != nil {
-			log.Error().
-				Err(err).
+			req.Header.Set("Content-Type", "application/json")
+			req.Header.Set("X-Webhook-ID", webhookID)
+
+			startTime := time.Now()
+			resp, err := client.Do(req)
+			if err != nil {
+				log.Error().
+					Err(err).
+					Str("webhook_id", webhookID).
+					Str("url", webhook.URL).
+					Dur("attempt_duration", time.Since(startTime)).
+					Msg("Failed to send initial webhook notification")
+				return
+			}
+			defer resp.Body.Close()
+
+			requestDuration := time.Since(startTime)
+
+			if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+				log.Warn().
+					Int("status", resp.StatusCode).
+					Str("webhook_id", webhookID).
+					Str("url", webhook.URL).
+					Dur("response_time_ms", requestDuration).
+					Int("payload_size_bytes", len(payloadBytes)).
+					Msg("Initial webhook notification returned non-success status")
+				return
+			}
+
+			log.Info().
 				Str("webhook_id", webhookID).
 				Str("url", webhook.URL).
-				Dur("attempt_duration", time.Since(startTime)).
-				Msg("Failed to send initial webhook notification")
-			return
-		}
-		defer resp.Body.Close()
-
-		requestDuration := time.Since(startTime)
-
-		if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-			log.Warn().
 				Int("status", resp.StatusCode).
-				Str("webhook_id", webhookID).
-				Str("url", webhook.URL).
 				Dur("response_time_ms", requestDuration).
 				Int("payload_size_bytes", len(payloadBytes)).
-				Msg("Initial webhook notification returned non-success status")
-			return
+				Int("tasks_count", len(tasks)).
+				Msg("Initial webhook notification sent successfully")
 		}
-
-		log.Info().
-			Str("webhook_id", webhookID).
-			Str("url", webhook.URL).
-			Int("status", resp.StatusCode).
-			Dur("response_time_ms", requestDuration).
-			Int("payload_size_bytes", len(payloadBytes)).
-			Int("tasks_count", len(tasks)).
-			Msg("Initial webhook notification sent successfully")
 	}()
 
 	w.Header().Set("Content-Type", "application/json")

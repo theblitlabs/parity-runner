@@ -13,3 +13,8 @@ scrape_configs:
       - targets: ["otel-collector:8889"]
     metrics_path: "/metrics"
     honor_labels: true
+
+  - job_name: "postgres"
+    static_configs:
+      - targets: ["postgres-exporter:9187"]
+    metrics_path: "/metrics"
