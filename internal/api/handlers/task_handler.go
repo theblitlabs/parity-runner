@@ -807,7 +807,7 @@ func (h *TaskHandler) checkStakeBalance(ctx context.Context, task *models.Task) 
 	rewardAmount, _ := rewardWei.Int(nil)
 
 	// Check device stake balance
-	stakeInfo, err := h.stakeWallet.GetStakeInfo(&bind.CallOpts{}, task.CreatorDeviceID)
+	stakeInfo, err := h.stakeWallet.GetStakeInfo(&bind.CallOpts{Context: ctx}, task.CreatorDeviceID)
 	if err != nil || !stakeInfo.Exists {
 		return fmt.Errorf("creator device not registered - please stake first")
 	}
