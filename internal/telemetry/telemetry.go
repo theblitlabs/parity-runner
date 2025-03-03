@@ -45,8 +45,7 @@ func InitTelemetry(ctx context.Context, cfg *config.Config) (func(context.Contex
 	collectorAddr := fmt.Sprintf("%s:%d", cfg.Telemetry.OTELCollector.Host, cfg.Telemetry.OTELCollector.Port)
 	conn, err := grpc.DialContext(dialCtx, collectorAddr,
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
-		// Remove blocking dial
-		grpc.WithTimeout(5*time.Second),
+		grpc.WithBlock(),
 	)
 	if err != nil {
 		// Log warning but continue without telemetry

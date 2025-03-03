@@ -99,7 +99,7 @@ func parseSize(size string) (int, error) {
 		return 0, fmt.Errorf("invalid size format: %s", size)
 	}
 
-	multiplier := 1
+	var multiplier int
 	switch unit {
 	case "KB", "kb":
 		multiplier = 1024
