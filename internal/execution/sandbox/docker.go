@@ -106,7 +106,9 @@ func parseMemoryLimit(limit string) int64 {
 
 	var value int64
 	var unit string
-	fmt.Sscanf(limit, "%d%s", &value, &unit)
+	if _, err := fmt.Sscanf(limit, "%d%s", &value, &unit); err != nil {
+		return 0
+	}
 
 	switch strings.ToLower(unit) {
 	case "g", "gb":
