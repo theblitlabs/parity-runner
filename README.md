@@ -49,7 +49,6 @@ The project includes several helpful Makefile commands for development:
 ```bash
 make build          # Build the application
 make run           # Run the application
-make test          # Run tests with coverage
 make clean         # Clean build files
 make deps          # Download dependencies
 make fmt           # Format code
@@ -165,19 +164,8 @@ parity-protocol/
 │   ├── logger/           # Logging utilities
 │   ├── stakewallet/      # Stake wallet interface
 │   └── wallet/           # Wallet operations
-├── test/                 # Integration tests
-│   └── cli/              # CLI tests
 └── coverage/             # Test coverage reports
 
-```
-
-### Testing
-
-```bash
-# Run all tests with coverage
-make test
-
-# Coverage report will be generated in coverage/coverage.html
 ```
 
 ### API Documentation
