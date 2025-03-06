@@ -7,7 +7,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"time"
 
 	shell "github.com/ipfs/go-ipfs-api"
 	"github.com/theblitlabs/parity-protocol/pkg/logger"
@@ -124,7 +123,7 @@ func runSysctl(param string, value int) error {
 }
 
 // verifyContentAvailability checks if the content with given CID is available on the IPFS network
-func (s *Service) verifyContentAvailability(cid string, timeout time.Duration) error {
+func (s *Service) verifyContentAvailability(cid string) error {
 	// Check if we can actually retrieve the content
 	reader, err := s.shell.Cat(cid)
 	if err != nil {
@@ -182,7 +181,7 @@ func (s *Service) UploadFile(filePath string) (string, error) {
 	logger.Info(component, fmt.Sprintf("File uploaded with CID: %s, verifying availability and pinning...", cid))
 
 	// Verify content availability and pin with a timeout
-	if err := s.verifyContentAvailability(cid, 30*time.Second); err != nil {
+	if err := s.verifyContentAvailability(cid); err != nil {
 		logger.Warn(component, fmt.Sprintf("Content availability verification or pinning failed for CID %s: %v", cid, err))
 		return cid, fmt.Errorf("content uploaded but availability or pinning uncertain: %w", err)
 	}
@@ -203,7 +202,7 @@ func (s *Service) UploadData(data []byte) (string, error) {
 	logger.Info(component, fmt.Sprintf("Data uploaded with CID: %s, verifying availability and pinning...", cid))
 
 	// Verify content availability and pin with a timeout
-	if err := s.verifyContentAvailability(cid, 30*time.Second); err != nil {
+	if err := s.verifyContentAvailability(cid); err != nil {
 		logger.Warn(component, fmt.Sprintf("Content availability verification or pinning failed for CID %s: %v", cid, err))
 		return cid, fmt.Errorf("content uploaded but availability or pinning uncertain: %w", err)
 	}
