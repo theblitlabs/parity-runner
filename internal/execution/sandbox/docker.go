@@ -311,6 +311,7 @@ func (e *DockerExecutor) ExecuteTask(ctx context.Context, task *models.Task) (*m
 			result.Metadata = make(map[string]interface{})
 		}
 		result.Metadata["logs_cid"] = logCID
+		result.IPFSCID = logCID
 	}
 
 	result.ExecutionTime = time.Since(startTime).Nanoseconds()
