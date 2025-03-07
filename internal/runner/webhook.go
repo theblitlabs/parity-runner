@@ -41,6 +41,7 @@ type WebhookClient struct {
 	mu              sync.Mutex
 	started         bool
 	completedTasks  map[string]time.Time
+	processingTasks map[string]bool // Track tasks currently being processed
 	lastCleanupTime time.Time
 	logger          zerolog.Logger
 	dockerClient    *client.Client
@@ -58,18 +59,19 @@ func NewWebhookClient(serverURL string, webhookURL string, webhookPort int, task
 	}
 
 	return &WebhookClient{
-		serverURL:      serverURL,
-		webhookURL:     webhookURL,
-		webhookPort:    webhookPort,
-		taskHandler:    taskHandler,
-		runnerID:       runnerID,
-		deviceID:       deviceID,
-		service:        service,
-		connections:    make(map[string]*http.Client),
-		completedTasks: make(map[string]time.Time),
-		stopChan:       make(chan struct{}),
-		logger:         log,
-		dockerClient:   dockerClient,
+		serverURL:       serverURL,
+		webhookURL:      webhookURL,
+		webhookPort:     webhookPort,
+		taskHandler:     taskHandler,
+		runnerID:        runnerID,
+		deviceID:        deviceID,
+		service:         service,
+		connections:     make(map[string]*http.Client),
+		completedTasks:  make(map[string]time.Time),
+		processingTasks: make(map[string]bool),
+		stopChan:        make(chan struct{}),
+		logger:          log,
+		dockerClient:    dockerClient,
 	}
 }
 
@@ -470,7 +472,7 @@ func (w *WebhookClient) handleWebhook(resp http.ResponseWriter, req *http.Reques
 
 		// Process each task
 		for _, task := range tasks {
-			// Skip if task is already completed or in progress
+			// Skip if task is already completed
 			if w.isTaskCompleted(task.ID.String()) {
 				log.Info().
 					Str("task_id", task.ID.String()).
@@ -478,12 +480,31 @@ func (w *WebhookClient) handleWebhook(resp http.ResponseWriter, req *http.Reques
 				continue
 			}
 
+			// Check if task is already being processed
+			w.mu.Lock()
+			if w.processingTasks[task.ID.String()] {
+				w.mu.Unlock()
+				log.Info().
+					Str("task_id", task.ID.String()).
+					Msg("Task already being processed, skipping")
+				continue
+			}
+			// Mark task as being processed
+			w.processingTasks[task.ID.String()] = true
+			w.mu.Unlock()
+
 			// Create a new context with timeout for task execution
 			taskCtx, taskCancel := context.WithTimeout(context.Background(), 5*time.Minute)
 
 			// Process task in a goroutine
 			go func(ctx context.Context, cancel context.CancelFunc, t *models.Task) {
 				defer cancel() // Ensure context is cancelled when done
+				defer func() {
+					// Remove task from processing list when done
+					w.mu.Lock()
+					delete(w.processingTasks, t.ID.String())
+					w.mu.Unlock()
+				}()
 
 				if err := w.handleTask(ctx, t); err != nil {
 					log.Error().Err(err).Str("task_id", t.ID.String()).Msg("Failed to handle task")
