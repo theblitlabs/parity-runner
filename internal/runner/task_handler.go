@@ -95,12 +95,17 @@ func (h *DefaultTaskHandler) HandleTask(task *models.Task) error {
 		return fmt.Errorf("invalid task configuration: %w", err)
 	}
 
-	// Create cancellable context for the task
-	ctx, cancel := context.WithCancel(context.Background())
+	// Create cancellable context for the task with a reasonable timeout
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
 
-	// Register the task as running
+	// Register the task as running with mutex protection
 	h.runningTasksLock.Lock()
+	if _, exists := h.runningTasks[task.ID.String()]; exists {
+		h.runningTasksLock.Unlock()
+		log.Info().Msg("Task is already being processed")
+		return fmt.Errorf("task already being processed")
+	}
 	h.runningTasks[task.ID.String()] = cancel
 	h.runningTasksLock.Unlock()
 
@@ -111,119 +116,99 @@ func (h *DefaultTaskHandler) HandleTask(task *models.Task) error {
 		h.runningTasksLock.Unlock()
 	}()
 
-	// Execute task
-	result, err := h.executor.ExecuteTask(ctx, task)
-	if err != nil {
-		if ctx.Err() == context.Canceled {
-			log.Info().Msg("Task execution cancelled")
-			return nil // Task was cancelled, don't report error
+	// Execute task with proper context handling
+	resultChan := make(chan *models.TaskResult, 1)
+	errChan := make(chan error, 1)
+
+	go func() {
+		result, err := h.executor.ExecuteTask(ctx, task)
+		if err != nil {
+			errChan <- err
+			return
 		}
-		log.Error().Err(err).
-			Str("executor", fmt.Sprintf("%T", h.executor)).
-			Msg("Task execution failed")
+		resultChan <- result
+	}()
+
+	// Wait for result or cancellation
+	select {
+	case <-ctx.Done():
+		if ctx.Err() == context.DeadlineExceeded {
+			log.Error().Msg("Task execution timed out")
+			return fmt.Errorf("task execution timed out")
+		}
+		log.Info().Msg("Task execution cancelled")
+		return fmt.Errorf("task cancelled")
+	case err := <-errChan:
+		log.Error().Err(err).Msg("Task execution failed")
 		return fmt.Errorf("failed to execute task: %w", err)
-	}
+	case result := <-resultChan:
+		// Process successful result
+		deviceID, err := device.VerifyDeviceID()
+		if err != nil {
+			log.Error().Err(err).Msg("Failed to get device ID")
+			return fmt.Errorf("failed to get device ID: %w", err)
+		}
 
-	// Get device ID
-	deviceID, err := device.VerifyDeviceID()
-	if err != nil {
-		log.Error().Err(err).Msg("Failed to get device ID")
-		return fmt.Errorf("failed to get device ID: %w", err)
-	}
+		// Hash the device ID
+		hash := sha256.Sum256([]byte(deviceID))
+		deviceIDHash := hex.EncodeToString(hash[:])
 
-	// Hash the device ID
-	hash := sha256.Sum256([]byte(deviceID))
-	deviceIDHash := hex.EncodeToString(hash[:])
+		// Set all required fields
+		if result.ID == uuid.Nil {
+			result.ID = uuid.New()
+		}
+		if result.TaskID == uuid.Nil {
+			result.TaskID = task.ID
+		}
+		if result.CreatedAt.IsZero() {
+			result.CreatedAt = time.Now()
+		}
 
-	// Ensure result has required fields
-	if result.ID == uuid.Nil {
-		result.ID = uuid.New()
-	}
-	if result.TaskID == uuid.Nil {
-		result.TaskID = task.ID
-	}
-	if result.CreatedAt.IsZero() {
-		result.CreatedAt = time.Now()
-	}
+		result.DeviceID = deviceID
+		result.DeviceIDHash = deviceIDHash
+		result.SolverDeviceID = deviceID
+		result.CreatorDeviceID = task.CreatorDeviceID
+		result.CreatorAddress = task.CreatorAddress
+		result.RunnerAddress = deviceID
+		result.Reward = task.Reward
 
-	// Set all required fields
-	result.DeviceID = deviceID
-	result.DeviceIDHash = deviceIDHash
-	result.SolverDeviceID = deviceID
-	result.CreatorDeviceID = task.CreatorDeviceID
-	result.CreatorAddress = task.CreatorAddress
-	result.RunnerAddress = deviceID
-	result.Reward = task.Reward
-
-	// Log fields at debug level
-	log.Debug().
-		Str("creator_device_id", result.CreatorDeviceID).
-		Str("creator_address", result.CreatorAddress).
-		Str("solver_device_id", result.SolverDeviceID).
-		Str("device_id", result.DeviceID).
-		Msg("Task result fields")
-
-	// Validate result fields
-	if result.CreatorDeviceID == "" {
-		log.Error().Msg("Creator device ID is empty after setting from task")
-		return fmt.Errorf("creator device ID is missing from task")
-	}
-
-	// Save the task result
-	err = h.taskClient.SaveTaskResult(task.ID.String(), result)
-	if err != nil {
-		if strings.Contains(err.Error(), "409") {
-			// Task was already completed by another runner
-			log.Info().
-				Str("task_id", task.ID.String()).
-				Msg("Task already completed by another runner")
-
-			// Notify other runners about completion even though we weren't the one to complete it
-			if h.wsClient != nil {
-				if err := h.wsClient.NotifyTaskCompletion(task.ID.String()); err != nil {
-					log.Error().
-						Err(err).
-						Str("task_id", task.ID.String()).
-						Msg("Failed to notify task completion")
-				}
+		// Save the task result
+		err = h.taskClient.SaveTaskResult(task.ID.String(), result)
+		if err != nil {
+			if strings.Contains(err.Error(), "409") {
+				log.Info().Msg("Task already completed by another runner")
+				return fmt.Errorf("task already completed")
 			}
-			return nil
+			log.Error().Err(err).Msg("Failed to save task result")
+			return fmt.Errorf("failed to save task result: %w", err)
 		}
-		log.Error().
-			Err(err).
-			Str("task_id", task.ID.String()).
-			Msg("Failed to save task result")
-		return fmt.Errorf("failed to save task result: %w", err)
-	}
 
-	// Complete task
-	if err := h.taskClient.CompleteTask(task.ID.String()); err != nil {
-		log.Error().Err(err).Msg("Failed to complete task")
-		return fmt.Errorf("failed to complete task: %w", err)
-	}
-
-	// Notify about successful completion
-	if h.wsClient != nil {
-		if err := h.wsClient.NotifyTaskCompletion(task.ID.String()); err != nil {
-			log.Error().
-				Err(err).
-				Str("task_id", task.ID.String()).
-				Msg("Failed to notify task completion")
+		// Complete task
+		if err := h.taskClient.CompleteTask(task.ID.String()); err != nil {
+			log.Error().Err(err).Msg("Failed to complete task")
+			return fmt.Errorf("failed to complete task: %w", err)
 		}
-	}
 
-	// Distribute rewards if task was successful
-	if result.ExitCode == 0 {
-		if err := h.rewardClient.DistributeRewards(result); err != nil {
-			log.Error().Err(err).Msg("Failed to distribute rewards")
-			// Don't fail the task if reward distribution fails
+		// Notify about successful completion
+		if h.wsClient != nil {
+			if err := h.wsClient.NotifyTaskCompletion(task.ID.String()); err != nil {
+				log.Error().Err(err).Msg("Failed to notify task completion")
+			}
 		}
+
+		// Distribute rewards if task was successful
+		if result.ExitCode == 0 {
+			if err := h.rewardClient.DistributeRewards(result); err != nil {
+				log.Error().Err(err).Msg("Failed to distribute rewards")
+			}
+		}
+
+		log.Info().
+			Float64("reward", task.Reward).
+			Int64("execution_time_ms", result.ExecutionTime/1e6).
+			Bool("success", result.ExitCode == 0).
+			Msg("Task completed")
 	}
 
-	log.Info().
-		Float64("reward", task.Reward).
-		Int64("execution_time_ms", result.ExecutionTime/1e6).
-		Bool("success", result.ExitCode == 0).
-		Msg("Task completed")
 	return nil
 }

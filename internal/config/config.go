@@ -79,6 +79,7 @@ type IPFSConfig struct {
 	GatewayPort int    `mapstructure:"gateway_port"`
 	SwarmPort   int    `mapstructure:"swarm_port"`
 	DataDir     string `mapstructure:"data_dir"`
+	APIURL      string `mapstructure:"api_url"`
 }
 
 type IPFSRunnerConfig struct {

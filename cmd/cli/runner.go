@@ -15,16 +15,6 @@ import (
 	"github.com/theblitlabs/parity-protocol/pkg/logger"
 )
 
-// checkPortAvailable verifies if a port is available for use
-func checkPortAvailable(port int) error {
-	ln, err := net.Listen("tcp", fmt.Sprintf(":%d", port))
-	if err != nil {
-		return fmt.Errorf("port %d is not available: %w", port, err)
-	}
-	ln.Close()
-	return nil
-}
-
 // checkServerConnectivity verifies if the API server is reachable
 func checkServerConnectivity(serverURL string) error {
 	client := &http.Client{

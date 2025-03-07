@@ -76,6 +76,8 @@ type TaskService interface {
 	CompleteTask(ctx context.Context, id string) error
 	SaveTaskResult(ctx context.Context, result *models.TaskResult) error
 	GetTaskResult(ctx context.Context, taskID string) (*models.TaskResult, error)
+	RegisterRunner(runnerID, deviceID, url string) error
+	UpdateRunnerPing(runnerID string)
 }
 
 // TaskHandler handles task-related HTTP and webhook requests
@@ -251,23 +253,14 @@ func (h *TaskHandler) RegisterWebhook(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if req.URL == "" {
-		http.Error(w, "Webhook URL is required", http.StatusBadRequest)
+	if req.URL == "" || req.RunnerID == "" || req.DeviceID == "" {
+		http.Error(w, "Missing required fields", http.StatusBadRequest)
 		return
 	}
 
-	if req.RunnerID == "" {
-		http.Error(w, "Runner ID is required", http.StatusBadRequest)
-		return
-	}
-
-	if req.DeviceID == "" {
-		http.Error(w, "Device ID is required", http.StatusBadRequest)
-		return
-	}
-
+	// Register webhook
 	webhookID := uuid.New().String()
-	webhook := WebhookRegistration{
+	registration := WebhookRegistration{
 		ID:        webhookID,
 		URL:       req.URL,
 		RunnerID:  req.RunnerID,
@@ -276,103 +269,39 @@ func (h *TaskHandler) RegisterWebhook(w http.ResponseWriter, r *http.Request) {
 	}
 
 	h.webhookMutex.Lock()
-	h.webhooks[webhookID] = webhook
+	h.webhooks[webhookID] = registration
 	h.webhookMutex.Unlock()
 
-	log := logger.WithComponent("webhook")
+	// Register with pool manager and update ping
+	if err := h.service.RegisterRunner(req.RunnerID, req.DeviceID, req.URL); err != nil {
+		http.Error(w, fmt.Sprintf("Failed to register runner: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	// Update runner's ping time
+	h.service.UpdateRunnerPing(req.RunnerID)
+
 	log.Info().
-		Str("webhook_id", webhookID).
-		Str("url", req.URL).
-		Str("runner_id", req.RunnerID).
+		Str("webhook", webhookID).
 		Str("device_id", req.DeviceID).
-		Time("created_at", webhook.CreatedAt).
+		Str("runner_id", req.RunnerID).
+		Str("url", req.URL).
+		Time("created_at", registration.CreatedAt).
 		Int("total_webhooks", len(h.webhooks)).
 		Msg("Webhook registered")
 
-	// Send initial task list to the new webhook
+	// Send initial notification with current tasks
 	go func() {
-		tasks, err := h.service.ListAvailableTasks(context.Background())
-		if err != nil {
+		if err := h.sendInitialWebhookNotification(registration); err != nil {
 			log.Error().
 				Err(err).
 				Str("webhook_id", webhookID).
-				Msg("Failed to list tasks for initial webhook notification")
-			return
-		}
-
-		payload := WSMessage{
-			Type:    "available_tasks",
-			Payload: tasks,
-		}
-
-		payloadBytes, err := json.Marshal(payload)
-		if err != nil {
-			log.Error().
-				Err(err).
-				Str("webhook_id", webhookID).
-				Msg("Failed to marshal initial webhook payload")
-			return
-		}
-
-		client := &http.Client{
-			Timeout: 5 * time.Second,
-		}
-
-		req, err := http.NewRequest("POST", webhook.URL, strings.NewReader(string(payloadBytes)))
-		if err != nil {
-			log.Error().
-				Err(err).
-				Str("webhook_id", webhookID).
-				Msg("Failed to create initial webhook request")
-			return
-		}
-
-		req.Header.Set("Content-Type", "application/json")
-		req.Header.Set("X-Webhook-ID", webhookID)
-
-		startTime := time.Now()
-		resp, err := client.Do(req)
-		if err != nil {
-			log.Error().
-				Err(err).
-				Str("webhook_id", webhookID).
-				Str("url", webhook.URL).
-				Dur("attempt_duration", time.Since(startTime)).
+				Str("url", req.URL).
 				Msg("Failed to send initial webhook notification")
-			return
 		}
-		defer resp.Body.Close()
-
-		requestDuration := time.Since(startTime)
-
-		if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-			log.Warn().
-				Int("status", resp.StatusCode).
-				Str("webhook_id", webhookID).
-				Str("url", webhook.URL).
-				Dur("response_time_ms", requestDuration).
-				Int("payload_size_bytes", len(payloadBytes)).
-				Msg("Initial webhook notification returned non-success status")
-			return
-		}
-
-		log.Info().
-			Str("webhook_id", webhookID).
-			Str("url", webhook.URL).
-			Int("status", resp.StatusCode).
-			Dur("response_time_ms", requestDuration).
-			Int("payload_size_bytes", len(payloadBytes)).
-			Int("tasks_count", len(tasks)).
-			Msg("Initial webhook notification sent successfully")
 	}()
 
-	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
-	if err := json.NewEncoder(w).Encode(map[string]string{
-		"id": webhookID,
-	}); err != nil {
-		log.Error().Err(err).Str("webhook_id", webhookID).Msg("Failed to encode webhook registration response")
-	}
 }
 
 // UnregisterWebhook removes a registered webhook
@@ -829,4 +758,58 @@ func (h *TaskHandler) CleanupResources() {
 	log.Info().
 		Int("total_webhooks_cleaned", webhookCount).
 		Msg("Webhook cleanup completed")
+}
+
+func (h *TaskHandler) sendInitialWebhookNotification(webhook WebhookRegistration) error {
+	tasks, err := h.service.ListAvailableTasks(context.Background())
+	if err != nil {
+		return fmt.Errorf("failed to list tasks for initial webhook notification: %v", err)
+	}
+
+	payload := WSMessage{
+		Type:    "available_tasks",
+		Payload: tasks,
+	}
+
+	payloadBytes, err := json.Marshal(payload)
+	if err != nil {
+		return fmt.Errorf("failed to marshal initial webhook payload: %v", err)
+	}
+
+	client := &http.Client{
+		Timeout: 5 * time.Second,
+	}
+
+	req, err := http.NewRequest("POST", webhook.URL, strings.NewReader(string(payloadBytes)))
+	if err != nil {
+		return fmt.Errorf("failed to create initial webhook request: %v", err)
+	}
+
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Webhook-ID", webhook.ID)
+
+	startTime := time.Now()
+	resp, err := client.Do(req)
+	if err != nil {
+		return fmt.Errorf("failed to send initial webhook notification: %v", err)
+	}
+	defer resp.Body.Close()
+
+	requestDuration := time.Since(startTime)
+
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		body, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("initial webhook notification returned non-success status: %d, response: %s", resp.StatusCode, string(body))
+	}
+
+	log.Info().
+		Str("webhook_id", webhook.ID).
+		Str("url", webhook.URL).
+		Int("status", resp.StatusCode).
+		Dur("response_time_ms", requestDuration).
+		Int("payload_size_bytes", len(payloadBytes)).
+		Int("tasks_count", len(tasks)).
+		Msg("Initial webhook notification sent successfully")
+
+	return nil
 }

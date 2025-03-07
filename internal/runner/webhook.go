@@ -11,8 +11,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/rs/zerolog/log"
 	"github.com/theblitlabs/parity-protocol/internal/models"
-	"github.com/theblitlabs/parity-protocol/pkg/logger"
 )
 
 type WebhookMessage struct {
@@ -21,41 +21,45 @@ type WebhookMessage struct {
 }
 
 type WebhookClient struct {
-	serverURL  string
-	webhookURL string
-	webhookID  string
-	handler    TaskHandler
-	server     *http.Server
-	runnerID   string
-	deviceID   string
-	stopChan   chan struct{}
-	mu         sync.Mutex
-	started    bool
-	serverPort int
-	// Track completed tasks with timestamps to enable cleanup
-	completedTasks     map[string]time.Time
-	lastCleanupTime    time.Time
-	completedTasksLock sync.RWMutex
+	serverURL       string
+	webhookURL      string
+	webhookPort     int
+	taskHandler     TaskHandler
+	runnerID        string
+	deviceID        string
+	service         *Service
+	connections     map[string]*http.Client
+	webhookID       string
+	server          *http.Server
+	stopChan        chan struct{}
+	mu              sync.Mutex
+	started         bool
+	completedTasks  map[string]time.Time
+	lastCleanupTime time.Time
 }
 
 // NewWebhookClient creates a new webhook client
-func NewWebhookClient(serverURL string, webhookURL string, serverPort int, handler TaskHandler, runnerID, deviceID string) *WebhookClient {
+func NewWebhookClient(serverURL string, webhookURL string, webhookPort int, taskHandler TaskHandler, runnerID string, deviceID string, service *Service) *WebhookClient {
 	return &WebhookClient{
 		serverURL:      serverURL,
 		webhookURL:     webhookURL,
-		handler:        handler,
+		webhookPort:    webhookPort,
+		taskHandler:    taskHandler,
 		runnerID:       runnerID,
 		deviceID:       deviceID,
-		stopChan:       make(chan struct{}),
-		serverPort:     serverPort,
+		service:        service,
+		connections:    make(map[string]*http.Client),
 		completedTasks: make(map[string]time.Time),
+		stopChan:       make(chan struct{}),
 	}
 }
 
 // Register registers the webhook with the server
 func (w *WebhookClient) Register() error {
-	log := logger.WithComponent("webhook")
-	log.Info().Str("server", w.serverURL).Str("webhook", w.webhookURL).Msg("Registering webhook")
+	log.Info().
+		Str("server", w.serverURL).
+		Str("webhook", w.webhookURL).
+		Msg("Registering webhook")
 
 	// Prepare registration payload
 	regPayload := map[string]string{
@@ -132,7 +136,10 @@ func (w *WebhookClient) Register() error {
 
 // Unregister removes the webhook registration
 func (w *WebhookClient) Unregister() error {
-	log := logger.WithComponent("webhook")
+	log.Info().
+		Str("webhook_id", w.webhookID).
+		Msg("Unregistering webhook")
+
 	if w.webhookID == "" {
 		log.Warn().Msg("No webhook ID to unregister")
 		return nil
@@ -155,7 +162,7 @@ func (w *WebhookClient) Unregister() error {
 		return fmt.Errorf("webhook unregister failed with status: %d", resp.StatusCode)
 	}
 
-	log.Info().Str("webhook_id", w.webhookID).Msg("Webhook unregistered successfully")
+	log.Info().Msg("Webhook unregistered successfully")
 	w.webhookID = ""
 	return nil
 }
@@ -163,18 +170,19 @@ func (w *WebhookClient) Unregister() error {
 // Start starts the webhook server
 func (w *WebhookClient) Start() error {
 	w.mu.Lock()
-	defer w.mu.Unlock()
-
 	if w.started {
-		return nil
+		w.mu.Unlock()
+		return fmt.Errorf("webhook server already started")
 	}
 
-	log := logger.WithComponent("webhook")
+	log.Info().
+		Int("port", w.webhookPort).
+		Msg("Starting webhook server")
 
 	// Check if the webhook port is available
-	ln, err := net.Listen("tcp", fmt.Sprintf(":%d", w.serverPort))
+	ln, err := net.Listen("tcp", fmt.Sprintf(":%d", w.webhookPort))
 	if err != nil {
-		return fmt.Errorf("webhook port %d is not available: %w", w.serverPort, err)
+		return fmt.Errorf("webhook port %d is not available: %w", w.webhookPort, err)
 	}
 	ln.Close()
 
@@ -182,14 +190,14 @@ func (w *WebhookClient) Start() error {
 	mux.HandleFunc("/webhook", w.handleWebhook)
 
 	w.server = &http.Server{
-		Addr:    fmt.Sprintf(":%d", w.serverPort),
+		Addr:    fmt.Sprintf(":%d", w.webhookPort),
 		Handler: mux,
 	}
 
 	startCh := make(chan struct{})
 	go func() {
 		close(startCh) // Signal that we've started the goroutine
-		log.Info().Str("port", fmt.Sprintf("%d", w.serverPort)).Msg("Starting webhook server")
+		log.Info().Str("port", fmt.Sprintf("%d", w.webhookPort)).Msg("Starting webhook server")
 		if err := w.server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			log.Error().Err(err).Msg("Webhook server error")
 		}
@@ -252,13 +260,12 @@ func (w *WebhookClient) Stop() error {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 
-	log := logger.WithComponent("webhook")
+	log.Info().Msg("Stopping webhook server...")
+
 	if !w.started {
 		log.Info().Msg("Webhook server not started, nothing to stop")
 		return nil
 	}
-
-	log.Info().Msg("Stopping webhook server...")
 
 	// Unregister the webhook with a short timeout
 	unregisterCtx, unregisterCancel := context.WithTimeout(context.Background(), 3*time.Second)
@@ -317,9 +324,6 @@ func (w *WebhookClient) Stop() error {
 
 // cleanupCompletedTasks removes completed tasks older than 24 hours
 func (w *WebhookClient) cleanupCompletedTasks() {
-	w.completedTasksLock.Lock()
-	defer w.completedTasksLock.Unlock()
-
 	// Only cleanup once per hour
 	if time.Since(w.lastCleanupTime) < time.Hour {
 		return
@@ -336,22 +340,20 @@ func (w *WebhookClient) cleanupCompletedTasks() {
 
 // isTaskCompleted checks if a task has been completed
 func (w *WebhookClient) isTaskCompleted(taskID string) bool {
-	w.completedTasksLock.RLock()
-	defer w.completedTasksLock.RUnlock()
 	_, exists := w.completedTasks[taskID]
 	return exists
 }
 
 // markTaskCompleted marks a task as completed
 func (w *WebhookClient) markTaskCompleted(taskID string) {
-	w.completedTasksLock.Lock()
-	defer w.completedTasksLock.Unlock()
 	w.completedTasks[taskID] = time.Now()
 }
 
 // handleWebhook processes incoming webhook notifications
 func (w *WebhookClient) handleWebhook(resp http.ResponseWriter, req *http.Request) {
-	log := logger.WithComponent("webhook")
+	log.Info().
+		Str("component", "webhook_client").
+		Msg("Handling webhook request")
 
 	// Only allow POST requests
 	if req.Method != "POST" {
@@ -395,7 +397,7 @@ func (w *WebhookClient) handleWebhook(resp http.ResponseWriter, req *http.Reques
 					continue
 				}
 
-				if err := w.handler.HandleTask(task); err != nil {
+				if err := w.handleTask(task); err != nil {
 					log.Error().Err(err).
 						Str("id", taskID).
 						Str("type", string(task.Type)).
@@ -418,4 +420,36 @@ func (w *WebhookClient) handleWebhook(resp http.ResponseWriter, req *http.Reques
 
 	// Send a 200 OK response
 	resp.WriteHeader(http.StatusOK)
+}
+
+func (c *WebhookClient) handleTask(task *models.Task) error {
+	log := log.With().
+		Str("component", "webhook_client").
+		Str("task_id", task.ID.String()).
+		Logger()
+
+	// Check if task is already completed or being processed
+	c.mu.Lock()
+	if c.isTaskCompleted(task.ID.String()) {
+		c.mu.Unlock()
+		log.Debug().Msg("Task already completed, skipping")
+		return nil
+	}
+
+	// Mark task as being processed to prevent duplicate processing
+	c.markTaskCompleted(task.ID.String())
+	c.mu.Unlock()
+
+	// Execute task directly since pool management is handled by server
+	if err := c.taskHandler.HandleTask(task); err != nil {
+		if err.Error() == "task already completed" {
+			log.Info().Msg("Task was completed by another runner")
+			return nil
+		}
+		log.Error().Err(err).Msg("Failed to execute task")
+		return fmt.Errorf("failed to execute task: %w", err)
+	}
+
+	log.Info().Msg("Task executed successfully")
+	return nil
 }

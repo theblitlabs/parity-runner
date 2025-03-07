@@ -94,6 +94,9 @@ func RunServer() {
 	taskService := services.NewTaskService(taskRepo, ipfsClient)
 	taskHandler := handlers.NewTaskHandler(taskService)
 
+	// Start the task service cleanup ticker
+	taskService.StartCleanupTicker(shutdownCtx)
+
 	// Connect the handler to the shutdown context
 	internalStopCh := make(chan struct{})
 	go func() {
