@@ -17,53 +17,34 @@ var (
 	mu  sync.RWMutex
 )
 
-// LogLevel represents the logging level
 type LogLevel string
 
 const (
-	// LogLevelDebug enables debug level logging
-	LogLevelDebug LogLevel = "debug"
-	// LogLevelInfo enables info level logging
-	LogLevelInfo LogLevel = "info"
-	// LogLevelWarn enables warn level logging
-	LogLevelWarn LogLevel = "warn"
-	// LogLevelError enables error level logging
-	LogLevelError LogLevel = "error"
-	// LogLevelDisabled disables all logging
+	LogLevelDebug    LogLevel = "debug"
+	LogLevelInfo     LogLevel = "info"
+	LogLevelWarn     LogLevel = "warn"
+	LogLevelError    LogLevel = "error"
 	LogLevelDisabled LogLevel = "disabled"
 )
 
-// LogMode represents a predefined logging configuration
 type LogMode string
 
 const (
-	// LogModeDebug is verbose logging with pretty formatting for development
-	LogModeDebug LogMode = "debug"
-	// LogModePretty is nicely formatted logs with info level for development
-	LogModePretty LogMode = "pretty"
-	// LogModeInfo is standard info-level logging without pretty formatting
-	LogModeInfo LogMode = "info"
-	// LogModeProd is production-optimized logging (minimal, focused on important info)
-	LogModeProd LogMode = "prod"
-	// LogModeTest is minimal logging for test environments
-	LogModeTest LogMode = "test"
+	LogModeDebug  LogMode = "debug"  // verbose logging with pretty formatting for development
+	LogModePretty LogMode = "pretty" // nicely formatted logs with info level for development
+	LogModeInfo   LogMode = "info"   // standard info-level logging without pretty formatting
+	LogModeProd   LogMode = "prod"   // production-optimized logging (minimal, focused on important info)
+	LogModeTest   LogMode = "test"   // minimal logging for test environments
 )
 
-// Config represents logger configuration
 type Config struct {
-	// Level sets the logging level (debug, info, warn, error)
-	Level LogLevel
-	// Pretty enables pretty console output (for development)
-	Pretty bool
-	// TimeFormat sets the time format string
-	TimeFormat string
-	// CallerEnabled determines if the caller information is included
-	CallerEnabled bool
-	// NoColor disables color output when Pretty is true
-	NoColor bool
+	Level         LogLevel // sets the logging level (debug, info, warn, error)
+	Pretty        bool     // enables pretty console output (for development)
+	TimeFormat    string   // sets the time format string
+	CallerEnabled bool     // determines if the caller information is included
+	NoColor       bool     // disables color output when Pretty is true
 }
 
-// DefaultConfig returns the default logger configuration
 func DefaultConfig() Config {
 	return Config{
 		Level:         LogLevelInfo,
@@ -74,7 +55,6 @@ func DefaultConfig() Config {
 	}
 }
 
-// ConfigForMode returns a logger configuration for the specified mode
 func ConfigForMode(mode LogMode) Config {
 	switch mode {
 	case LogModeDebug:
@@ -122,7 +102,6 @@ func ConfigForMode(mode LogMode) Config {
 	}
 }
 
-// InitWithMode initializes the logger with a predefined mode
 func InitWithMode(mode LogMode) {
 	Init(ConfigForMode(mode))
 }
@@ -131,7 +110,6 @@ func Init(cfg Config) {
 	mu.Lock()
 	defer mu.Unlock()
 
-	// If logging is disabled, set global level to disabled and return early
 	if cfg.Level == LogLevelDisabled {
 		zerolog.SetGlobalLevel(zerolog.Disabled)
 		log = zerolog.New(io.Discard).With().Logger()
@@ -151,7 +129,6 @@ func Init(cfg Config) {
 			},
 			FormatFieldName: func(i interface{}) string {
 				name := fmt.Sprint(i)
-				// Skip component and trace_id if they're going to have empty values
 				if name == "component" || name == "trace_id" {
 					return ""
 				}
@@ -223,7 +200,6 @@ func Init(cfg Config) {
 
 	zerolog.TimeFieldFormat = cfg.TimeFormat
 
-	// Create the logger with or without caller info
 	logCtx := zerolog.New(output).With().Timestamp()
 	if cfg.CallerEnabled {
 		logCtx = logCtx.Caller()
@@ -233,7 +209,6 @@ func Init(cfg Config) {
 	zerolog.DefaultContextLogger = &log
 }
 
-// ANSI color codes
 const (
 	gray    = "\x1b[37m"
 	blue    = "\x1b[34m"
@@ -284,7 +259,6 @@ func WithTraceID(traceID string) zerolog.Logger {
 	return log.With().Str("trace_id", traceID).Logger()
 }
 
-// Error logs an error message with a component and optional fields
 func Error(component string, err error, msg string, fields ...map[string]interface{}) {
 	logger := WithComponent(component)
 	event := logger.Error().Err(err)
@@ -296,7 +270,6 @@ func Error(component string, err error, msg string, fields ...map[string]interfa
 	event.Msg(msg)
 }
 
-// Info logs an info message with a component and optional fields
 func Info(component string, msg string, fields ...map[string]interface{}) {
 	logger := WithComponent(component)
 	event := logger.Info()
@@ -308,7 +281,6 @@ func Info(component string, msg string, fields ...map[string]interface{}) {
 	event.Msg(msg)
 }
 
-// Debug logs a debug message with a component and optional fields
 func Debug(component string, msg string, fields ...map[string]interface{}) {
 	logger := WithComponent(component)
 	event := logger.Debug()
@@ -320,7 +292,6 @@ func Debug(component string, msg string, fields ...map[string]interface{}) {
 	event.Msg(msg)
 }
 
-// Warn logs a warning message with a component and optional fields
 func Warn(component string, msg string, fields ...map[string]interface{}) {
 	logger := WithComponent(component)
 	event := logger.Warn()

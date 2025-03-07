@@ -28,14 +28,12 @@ func NewTaskRepository(db *sqlx.DB) *TaskRepository {
 }
 
 func (r *TaskRepository) Create(ctx context.Context, task *models.Task) error {
-	// Get creator's address from keystore
 	privateKey, err := keystore.LoadPrivateKey()
 	if err != nil {
 		return fmt.Errorf("failed to load private key: %w", err)
 	}
 	creatorAddress := crypto.PubkeyToAddress(privateKey.PublicKey).Hex()
 
-	// Ensure Config is valid JSON
 	if len(task.Config) == 0 {
 		task.Config = []byte("{}")
 	}

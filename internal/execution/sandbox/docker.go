@@ -63,18 +63,15 @@ func NewDockerExecutor(config *ExecutorConfig) (*DockerExecutor, error) {
 }
 
 func cleanOutput(output []byte) string {
-	// Remove Docker's output header bytes (first 8 bytes of each line)
 	var cleaned []byte
 	for len(output) > 0 {
-		// Find next line
 		i := bytes.IndexByte(output, '\n')
 		if i == -1 {
 			i = len(output)
 		}
 
-		// Process line
 		line := output[:i]
-		if len(line) > 8 { // Docker prefixes each line with 8 bytes
+		if len(line) > 8 {
 			line = line[8:]
 		}
 		cleaned = append(cleaned, line...)
@@ -87,9 +84,8 @@ func cleanOutput(output []byte) string {
 		}
 	}
 
-	// Remove any remaining control characters
 	cleaned = bytes.Map(func(r rune) rune {
-		if r < 32 && r != '\n' && r != '\t' { // Keep newlines and tabs
+		if r < 32 && r != '\n' && r != '\t' {
 			return -1
 		}
 		return r

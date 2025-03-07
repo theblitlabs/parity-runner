@@ -79,14 +79,13 @@ func (s *TaskService) CreateTask(ctx context.Context, task *models.Task) error {
 		Str("task_id", task.ID.String()).
 		Msg("Task created in repository, attempting to create runner pool")
 
-	// Try to create a pool for this task
 	pool, err := s.poolManager.GetOrCreatePool(task.ID.String(), task.Type)
 	if err != nil {
 		log.Warn().
 			Err(err).
 			Str("task_id", task.ID.String()).
 			Msg("Failed to create runner pool for task")
-		return nil // Don't fail task creation if pool creation fails
+		return nil
 	}
 
 	log.Debug().
@@ -95,7 +94,6 @@ func (s *TaskService) CreateTask(ctx context.Context, task *models.Task) error {
 		Int("num_runners", len(pool.Runners)).
 		Msg("Runner pool created successfully")
 
-	// Notify runners in the pool about the task
 	s.poolManager.NotifyRunners(pool, task)
 
 	return nil

@@ -28,14 +28,11 @@ func NewClient(rpcURL string, chainID int64) (*Client, error) {
 		return nil, err
 	}
 
-	// Load private key from keystore
 	privateKey, err := keystore.LoadPrivateKey()
-
 	if err != nil {
 		return nil, fmt.Errorf("failed to load private key: %w", err)
 	}
 
-	// Create transaction auth
 	auth, err := bind.NewKeyedTransactorWithChainID(privateKey, big.NewInt(chainID))
 	if err != nil {
 		return nil, fmt.Errorf("failed to create transactor: %w", err)
@@ -59,7 +56,6 @@ func (c *Client) GetERC20Balance(contractAddr, walletAddr common.Address) (*big.
 	return token.BalanceOf(&bind.CallOpts{}, walletAddr)
 }
 
-// Additional helper methods for ParityToken functionality
 func (c *Client) GetTokenInfo(contractAddr common.Address) (name string, symbol string, decimals uint8, err error) {
 	token, err := NewERC20(contractAddr, c.Client)
 	if err != nil {

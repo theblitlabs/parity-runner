@@ -9,7 +9,6 @@ import (
 	"github.com/theblitlabs/parity-protocol/pkg/logger"
 )
 
-// HeartbeatMonitor tracks the health of webhook connections
 type HeartbeatMonitor struct {
 	taskService *TaskService
 	heartbeats  map[string]time.Time
@@ -17,7 +16,6 @@ type HeartbeatMonitor struct {
 	logger      zerolog.Logger
 }
 
-// NewHeartbeatMonitor creates a new heartbeat monitor
 func NewHeartbeatMonitor(taskService *TaskService) *HeartbeatMonitor {
 	return &HeartbeatMonitor{
 		taskService: taskService,
@@ -26,7 +24,6 @@ func NewHeartbeatMonitor(taskService *TaskService) *HeartbeatMonitor {
 	}
 }
 
-// Start begins monitoring webhook heartbeats
 func (h *HeartbeatMonitor) Start(ctx context.Context) {
 	ticker := time.NewTicker(1 * time.Minute)
 	defer ticker.Stop()
@@ -44,7 +41,6 @@ func (h *HeartbeatMonitor) Start(ctx context.Context) {
 	}
 }
 
-// RecordHeartbeat records a heartbeat from a webhook
 func (h *HeartbeatMonitor) RecordHeartbeat(webhookID string) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
@@ -54,7 +50,6 @@ func (h *HeartbeatMonitor) RecordHeartbeat(webhookID string) {
 		Msg("Recorded heartbeat")
 }
 
-// checkHeartbeats checks for stale webhook connections
 func (h *HeartbeatMonitor) checkHeartbeats() {
 	h.mu.Lock()
 	defer h.mu.Unlock()
@@ -72,10 +67,8 @@ func (h *HeartbeatMonitor) checkHeartbeats() {
 				Time("last_heartbeat", lastHeartbeat).
 				Msg("Webhook connection appears to be stale")
 
-			// Remove the stale webhook
 			delete(h.heartbeats, webhookID)
 
-			// Notify task service about the stale webhook
 			if h.taskService != nil {
 				if err := h.taskService.HandleStaleWebhook(webhookID); err != nil {
 					h.logger.Error().

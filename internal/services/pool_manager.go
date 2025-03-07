@@ -15,18 +15,16 @@ import (
 	"github.com/theblitlabs/parity-protocol/pkg/logger"
 )
 
-// RunnerPool represents a group of runners executing the same task
 type RunnerPool struct {
 	ID        string
 	TaskID    string
-	Runners   map[string]*Runner // map of runnerID to Runner
+	Runners   map[string]*Runner
 	TaskType  models.TaskType
 	CreatedAt time.Time
 	Status    PoolStatus
 	WinnerID  string
 }
 
-// Runner represents a single runner in a pool
 type Runner struct {
 	ID         string
 	DeviceID   string
@@ -48,10 +46,9 @@ const (
 	RunnerStatusSuccess RunnerStatus = "success"
 )
 
-// PoolManager manages multiple runner pools at the server level
 type PoolManager struct {
-	pools          map[string]*RunnerPool // map of poolID to RunnerPool
-	runners        map[string]*Runner     // map of runnerID to Runner
+	pools          map[string]*RunnerPool
+	runners        map[string]*Runner
 	lock           sync.RWMutex
 	minRunnersPool int
 	maxRunnersPool int
@@ -75,7 +72,6 @@ func (pm *PoolManager) RegisterRunner(runnerID, deviceID, webhookURL string) err
 	log := logger.WithComponent("pool_manager")
 
 	if _, exists := pm.runners[runnerID]; exists {
-		// Update existing runner's webhook URL, last ping time, and ensure status is idle
 		runner := pm.runners[runnerID]
 		runner.WebhookURL = webhookURL
 		runner.LastPingAt = time.Now()
@@ -125,14 +121,12 @@ func (pm *PoolManager) GetOrCreatePool(taskID string, taskType models.TaskType) 
 	pm.lock.Lock()
 	defer pm.lock.Unlock()
 
-	// Check if pool already exists for this task
 	for _, pool := range pm.pools {
 		if pool.TaskID == taskID {
 			return pool, nil
 		}
 	}
 
-	// Create new pool
 	pool := &RunnerPool{
 		ID:        uuid.New().String(),
 		TaskID:    taskID,
@@ -142,7 +136,6 @@ func (pm *PoolManager) GetOrCreatePool(taskID string, taskType models.TaskType) 
 		Status:    PoolStatusPending,
 	}
 
-	// Get available runners
 	availableRunners := pm.getAvailableRunners()
 	numRunners := min(len(availableRunners), pm.maxRunnersPool)
 
@@ -150,7 +143,6 @@ func (pm *PoolManager) GetOrCreatePool(taskID string, taskType models.TaskType) 
 		return nil, fmt.Errorf("insufficient runners available (got %d, need minimum %d)", numRunners, pm.minRunnersPool)
 	}
 
-	// Assign runners to pool
 	for i := 0; i < numRunners; i++ {
 		runner := availableRunners[i]
 		pool.Runners[runner.ID] = runner
@@ -177,7 +169,6 @@ func (pm *PoolManager) getAvailableRunners() []*Runner {
 	log.Debug().Int("total_runners", len(pm.runners)).Msg("Checking available runners")
 
 	for id, runner := range pm.runners {
-		// Log runner status
 		log.Debug().
 			Str("runner_id", id).
 			Str("status", string(runner.Status)).
@@ -185,7 +176,6 @@ func (pm *PoolManager) getAvailableRunners() []*Runner {
 			Bool("is_recent", now.Sub(runner.LastPingAt) < timeout).
 			Msg("Runner status check")
 
-		// Check if runner is idle and has pinged recently
 		if runner.Status == RunnerStatusIdle && now.Sub(runner.LastPingAt) < timeout {
 			available = append(available, runner)
 		}
@@ -217,7 +207,6 @@ func (pm *PoolManager) NotifyRunners(pool *RunnerPool, task *models.Task) {
 func (pm *PoolManager) notifyRunner(runner *Runner, task *models.Task) error {
 	log := logger.WithComponent("pool_manager")
 
-	// Create task notification payload
 	payload := struct {
 		Type    string       `json:"type"`
 		Payload *models.Task `json:"payload"`
@@ -226,13 +215,11 @@ func (pm *PoolManager) notifyRunner(runner *Runner, task *models.Task) error {
 		Payload: task,
 	}
 
-	// Marshal payload
 	payloadBytes, err := json.Marshal(payload)
 	if err != nil {
 		return fmt.Errorf("failed to marshal task notification: %w", err)
 	}
 
-	// Create HTTP client with timeout
 	client := &http.Client{
 		Timeout: 5 * time.Second,
 		Transport: &http.Transport{
@@ -244,18 +231,15 @@ func (pm *PoolManager) notifyRunner(runner *Runner, task *models.Task) error {
 		},
 	}
 
-	// Create request
 	req, err := http.NewRequest("POST", runner.WebhookURL, bytes.NewReader(payloadBytes))
 	if err != nil {
 		return fmt.Errorf("failed to create webhook request: %w", err)
 	}
 
-	// Set headers
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("X-Task-ID", task.ID.String())
 	req.Header.Set("X-Runner-ID", runner.ID)
 
-	// Send request with timing
 	startTime := time.Now()
 	resp, err := client.Do(req)
 	if err != nil {
@@ -272,7 +256,6 @@ func (pm *PoolManager) notifyRunner(runner *Runner, task *models.Task) error {
 
 	requestDuration := time.Since(startTime)
 
-	// Check response status
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		body, _ := io.ReadAll(resp.Body)
 		log.Error().
@@ -303,7 +286,6 @@ func (pm *PoolManager) CleanupPool(poolID string) {
 	defer pm.lock.Unlock()
 
 	if pool, exists := pm.pools[poolID]; exists {
-		// Reset runners status to idle
 		for _, runner := range pool.Runners {
 			runner.Status = RunnerStatusIdle
 		}
@@ -349,7 +331,6 @@ func (pm *PoolManager) UpdateRunnerPing(runnerID string) {
 	if runner, exists := pm.runners[runnerID]; exists {
 		runner.LastPingAt = time.Now()
 
-		// Check if runner is in any active pool
 		inActivePool := false
 		for _, pool := range pm.pools {
 			if _, ok := pool.Runners[runnerID]; ok && pool.Status == PoolStatusActive {
@@ -358,7 +339,6 @@ func (pm *PoolManager) UpdateRunnerPing(runnerID string) {
 			}
 		}
 
-		// If not in an active pool, mark as idle
 		if !inActivePool {
 			runner.Status = RunnerStatusIdle
 		}
