@@ -24,11 +24,10 @@ type TaskCanceller interface {
 }
 
 type DefaultTaskHandler struct {
-	executor     TaskExecutor
-	taskClient   TaskClient
-	rewardClient RewardClient
-	wsClient     *WebSocketClient
-	// Track running tasks for cancellation
+	executor         TaskExecutor
+	taskClient       TaskClient
+	rewardClient     RewardClient
+	wsClient         *WebSocketClient
 	runningTasks     map[string]context.CancelFunc
 	runningTasksLock sync.Mutex
 }
@@ -59,7 +58,7 @@ func (h *DefaultTaskHandler) CancelTask(taskID string) {
 func (h *DefaultTaskHandler) HandleTask(task *models.Task) error {
 	log := log.With().
 		Str("component", "task_handler").
-		Str("task", task.ID.String()).
+		Str("task_id", task.ID.String()).
 		Str("type", string(task.Type)).
 		Logger()
 
@@ -68,12 +67,13 @@ func (h *DefaultTaskHandler) HandleTask(task *models.Task) error {
 		log.Debug().
 			Str("status", string(task.Status)).
 			Msg("Skipping non-pending task")
-		return nil
+		return fmt.Errorf("task is not in pending state: %s", task.Status)
 	}
 
 	log.Info().
 		Float64("reward", task.Reward).
 		Str("title", task.Title).
+		Str("status", string(task.Status)).
 		Msg("Starting task execution")
 
 	// Log task details at debug level
@@ -120,9 +120,12 @@ func (h *DefaultTaskHandler) HandleTask(task *models.Task) error {
 	resultChan := make(chan *models.TaskResult, 1)
 	errChan := make(chan error, 1)
 
+	log.Info().Msg("Starting task execution")
+
 	go func() {
 		result, err := h.executor.ExecuteTask(ctx, task)
 		if err != nil {
+			log.Error().Err(err).Msg("Task execution failed")
 			errChan <- err
 			return
 		}
@@ -142,6 +145,8 @@ func (h *DefaultTaskHandler) HandleTask(task *models.Task) error {
 		log.Error().Err(err).Msg("Task execution failed")
 		return fmt.Errorf("failed to execute task: %w", err)
 	case result := <-resultChan:
+		log.Info().Msg("Task execution completed, processing result")
+
 		// Process successful result
 		deviceID, err := device.VerifyDeviceID()
 		if err != nil {
@@ -172,6 +177,8 @@ func (h *DefaultTaskHandler) HandleTask(task *models.Task) error {
 		result.RunnerAddress = deviceID
 		result.Reward = task.Reward
 
+		log.Info().Msg("Saving task result")
+
 		// Save the task result
 		err = h.taskClient.SaveTaskResult(task.ID.String(), result)
 		if err != nil {
@@ -182,6 +189,8 @@ func (h *DefaultTaskHandler) HandleTask(task *models.Task) error {
 			log.Error().Err(err).Msg("Failed to save task result")
 			return fmt.Errorf("failed to save task result: %w", err)
 		}
+
+		log.Info().Msg("Marking task as complete")
 
 		// Complete task
 		if err := h.taskClient.CompleteTask(task.ID.String()); err != nil {
@@ -198,6 +207,7 @@ func (h *DefaultTaskHandler) HandleTask(task *models.Task) error {
 
 		// Distribute rewards if task was successful
 		if result.ExitCode == 0 {
+			log.Info().Msg("Distributing rewards for successful task")
 			if err := h.rewardClient.DistributeRewards(result); err != nil {
 				log.Error().Err(err).Msg("Failed to distribute rewards")
 			}
@@ -207,8 +217,8 @@ func (h *DefaultTaskHandler) HandleTask(task *models.Task) error {
 			Float64("reward", task.Reward).
 			Int64("execution_time_ms", result.ExecutionTime/1e6).
 			Bool("success", result.ExitCode == 0).
-			Msg("Task completed")
-	}
+			Msg("Task completed successfully")
 
-	return nil
+		return nil
+	}
 }

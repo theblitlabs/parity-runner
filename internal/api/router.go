@@ -60,6 +60,7 @@ func (r *Router) registerRoutes(router *mux.Router, taskHandler *handlers.TaskHa
 	tasks.HandleFunc("/{id}/assign", taskHandler.AssignTask).Methods("POST")
 	tasks.HandleFunc("/{id}/reward", taskHandler.GetTaskReward).Methods("GET")
 	tasks.HandleFunc("/{id}/result", taskHandler.GetTaskResult).Methods("GET")
+	tasks.HandleFunc("/{id}/status", taskHandler.UpdateTaskStatus).Methods("PUT")
 
 	// Runner routes (for task executors)
 	runners.HandleFunc("/tasks/available", taskHandler.ListAvailableTasks).Methods("GET")

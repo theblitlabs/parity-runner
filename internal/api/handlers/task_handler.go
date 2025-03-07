@@ -79,6 +79,7 @@ type TaskService interface {
 	GetTaskResult(ctx context.Context, taskID string) (*models.TaskResult, error)
 	RegisterRunner(runnerID, deviceID, url string) error
 	UpdateRunnerPing(runnerID string)
+	UpdateTask(ctx context.Context, task *models.Task) error
 }
 
 // TaskHandler handles task-related HTTP and webhook requests
@@ -941,4 +942,52 @@ func (h *TaskHandler) isShuttingDown() bool {
 	default:
 		return false
 	}
+}
+
+// UpdateTaskStatus handles updating the status of a task
+func (h *TaskHandler) UpdateTaskStatus(w http.ResponseWriter, r *http.Request) {
+	log := logger.Get().With().Str("handler", "UpdateTaskStatus").Logger()
+
+	vars := mux.Vars(r)
+	taskID := vars["id"]
+
+	var req struct {
+		Status string `json:"status"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		log.Error().Err(err).Msg("Failed to decode request body")
+		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	// Parse task ID
+	id, err := uuid.Parse(taskID)
+	if err != nil {
+		log.Error().Err(err).Str("task_id", taskID).Msg("Invalid task ID")
+		http.Error(w, "Invalid task ID", http.StatusBadRequest)
+		return
+	}
+
+	// Get task from service
+	task, err := h.service.GetTask(r.Context(), id.String())
+	if err != nil {
+		log.Error().Err(err).Str("task_id", taskID).Msg("Failed to get task")
+		http.Error(w, "Failed to get task", http.StatusInternalServerError)
+		return
+	}
+
+	// Update task status
+	task.Status = models.TaskStatus(req.Status)
+	if err := h.service.UpdateTask(r.Context(), task); err != nil {
+		log.Error().Err(err).Str("task_id", taskID).Msg("Failed to update task")
+		http.Error(w, "Failed to update task", http.StatusInternalServerError)
+		return
+	}
+
+	log.Info().
+		Str("task_id", taskID).
+		Str("status", req.Status).
+		Msg("Task status updated successfully")
+
+	w.WriteHeader(http.StatusOK)
 }

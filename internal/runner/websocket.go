@@ -110,7 +110,7 @@ func (w *WebSocketClient) handleMessage(msg WSMessage) {
 	log := logger.WithComponent("websocket")
 
 	switch msg.Type {
-	case "available_tasks":
+	case "available_tasks", "task_available":
 		var tasks []*models.Task
 		if err := json.Unmarshal(msg.Payload, &tasks); err != nil {
 			log.Error().Err(err).Str("payload", string(msg.Payload)).Msg("Task parse failed")

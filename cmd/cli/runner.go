@@ -73,19 +73,17 @@ func RunRunner() {
 		webhookPort = cfg.Runner.WebhookPort
 	}
 
-	// Try to find an available port
+	// Find an available port
 	port, listener, err := findAvailablePort(webhookPort)
 	if err != nil {
 		log.Fatal().Err(err).Int("base_port", webhookPort).Msg("No available ports found")
 	}
-	defer listener.Close() // Ensure listener is closed if we exit early
 
+	// Store port and listener in config
 	webhookPort = port
-	cfg.Runner.WebhookPort = webhookPort // Update the config with the found port
+	cfg.Runner.WebhookPort = webhookPort
+	cfg.Runner.WebhookListener = listener // The listener will be managed by the HTTP server
 	log.Info().Int("port", webhookPort).Msg("Found available port for webhook")
-
-	// Store the listener in the config for the runner service to use
-	cfg.Runner.WebhookListener = listener
 
 	// Check if the server is reachable before proceeding
 	if err := checkServerConnectivity(cfg.Runner.ServerURL); err != nil {
@@ -150,51 +148,45 @@ func RunRunner() {
 	}
 
 	// Wait for context cancellation (shutdown signal)
-	forceExitChan := make(chan struct{})
-	go func() {
-		<-ctx.Done()
-		// Normal shutdown path, do nothing
-	}()
-
-	// Wait for context cancellation (shutdown signal)
 	<-ctx.Done()
-	close(forceExitChan) // Close channel to prevent force exit
 
-	// Create a deadline for shutdown
-	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 30*time.Second)
+	// Create a deadline for shutdown - reducing from 10 to 8 seconds
+	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 8*time.Second)
 	defer shutdownCancel()
 
-	// Shutdown the service
-	shutdownStart := time.Now()
+	// Create a channel to signal when shutdown is complete
+	shutdownComplete := make(chan struct{})
 
-	// Add a goroutine to force exit if shutdown takes too long
-	forceShutdownChan := make(chan struct{})
+	// Shutdown the service in a goroutine
 	go func() {
-		select {
-		case <-time.After(35 * time.Second): // Give a bit more time than the context timeout
-			log.Error().Msg("Shutdown timeout exceeded, forcing exit")
-			os.Exit(1)
-		case <-forceShutdownChan:
-			// Normal shutdown completed
-			return
+		shutdownStart := time.Now()
+
+		if service != nil {
+			// Add a timeout for the service.Stop call - reducing from 8 to 6 seconds
+			stopCtx, stopCancel := context.WithTimeout(shutdownCtx, 6*time.Second)
+			defer stopCancel()
+
+			if err := service.Stop(stopCtx); err != nil {
+				log.Error().
+					Err(err).
+					Msg("Error during runner service shutdown")
+			} else {
+				shutdownDuration := time.Since(shutdownStart)
+				log.Info().
+					Dur("duration_ms", shutdownDuration).
+					Msg("Runner service stopped gracefully")
+			}
 		}
+
+		close(shutdownComplete)
 	}()
 
-	if service != nil {
-		if err := service.Stop(shutdownCtx); err != nil {
-			log.Error().
-				Err(err).
-				Msg("Error during runner service shutdown")
-		} else {
-			shutdownDuration := time.Since(shutdownStart)
-			log.Info().
-				Dur("duration_ms", shutdownDuration).
-				Msg("Runner service stopped gracefully")
-		}
+	// Wait for either shutdown to complete or timeout - reducing from 12 to 10 seconds
+	select {
+	case <-shutdownComplete:
+		log.Info().Msg("Runner shutdown complete")
+	case <-time.After(10 * time.Second):
+		log.Error().Msg("Shutdown timeout exceeded, forcing exit")
+		os.Exit(1)
 	}
-
-	// Signal that normal shutdown completed
-	close(forceShutdownChan)
-
-	log.Info().Msg("Runner shutdown complete")
 }

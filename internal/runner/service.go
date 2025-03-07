@@ -50,6 +50,7 @@ type Service struct {
 	webhookConns   map[string]*WebhookClient
 	webhookEnabled bool
 	serverURL      string
+	webhookServer  *http.Server
 }
 
 func NewService(cfg *config.Config) (*Service, error) {
@@ -219,6 +220,9 @@ func (s *Service) startWebhookServer() error {
 		Handler: http.HandlerFunc(s.handleWebhook),
 	}
 
+	// Store the server in the service struct
+	s.webhookServer = server
+
 	// If we have a pre-reserved listener from the config, use it
 	if s.cfg.Runner.WebhookListener != nil {
 		// Start server with the provided listener
@@ -253,24 +257,67 @@ func (s *Service) Stop(ctx context.Context) error {
 	log := logger.WithComponent("runner")
 	log.Info().Msg("Stopping runner service...")
 
-	// Stop webhook client immediately
-	if s.webhookClient != nil {
-		if err := s.webhookClient.Stop(); err != nil {
-			log.Error().Err(err).Msg("Error stopping webhook client")
+	// First, shut down the webhook server if it exists
+	if s.webhookServer != nil {
+		serverCtx, serverCancel := context.WithTimeout(ctx, 2*time.Second)
+		defer serverCancel()
+
+		log.Info().Msg("Shutting down webhook server")
+		if err := s.webhookServer.Shutdown(serverCtx); err != nil {
+			log.Warn().Err(err).Msg("Webhook server shutdown error, continuing")
+		} else {
+			log.Info().Msg("Webhook server shut down gracefully")
 		}
+		s.webhookServer = nil // Clear the server reference
+	}
+
+	// Stop webhook client with a timeout
+	if s.webhookClient != nil {
+		webhookStopCtx, webhookStopCancel := context.WithTimeout(ctx, 2*time.Second)
+		defer webhookStopCancel()
+
+		webhookStopDone := make(chan error, 1)
+		go func() {
+			webhookStopDone <- s.webhookClient.Stop()
+		}()
+
+		// Wait for webhook client to stop with timeout
+		select {
+		case err := <-webhookStopDone:
+			if err != nil {
+				log.Error().Err(err).Msg("Error stopping webhook client")
+			} else {
+				log.Info().Msg("Webhook client stopped successfully")
+			}
+		case <-webhookStopCtx.Done():
+			log.Warn().Msg("Webhook client stop timed out, continuing with shutdown")
+		}
+		s.webhookClient = nil // Clear the client reference
+	}
+
+	// Stop WebSocketClient if it exists
+	if s.wsClient != nil {
+		log.Info().Msg("Stopping WebSocket client")
+		s.wsClient.Stop()
+		s.wsClient = nil // Clear the client reference
 	}
 
 	// Stop IPFS container if it's running
 	if s.ipfsContainer != "" {
 		log.Info().Str("container_id", s.ipfsContainer).Msg("Stopping IPFS container")
 
+		// Create a timeout for container removal
+		containerCtx, containerCancel := context.WithTimeout(ctx, 2*time.Second)
+		defer containerCancel()
+
 		// Force remove the container without waiting
 		removeOpts := types.ContainerRemoveOptions{Force: true}
-		if err := s.dockerClient.ContainerRemove(ctx, s.ipfsContainer, removeOpts); err != nil {
+		if err := s.dockerClient.ContainerRemove(containerCtx, s.ipfsContainer, removeOpts); err != nil {
 			log.Error().Err(err).Msg("Failed to remove IPFS container")
 		} else {
 			log.Info().Str("container_id", s.ipfsContainer).Msg("IPFS container removed")
 		}
+		s.ipfsContainer = "" // Clear the container ID
 	}
 
 	// Close Docker client if it exists
@@ -279,7 +326,13 @@ func (s *Service) Stop(ctx context.Context) error {
 		if err := s.dockerClient.Close(); err != nil {
 			log.Error().Err(err).Msg("Error closing Docker client")
 		}
+		s.dockerClient = nil // Clear the client reference
 	}
+
+	// Clear any remaining fields
+	s.cfg = nil
+	s.webhookConns = nil
+	s.stopChan = nil
 
 	log.Info().Msg("Runner service stopped successfully")
 	return nil
@@ -571,6 +624,8 @@ func checkDockerAvailability(cli *client.Client) error {
 }
 
 func (s *Service) handleWebhook(w http.ResponseWriter, r *http.Request) {
+	log := logger.WithComponent("runner")
+
 	if s.taskHandler == nil {
 		http.Error(w, "Task handler not initialized", http.StatusInternalServerError)
 		return
@@ -578,21 +633,36 @@ func (s *Service) handleWebhook(w http.ResponseWriter, r *http.Request) {
 
 	var msg WebSocketMessage
 	if err := json.NewDecoder(r.Body).Decode(&msg); err != nil {
+		log.Error().Err(err).Msg("Failed to decode webhook message")
 		http.Error(w, "Invalid request body", http.StatusBadRequest)
 		return
 	}
 
+	log.Debug().
+		Str("type", msg.Type).
+		Interface("payload", msg.Payload).
+		Msg("Received webhook message")
+
 	switch msg.Type {
-	case "available_tasks":
-		if tasks, ok := msg.Payload.([]interface{}); ok {
-			for _, taskData := range tasks {
-				if taskBytes, err := json.Marshal(taskData); err == nil {
-					var task models.Task
-					if err := json.Unmarshal(taskBytes, &task); err == nil {
-						go s.taskHandler.HandleTask(&task)
-					}
+	case "available_tasks", "task_available":
+		// Try to handle both array and single task cases
+		switch payload := msg.Payload.(type) {
+		case []interface{}:
+			log.Info().Int("count", len(payload)).Msg("Processing multiple tasks")
+			for _, taskData := range payload {
+				if err := s.processTask(taskData); err != nil {
+					log.Error().Err(err).Interface("task_data", taskData).Msg("Failed to process task")
 				}
 			}
+		case map[string]interface{}:
+			log.Info().Msg("Processing single task")
+			if err := s.processTask(payload); err != nil {
+				log.Error().Err(err).Interface("task_data", payload).Msg("Failed to process task")
+			}
+		default:
+			log.Error().
+				Str("type", fmt.Sprintf("%T", msg.Payload)).
+				Msg("Unexpected payload type for task")
 		}
 	case "task_completed":
 		if completion, ok := msg.Payload.(map[string]interface{}); ok {
@@ -603,12 +673,53 @@ func (s *Service) handleWebhook(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	default:
-		log.Warn().
+		log.Error().
 			Str("type", msg.Type).
 			Msg("Unknown webhook message type")
 	}
 
 	w.WriteHeader(http.StatusOK)
+}
+
+// processTask handles the conversion and execution of a single task
+func (s *Service) processTask(taskData interface{}) error {
+	log := logger.WithComponent("runner")
+
+	// Convert task data to JSON
+	taskBytes, err := json.Marshal(taskData)
+	if err != nil {
+		return fmt.Errorf("failed to marshal task data: %w", err)
+	}
+
+	// Parse into Task model
+	var task models.Task
+	if err := json.Unmarshal(taskBytes, &task); err != nil {
+		return fmt.Errorf("failed to unmarshal task: %w", err)
+	}
+
+	// Validate task ID
+	if task.ID == uuid.Nil {
+		return fmt.Errorf("task has no ID")
+	}
+
+	log.Info().
+		Str("task_id", task.ID.String()).
+		Str("type", string(task.Type)).
+		Str("status", string(task.Status)).
+		Float64("reward", task.Reward).
+		Msg("Processing task")
+
+	// Execute task in a goroutine
+	go func() {
+		if err := s.taskHandler.HandleTask(&task); err != nil {
+			log.Error().
+				Err(err).
+				Str("task_id", task.ID.String()).
+				Msg("Task execution failed")
+		}
+	}()
+
+	return nil
 }
 
 func checkPortAvailable(port int) error {
