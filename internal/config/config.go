@@ -1,6 +1,7 @@
 package config
 
 import (
+	"net"
 	"time"
 
 	"github.com/spf13/viper"
@@ -57,12 +58,13 @@ func LoadConfig(path string) (*Config, error) {
 }
 
 type RunnerConfig struct {
-	ServerURL    string           `mapstructure:"server_url"`
-	WebsocketURL string           `mapstructure:"websocket_url"`
-	WebhookPort  int              `mapstructure:"webhook_port"`
-	APIPrefix    string           `mapstructure:"api_prefix"`
-	Docker       DockerConfig     `mapstructure:"docker"`
-	IPFS         IPFSRunnerConfig `mapstructure:"ipfs"`
+	ServerURL       string       `mapstructure:"server_url"`
+	WebsocketURL    string       `mapstructure:"websocket_url"`
+	WebhookPort     int          `mapstructure:"webhook_port"`
+	APIPrefix       string       `mapstructure:"api_prefix"`
+	Docker          DockerConfig `mapstructure:"docker"`
+	IPFS            IPFSConfig   `mapstructure:"ipfs"`
+	WebhookListener net.Listener `mapstructure:"-"` // Not serialized
 }
 
 type DockerConfig struct {
@@ -72,7 +74,11 @@ type DockerConfig struct {
 }
 
 type IPFSConfig struct {
-	APIURL string `mapstructure:"api_url"`
+	Image       string `mapstructure:"image"`
+	APIPort     int    `mapstructure:"api_port"`
+	GatewayPort int    `mapstructure:"gateway_port"`
+	SwarmPort   int    `mapstructure:"swarm_port"`
+	DataDir     string `mapstructure:"data_dir"`
 }
 
 type IPFSRunnerConfig struct {

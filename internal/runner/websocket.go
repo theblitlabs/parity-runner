@@ -14,6 +14,10 @@ type WSMessage struct {
 	Payload json.RawMessage `json:"payload"`
 }
 
+type TaskCompletionMessage struct {
+	TaskID string `json:"task_id"`
+}
+
 type WebSocketClient struct {
 	conn     *websocket.Conn
 	url      string
@@ -61,6 +65,23 @@ func (w *WebSocketClient) Stop() {
 		w.conn.Close()
 		log.Debug().Str("url", w.url).Msg("Connection closed")
 	}
+}
+
+// NotifyTaskCompletion sends a task completion notification to the server
+func (w *WebSocketClient) NotifyTaskCompletion(taskID string) error {
+	log := logger.WithComponent("websocket")
+	msg := WSMessage{
+		Type:    "task_completed",
+		Payload: json.RawMessage(fmt.Sprintf(`{"task_id":"%s"}`, taskID)),
+	}
+
+	if err := w.conn.WriteJSON(msg); err != nil {
+		log.Error().Err(err).Str("task_id", taskID).Msg("Failed to send task completion notification")
+		return err
+	}
+
+	log.Debug().Str("task_id", taskID).Msg("Task completion notification sent")
+	return nil
 }
 
 func (w *WebSocketClient) listen() {
@@ -124,6 +145,23 @@ func (w *WebSocketClient) handleMessage(msg WSMessage) {
 					w.completedTasks[task.ID.String()] = true
 				}
 			}
+		}
+	case "task_completed":
+		var completion TaskCompletionMessage
+		if err := json.Unmarshal(msg.Payload, &completion); err != nil {
+			log.Error().Err(err).Str("payload", string(msg.Payload)).Msg("Task completion parse failed")
+			return
+		}
+
+		// Mark task as completed to prevent further processing
+		w.completedTasks[completion.TaskID] = true
+		log.Debug().
+			Str("task_id", completion.TaskID).
+			Msg("Task marked as completed by another runner")
+
+		// Notify handler to stop task if it's currently running
+		if h, ok := w.handler.(TaskCanceller); ok {
+			h.CancelTask(completion.TaskID)
 		}
 	default:
 		log.Debug().

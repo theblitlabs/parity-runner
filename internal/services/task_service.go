@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -34,12 +35,16 @@ type TaskRepository interface {
 type TaskService struct {
 	repo TaskRepository
 	ipfs *ipfs.Client
+	// Track tasks being executed by runners
+	runningTasks     map[string]bool
+	runningTasksLock sync.RWMutex
 }
 
 func NewTaskService(repo TaskRepository, ipfs *ipfs.Client) *TaskService {
 	return &TaskService{
-		repo: repo,
-		ipfs: ipfs,
+		repo:         repo,
+		ipfs:         ipfs,
+		runningTasks: make(map[string]bool),
 	}
 }
 
@@ -381,6 +386,23 @@ func (s *TaskService) SaveTaskResult(ctx context.Context, result *models.TaskRes
 		return fmt.Errorf("invalid task result: %w", err)
 	}
 
+	// Check if task is already completed
+	task, err := s.repo.Get(ctx, result.TaskID)
+	if err != nil {
+		log.Error().
+			Err(err).
+			Str("task_id", result.TaskID.String()).
+			Msg("Failed to retrieve task")
+		return err
+	}
+
+	if task.Status == models.TaskStatusCompleted {
+		log.Info().
+			Str("task_id", result.TaskID.String()).
+			Msg("Task already completed by another runner")
+		return fmt.Errorf("task already completed")
+	}
+
 	// Store result in IPFS
 	cid, err := s.ipfs.StoreJSON(result)
 	if err != nil {
@@ -402,17 +424,33 @@ func (s *TaskService) SaveTaskResult(ctx context.Context, result *models.TaskRes
 		log.Error().
 			Err(err).
 			Str("task_id", result.TaskID.String()).
-			Str("ipfs_cid", cid).
-			Msg("Failed to save task result in database")
+			Msg("Failed to save task result")
 		return fmt.Errorf("failed to save task result: %w", err)
 	}
 
+	// Mark task as completed
+	task.Status = models.TaskStatusCompleted
+	now := time.Now()
+	task.CompletedAt = &now
+
+	if err := s.repo.Update(ctx, task); err != nil {
+		log.Error().
+			Err(err).
+			Str("task_id", result.TaskID.String()).
+			Msg("Failed to update task status")
+		return fmt.Errorf("failed to update task status: %w", err)
+	}
+
+	// Remove from running tasks
+	s.runningTasksLock.Lock()
+	delete(s.runningTasks, result.TaskID.String())
+	s.runningTasksLock.Unlock()
+
 	log.Info().
 		Str("task_id", result.TaskID.String()).
-		Str("ipfs_cid", cid).
-		Int("exit_code", result.ExitCode).
-		Int64("execution_time_ns", result.ExecutionTime).
-		Msg("Task result saved successfully")
+		Str("solver_device_id", result.SolverDeviceID).
+		Float64("reward", result.Reward).
+		Msg("Task result saved and task completed")
 
 	return nil
 }

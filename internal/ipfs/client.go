@@ -17,7 +17,7 @@ type Client struct {
 
 func NewClient(cfg *config.Config) *Client {
 	return &Client{
-		apiURL: cfg.IPFS.APIURL,
+		apiURL: fmt.Sprintf("http://localhost:%d", cfg.IPFS.APIPort),
 	}
 }
 

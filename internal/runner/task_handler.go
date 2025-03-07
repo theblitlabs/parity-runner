@@ -5,6 +5,8 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"strings"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -17,17 +19,40 @@ type TaskHandler interface {
 	HandleTask(task *models.Task) error
 }
 
+type TaskCanceller interface {
+	CancelTask(taskID string)
+}
+
 type DefaultTaskHandler struct {
 	executor     TaskExecutor
 	taskClient   TaskClient
 	rewardClient RewardClient
+	wsClient     *WebSocketClient
+	// Track running tasks for cancellation
+	runningTasks     map[string]context.CancelFunc
+	runningTasksLock sync.Mutex
 }
 
-func NewTaskHandler(executor TaskExecutor, taskClient TaskClient, rewardClient RewardClient) *DefaultTaskHandler {
+func NewTaskHandler(executor TaskExecutor, taskClient TaskClient, rewardClient RewardClient, wsClient *WebSocketClient) *DefaultTaskHandler {
 	return &DefaultTaskHandler{
 		executor:     executor,
 		taskClient:   taskClient,
 		rewardClient: rewardClient,
+		wsClient:     wsClient,
+		runningTasks: make(map[string]context.CancelFunc),
+	}
+}
+
+func (h *DefaultTaskHandler) CancelTask(taskID string) {
+	h.runningTasksLock.Lock()
+	defer h.runningTasksLock.Unlock()
+
+	if cancel, exists := h.runningTasks[taskID]; exists {
+		cancel() // Cancel the task execution
+		delete(h.runningTasks, taskID)
+		log.Debug().
+			Str("task_id", taskID).
+			Msg("Task cancelled due to completion by another runner")
 	}
 }
 
@@ -70,20 +95,29 @@ func (h *DefaultTaskHandler) HandleTask(task *models.Task) error {
 		return fmt.Errorf("invalid task configuration: %w", err)
 	}
 
-	// Try to start task
-	if err := h.taskClient.StartTask(task.ID.String()); err != nil {
-		if err.Error() == "task unavailable" {
-			// Task is no longer available (e.g. completed or taken by another runner)
-			log.Debug().Msg("Task is no longer available")
-			return nil // Return nil to avoid retrying
-		}
-		log.Error().Err(err).Msg("Failed to start task")
-		return fmt.Errorf("failed to start task: %w", err)
-	}
+	// Create cancellable context for the task
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	// Register the task as running
+	h.runningTasksLock.Lock()
+	h.runningTasks[task.ID.String()] = cancel
+	h.runningTasksLock.Unlock()
+
+	// Cleanup when done
+	defer func() {
+		h.runningTasksLock.Lock()
+		delete(h.runningTasks, task.ID.String())
+		h.runningTasksLock.Unlock()
+	}()
 
 	// Execute task
-	result, err := h.executor.ExecuteTask(context.Background(), task)
+	result, err := h.executor.ExecuteTask(ctx, task)
 	if err != nil {
+		if ctx.Err() == context.Canceled {
+			log.Info().Msg("Task execution cancelled")
+			return nil // Task was cancelled, don't report error
+		}
 		log.Error().Err(err).
 			Str("executor", fmt.Sprintf("%T", h.executor)).
 			Msg("Task execution failed")
@@ -135,9 +169,30 @@ func (h *DefaultTaskHandler) HandleTask(task *models.Task) error {
 		return fmt.Errorf("creator device ID is missing from task")
 	}
 
-	// Save result
-	if err := h.taskClient.SaveTaskResult(task.ID.String(), result); err != nil {
-		log.Error().Err(err).Msg("Failed to save task result")
+	// Save the task result
+	err = h.taskClient.SaveTaskResult(task.ID.String(), result)
+	if err != nil {
+		if strings.Contains(err.Error(), "409") {
+			// Task was already completed by another runner
+			log.Info().
+				Str("task_id", task.ID.String()).
+				Msg("Task already completed by another runner")
+
+			// Notify other runners about completion even though we weren't the one to complete it
+			if h.wsClient != nil {
+				if err := h.wsClient.NotifyTaskCompletion(task.ID.String()); err != nil {
+					log.Error().
+						Err(err).
+						Str("task_id", task.ID.String()).
+						Msg("Failed to notify task completion")
+				}
+			}
+			return nil
+		}
+		log.Error().
+			Err(err).
+			Str("task_id", task.ID.String()).
+			Msg("Failed to save task result")
 		return fmt.Errorf("failed to save task result: %w", err)
 	}
 
@@ -145,6 +200,16 @@ func (h *DefaultTaskHandler) HandleTask(task *models.Task) error {
 	if err := h.taskClient.CompleteTask(task.ID.String()); err != nil {
 		log.Error().Err(err).Msg("Failed to complete task")
 		return fmt.Errorf("failed to complete task: %w", err)
+	}
+
+	// Notify about successful completion
+	if h.wsClient != nil {
+		if err := h.wsClient.NotifyTaskCompletion(task.ID.String()); err != nil {
+			log.Error().
+				Err(err).
+				Str("task_id", task.ID.String()).
+				Msg("Failed to notify task completion")
+		}
 	}
 
 	// Distribute rewards if task was successful

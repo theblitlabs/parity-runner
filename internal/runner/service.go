@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -16,12 +17,20 @@ import (
 	"github.com/docker/docker/client"
 	"github.com/docker/go-connections/nat"
 	"github.com/google/uuid"
+	"github.com/rs/zerolog/log"
 	"github.com/theblitlabs/parity-protocol/internal/config"
 	"github.com/theblitlabs/parity-protocol/internal/execution/sandbox"
+	"github.com/theblitlabs/parity-protocol/internal/models"
 	"github.com/theblitlabs/parity-protocol/pkg/device"
 	"github.com/theblitlabs/parity-protocol/pkg/keystore"
 	"github.com/theblitlabs/parity-protocol/pkg/logger"
 )
+
+// WebSocketMessage represents a message sent over WebSocket
+type WebSocketMessage struct {
+	Type    string      `json:"type"`
+	Payload interface{} `json:"payload"`
+}
 
 type Service struct {
 	cfg            *config.Config
@@ -32,6 +41,15 @@ type Service struct {
 	dockerExecutor *sandbox.DockerExecutor
 	dockerClient   *client.Client
 	ipfsContainer  string
+	wsClient       *WebSocketClient
+	runnerID       string
+	webhookPort    int
+	webhookURL     string
+	deviceID       string
+	stopChan       chan struct{}
+	webhookConns   map[string]*WebhookClient
+	webhookEnabled bool
+	serverURL      string
 }
 
 func NewService(cfg *config.Config) (*Service, error) {
@@ -52,8 +70,12 @@ func NewService(cfg *config.Config) (*Service, error) {
 
 	// Create service instance first
 	svc := &Service{
-		cfg:          cfg,
-		dockerClient: dockerClient,
+		cfg:            cfg,
+		dockerClient:   dockerClient,
+		stopChan:       make(chan struct{}),
+		webhookConns:   make(map[string]*WebhookClient),
+		webhookEnabled: true,
+		serverURL:      cfg.Runner.ServerURL,
 	}
 
 	// Start IPFS container first
@@ -61,10 +83,6 @@ func NewService(cfg *config.Config) (*Service, error) {
 		log.Error().Err(err).Msg("Failed to start IPFS container")
 		return nil, fmt.Errorf("failed to start IPFS container: %w", err)
 	}
-
-	// Wait for IPFS to be ready
-	log.Info().Msg("Waiting for IPFS to be ready...")
-	time.Sleep(5 * time.Second)
 
 	// Verify private key exists
 	if _, err := keystore.GetPrivateKey(); err != nil {
@@ -93,7 +111,7 @@ func NewService(cfg *config.Config) (*Service, error) {
 	rewardClient := NewEthereumRewardClient(cfg)
 
 	// Initialize task handler
-	taskHandler := NewTaskHandler(executor, taskClient, rewardClient)
+	taskHandler := NewTaskHandler(executor, taskClient, rewardClient, svc.wsClient)
 
 	// Generate webhook URL and client
 	deviceID, err := device.VerifyDeviceID()
@@ -112,11 +130,27 @@ func NewService(cfg *config.Config) (*Service, error) {
 	}
 
 	// Default webhook port if not specified
-	webhookPort := 8090
+	webhookPort := 9080
 	if cfg.Runner.WebhookPort > 0 {
 		webhookPort = cfg.Runner.WebhookPort
 	}
 
+	// Try to find an available port
+	portFound := false
+	for port := webhookPort; port < webhookPort+100; port++ {
+		if err := checkPortAvailable(port); err == nil {
+			webhookPort = port
+			portFound = true
+			log.Info().Int("port", port).Msg("Found available webhook port")
+			break
+		}
+	}
+
+	if !portFound {
+		return nil, fmt.Errorf("no available ports found in range %d-%d", webhookPort, webhookPort+100)
+	}
+
+	// Generate webhook URL with the confirmed available port
 	webhookURL := fmt.Sprintf("http://%s:%d/webhook", hostname, webhookPort)
 	webhookClient := NewWebhookClient(
 		cfg.Runner.ServerURL,
@@ -133,6 +167,10 @@ func NewService(cfg *config.Config) (*Service, error) {
 	svc.taskClient = taskClient
 	svc.rewardClient = rewardClient
 	svc.dockerExecutor = executor
+	svc.runnerID = runnerID
+	svc.webhookPort = webhookPort
+	svc.webhookURL = webhookURL
+	svc.deviceID = deviceID
 
 	log.Info().
 		Str("server_url", cfg.Runner.ServerURL).
@@ -147,18 +185,62 @@ func NewService(cfg *config.Config) (*Service, error) {
 func (s *Service) Start() error {
 	log := logger.WithComponent("runner")
 
-	// Start the webhook client, but don't fail the service if it doesn't work
-	if err := s.webhookClient.Start(); err != nil {
-		log.Warn().Err(err).
-			Msg("Webhook client failed to start properly. The runner will operate in offline mode")
-		// Continue without webhook functionality
-	} else {
-		log.Info().Msg("Webhook client started successfully")
+	// Start webhook server if enabled
+	if s.webhookEnabled {
+		if err := s.startWebhookServer(); err != nil {
+			log.Warn().Err(err).Msg("Failed to start webhook server. The runner will operate in offline mode")
+		} else {
+			// Only start the webhook client if the server started successfully
+			if err := s.webhookClient.Start(); err != nil {
+				log.Warn().Err(err).Msg("Webhook client failed to start properly. The runner will operate in offline mode")
+			} else {
+				log.Info().
+					Int("port", s.webhookPort).
+					Str("url", s.webhookURL).
+					Msg("Webhook client started successfully")
+			}
+		}
 	}
 
 	log.Info().
-		Str("server_url", s.cfg.Runner.ServerURL).
+		Str("server_url", s.serverURL).
 		Msg("Runner service started")
+
+	return nil
+}
+
+func (s *Service) startWebhookServer() error {
+	server := &http.Server{
+		Handler: http.HandlerFunc(s.handleWebhook),
+	}
+
+	// If we have a pre-reserved listener from the config, use it
+	if s.cfg.Runner.WebhookListener != nil {
+		// Start server with the provided listener
+		go func() {
+			if err := server.Serve(s.cfg.Runner.WebhookListener); err != nil && err != http.ErrServerClosed {
+				log.Error().Err(err).Msg("Webhook server error")
+			}
+		}()
+		return nil
+	}
+
+	// Otherwise, try to start the server on the configured port
+	server.Addr = fmt.Sprintf(":%d", s.webhookPort)
+	go func() {
+		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			log.Error().Err(err).Msg("Webhook server error")
+		}
+	}()
+
+	// Check if server is actually listening
+	time.Sleep(100 * time.Millisecond)
+	conn, err := net.DialTimeout("tcp", fmt.Sprintf("localhost:%d", s.webhookPort), time.Second)
+	if err != nil {
+		return fmt.Errorf("webhook port %d is not available: %w", s.webhookPort, err)
+	}
+	conn.Close()
+
 	return nil
 }
 
@@ -407,6 +489,17 @@ func (s *Service) startIPFSContainer() error {
 			"IPFS_SWARM_PORT_TCP=4001",
 			"IPFS_SWARM_PORT_WS=8081",
 		},
+		ExposedPorts: nat.PortSet{
+			nat.Port(fmt.Sprintf("%d/tcp", s.cfg.Runner.IPFS.APIPort)):     struct{}{},
+			nat.Port(fmt.Sprintf("%d/tcp", s.cfg.Runner.IPFS.GatewayPort)): struct{}{},
+			nat.Port(fmt.Sprintf("%d/tcp", s.cfg.Runner.IPFS.SwarmPort)):   struct{}{},
+		},
+		Healthcheck: &container.HealthConfig{
+			Test:     []string{"CMD", "ipfs", "id"},
+			Interval: 2 * time.Second,
+			Timeout:  1 * time.Second,
+			Retries:  3,
+		},
 	}
 
 	resp, err := s.dockerClient.ContainerCreate(ctx, containerConfig, &container.HostConfig{
@@ -445,12 +538,9 @@ func (s *Service) startIPFSContainer() error {
 
 	// Wait for IPFS API to be ready with timeout
 	log.Info().Msg("Waiting for IPFS API to be ready...")
-	timeout := time.After(2 * time.Minute)
-	ticker := time.NewTicker(2 * time.Second)
+	timeout := time.After(30 * time.Second)
+	ticker := time.NewTicker(1 * time.Second)
 	defer ticker.Stop()
-
-	// Give the container some initial time to start up
-	time.Sleep(10 * time.Second)
 
 	for {
 		select {
@@ -470,12 +560,23 @@ func (s *Service) startIPFSContainer() error {
 			}
 			return fmt.Errorf("timeout waiting for IPFS API to be ready")
 		case <-ticker.C:
-			if err := s.checkIPFSHealth(ctx); err == nil {
-				log.Info().Msg("IPFS API is ready")
-				return nil
-			} else {
-				log.Debug().Err(err).Msg("IPFS API not ready yet, retrying...")
+			// Check container health status first
+			inspect, err := s.dockerClient.ContainerInspect(ctx, resp.ID)
+			if err != nil {
+				log.Debug().Err(err).Msg("Failed to inspect container")
+				continue
 			}
+
+			if inspect.State.Health != nil && inspect.State.Health.Status == "healthy" {
+				// Double check with API call
+				if err := s.checkIPFSHealth(ctx); err == nil {
+					log.Info().Msg("IPFS API is ready")
+					return nil
+				}
+			}
+			log.Debug().
+				Str("health_status", inspect.State.Health.Status).
+				Msg("Waiting for IPFS container to be healthy...")
 		}
 	}
 }
@@ -489,7 +590,7 @@ func (s *Service) checkIPFSHealth(ctx context.Context) error {
 	}
 
 	client := &http.Client{
-		Timeout: 5 * time.Second,
+		Timeout: 2 * time.Second,
 		Transport: &http.Transport{
 			DisableKeepAlives: true,
 		},
@@ -523,8 +624,8 @@ func (s *Service) checkIPFSHealth(ctx context.Context) error {
 func checkDockerAvailability(cli *client.Client) error {
 	log := logger.WithComponent("docker")
 
-	// Get Docker version info
-	version, err := cli.ServerVersion(context.Background())
+	ctx := context.Background()
+	version, err := cli.ServerVersion(ctx)
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to get Docker version")
 		return fmt.Errorf("failed to get Docker version: %w", err)
@@ -537,5 +638,55 @@ func checkDockerAvailability(cli *client.Client) error {
 		Str("arch", version.Arch).
 		Msg("Docker daemon ready")
 
+	return nil
+}
+
+func (s *Service) handleWebhook(w http.ResponseWriter, r *http.Request) {
+	if s.taskHandler == nil {
+		http.Error(w, "Task handler not initialized", http.StatusInternalServerError)
+		return
+	}
+
+	var msg WebSocketMessage
+	if err := json.NewDecoder(r.Body).Decode(&msg); err != nil {
+		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	switch msg.Type {
+	case "available_tasks":
+		if tasks, ok := msg.Payload.([]interface{}); ok {
+			for _, taskData := range tasks {
+				if taskBytes, err := json.Marshal(taskData); err == nil {
+					var task models.Task
+					if err := json.Unmarshal(taskBytes, &task); err == nil {
+						go s.taskHandler.HandleTask(&task)
+					}
+				}
+			}
+		}
+	case "task_completed":
+		if completion, ok := msg.Payload.(map[string]interface{}); ok {
+			if taskID, ok := completion["task_id"].(string); ok {
+				if canceller, ok := s.taskHandler.(TaskCanceller); ok {
+					canceller.CancelTask(taskID)
+				}
+			}
+		}
+	default:
+		log.Warn().
+			Str("type", msg.Type).
+			Msg("Unknown webhook message type")
+	}
+
+	w.WriteHeader(http.StatusOK)
+}
+
+func checkPortAvailable(port int) error {
+	ln, err := net.Listen("tcp", fmt.Sprintf(":%d", port))
+	if err != nil {
+		return err
+	}
+	ln.Close()
 	return nil
 }

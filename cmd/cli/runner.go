@@ -48,6 +48,26 @@ func checkServerConnectivity(serverURL string) error {
 	return nil
 }
 
+// findAvailablePort tries to find an available port starting from the given base port
+func findAvailablePort(basePort int) (int, net.Listener, error) {
+	log := logger.Get().With().Str("component", "cli").Logger()
+
+	// Try ports from basePort to basePort + 100
+	for port := basePort; port < basePort+100; port++ {
+		// Try to listen on the port
+		listener, err := net.Listen("tcp", fmt.Sprintf(":%d", port))
+		if err != nil {
+			log.Debug().Int("port", port).Err(err).Msg("Port not available")
+			continue
+		}
+
+		log.Debug().Int("port", port).Msg("Found available port")
+		return port, listener, nil
+	}
+
+	return 0, nil, fmt.Errorf("no available ports found in range %d-%d", basePort, basePort+100)
+}
+
 func RunRunner() {
 	log := logger.Get().With().Str("component", "cli").Logger()
 
@@ -57,15 +77,25 @@ func RunRunner() {
 		log.Fatal().Err(err).Msg("Failed to load config")
 	}
 
-	// Check if webhook port is available
-	webhookPort := 8090
+	// Find an available webhook port
+	webhookPort := 9080
 	if cfg.Runner.WebhookPort > 0 {
 		webhookPort = cfg.Runner.WebhookPort
 	}
 
-	if err := checkPortAvailable(webhookPort); err != nil {
-		log.Fatal().Err(err).Int("port", webhookPort).Msg("Webhook port is not available")
+	// Try to find an available port
+	port, listener, err := findAvailablePort(webhookPort)
+	if err != nil {
+		log.Fatal().Err(err).Int("base_port", webhookPort).Msg("No available ports found")
 	}
+	defer listener.Close() // Ensure listener is closed if we exit early
+
+	webhookPort = port
+	cfg.Runner.WebhookPort = webhookPort // Update the config with the found port
+	log.Info().Int("port", webhookPort).Msg("Found available port for webhook")
+
+	// Store the listener in the config for the runner service to use
+	cfg.Runner.WebhookListener = listener
 
 	// Check if the server is reachable before proceeding
 	if err := checkServerConnectivity(cfg.Runner.ServerURL); err != nil {
