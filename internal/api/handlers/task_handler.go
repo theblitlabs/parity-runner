@@ -564,9 +564,13 @@ func (h *TaskHandler) SaveTaskResult(w http.ResponseWriter, r *http.Request) {
 
 	// Return success response
 	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(map[string]string{
+	if err := json.NewEncoder(w).Encode(map[string]string{
 		"status": "success",
-	})
+	}); err != nil {
+		log.Error().Err(err).Msg("Failed to encode response")
+		// Response header is already sent, can't change status code
+		return
+	}
 }
 
 // broadcastToWebhooks sends a message to all connected webhooks
