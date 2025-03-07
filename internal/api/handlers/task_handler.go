@@ -7,8 +7,9 @@ import (
 	"fmt"
 	"io"
 	"math/big"
+	"net"
 	"net/http"
-	"strings"
+	"net/url"
 	"sync"
 	"time"
 
@@ -123,42 +124,40 @@ func (h *TaskHandler) NotifyTaskUpdate() {
 	}
 }
 
-// notifyWebhooks sends notifications to all registered webhook endpoints
-func (h *TaskHandler) notifyWebhooks() {
-	log := logger.WithComponent("webhook")
-
-	// Check if we're shutting down
-	select {
-	case <-h.stopCh:
+// notifyWebhooks sends a notification to all registered webhooks
+func (h *TaskHandler) notifyWebhooks(tasks ...[]*models.Task) {
+	if h.isShuttingDown() {
 		log.Debug().Msg("notifyWebhooks: Ignoring webhook notification during shutdown")
 		return
-	default:
-		// Continue if not shutting down
 	}
 
-	tasks, err := h.service.ListAvailableTasks(context.Background())
-	if err != nil {
-		log.Error().Err(err).Msg("Failed to list tasks for webhook notification")
-		return
+	// Get all tasks if none provided
+	var taskList []*models.Task
+	if len(tasks) > 0 && len(tasks[0]) > 0 {
+		taskList = tasks[0]
+	} else {
+		var err error
+		taskList, err = h.service.ListAvailableTasks(context.Background())
+		if err != nil {
+			log.Error().Err(err).Msg("Failed to list tasks for webhook notification")
+			return
+		}
 	}
 
-	if len(tasks) == 0 {
-		log.Debug().Msg("No available tasks to notify about")
-		return
-	}
-
+	// Create payload
 	payload := WSMessage{
 		Type:    "available_tasks",
-		Payload: tasks,
+		Payload: taskList,
 	}
 
-	// Marshal payload once for all webhooks
+	// Marshal payload
 	payloadBytes, err := json.Marshal(payload)
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to marshal webhook payload")
 		return
 	}
 
+	// Get all webhooks
 	h.webhookMutex.RLock()
 	webhooks := make([]WebhookRegistration, 0, len(h.webhooks))
 	for _, webhook := range h.webhooks {
@@ -200,7 +199,11 @@ func (h *TaskHandler) notifyWebhooks() {
 					wg.Done()
 				}()
 
-				req, err := http.NewRequest("POST", webhook.URL, bytes.NewReader(payloadBytes))
+				// Create a context with timeout
+				ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+				defer cancel()
+
+				req, err := http.NewRequestWithContext(ctx, "POST", webhook.URL, bytes.NewReader(payloadBytes))
 				if err != nil {
 					log.Error().Err(err).
 						Str("webhook_id", webhook.ID).
@@ -236,12 +239,13 @@ func (h *TaskHandler) notifyWebhooks() {
 				log.Debug().
 					Str("webhook_id", webhook.ID).
 					Str("url", webhook.URL).
-					Int("task_count", len(tasks)).
+					Int("task_count", len(taskList)).
 					Msg("Webhook notification sent successfully")
 			}(webhook)
 		}
 	}
 
+	// Wait for all notifications to complete
 	wg.Wait()
 }
 
@@ -776,11 +780,27 @@ func (h *TaskHandler) sendInitialWebhookNotification(webhook WebhookRegistration
 		return fmt.Errorf("failed to marshal initial webhook payload: %v", err)
 	}
 
+	// Increase timeout from 15 to 30 seconds
 	client := &http.Client{
-		Timeout: 5 * time.Second,
+		Timeout: 30 * time.Second,
+		Transport: &http.Transport{
+			DialContext: (&net.Dialer{
+				Timeout:   15 * time.Second,
+				KeepAlive: 30 * time.Second,
+			}).DialContext,
+			TLSHandshakeTimeout:   15 * time.Second,
+			ResponseHeaderTimeout: 15 * time.Second,
+			ExpectContinueTimeout: 1 * time.Second,
+		},
 	}
 
-	req, err := http.NewRequest("POST", webhook.URL, strings.NewReader(string(payloadBytes)))
+	// Create a context with increased timeout
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	// Try to send the webhook notification
+	webhookURL := webhook.URL
+	req, err := http.NewRequestWithContext(ctx, "POST", webhookURL, bytes.NewReader(payloadBytes))
 	if err != nil {
 		return fmt.Errorf("failed to create initial webhook request: %v", err)
 	}
@@ -790,11 +810,56 @@ func (h *TaskHandler) sendInitialWebhookNotification(webhook WebhookRegistration
 
 	startTime := time.Now()
 	resp, err := client.Do(req)
-	if err != nil {
-		return fmt.Errorf("failed to send initial webhook notification: %v", err)
-	}
-	defer resp.Body.Close()
 
+	// If the request failed, try to parse the URL and use IP address directly
+	if err != nil {
+		log.Warn().
+			Err(err).
+			Str("webhook_id", webhook.ID).
+			Str("url", webhookURL).
+			Msg("Initial webhook notification failed, trying to resolve hostname")
+
+		// Parse the URL to extract hostname and port
+		parsedURL, parseErr := url.Parse(webhookURL)
+		if parseErr != nil {
+			return fmt.Errorf("failed to parse webhook URL: %v, original error: %v", parseErr, err)
+		}
+
+		// Extract host and port
+		host, port, splitErr := net.SplitHostPort(parsedURL.Host)
+		if splitErr != nil {
+			host = parsedURL.Host
+			// Default to port 80 for HTTP
+			port = "80"
+		}
+
+		// Try to resolve the hostname to IP
+		ips, resolveErr := net.LookupIP(host)
+		if resolveErr != nil || len(ips) == 0 {
+			// Log the error but don't fail - we'll try localhost as a fallback
+			log.Warn().
+				Err(resolveErr).
+				Str("webhook_id", webhook.ID).
+				Str("host", host).
+				Msg("Failed to resolve hostname, trying localhost fallback")
+
+			// Try with localhost (127.0.0.1) as a fallback
+			ipURL := fmt.Sprintf("%s://127.0.0.1:%s%s", parsedURL.Scheme, port, parsedURL.Path)
+			return h.tryWebhookWithIP(webhook, ipURL, payloadBytes)
+		}
+
+		// Try with the first IP address
+		ipURL := fmt.Sprintf("%s://%s:%s%s", parsedURL.Scheme, ips[0].String(), port, parsedURL.Path)
+		log.Info().
+			Str("webhook_id", webhook.ID).
+			Str("original_url", webhookURL).
+			Str("ip_url", ipURL).
+			Msg("Trying webhook notification with IP address")
+
+		return h.tryWebhookWithIP(webhook, ipURL, payloadBytes)
+	}
+
+	defer resp.Body.Close()
 	requestDuration := time.Since(startTime)
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
@@ -812,4 +877,68 @@ func (h *TaskHandler) sendInitialWebhookNotification(webhook WebhookRegistration
 		Msg("Initial webhook notification sent successfully")
 
 	return nil
+}
+
+// tryWebhookWithIP attempts to send a webhook notification using an IP address
+func (h *TaskHandler) tryWebhookWithIP(webhook WebhookRegistration, ipURL string, payloadBytes []byte) error {
+	// Create a client with increased timeout
+	client := &http.Client{
+		Timeout: 30 * time.Second,
+		Transport: &http.Transport{
+			DialContext: (&net.Dialer{
+				Timeout:   15 * time.Second,
+				KeepAlive: 30 * time.Second,
+			}).DialContext,
+			TLSHandshakeTimeout:   15 * time.Second,
+			ResponseHeaderTimeout: 15 * time.Second,
+			ExpectContinueTimeout: 1 * time.Second,
+		},
+	}
+
+	// Create a context with increased timeout
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	// Create a new request with the IP address
+	ipReq, ipReqErr := http.NewRequestWithContext(ctx, "POST", ipURL, bytes.NewReader(payloadBytes))
+	if ipReqErr != nil {
+		return fmt.Errorf("failed to create IP-based webhook request: %v", ipReqErr)
+	}
+
+	ipReq.Header.Set("Content-Type", "application/json")
+	ipReq.Header.Set("X-Webhook-ID", webhook.ID)
+
+	// Try the request with IP address
+	startTime := time.Now()
+	resp, err := client.Do(ipReq)
+	if err != nil {
+		return fmt.Errorf("failed to send initial webhook notification with IP address: %v", err)
+	}
+	defer resp.Body.Close()
+
+	requestDuration := time.Since(startTime)
+
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		body, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("initial webhook notification with IP returned non-success status: %d, response: %s", resp.StatusCode, string(body))
+	}
+
+	log.Info().
+		Str("webhook_id", webhook.ID).
+		Str("url", ipURL).
+		Int("status", resp.StatusCode).
+		Dur("response_time_ms", requestDuration).
+		Int("payload_size_bytes", len(payloadBytes)).
+		Msg("Initial webhook notification with IP sent successfully")
+
+	return nil
+}
+
+func (h *TaskHandler) isShuttingDown() bool {
+	select {
+	case <-h.stopCh:
+		return true
+	default:
+		return false
+	}
 }
