@@ -506,7 +506,7 @@ func (w *WebhookClient) handleWebhook(resp http.ResponseWriter, req *http.Reques
 			w.mu.Unlock()
 
 			// Create a new context with timeout for task execution
-			taskCtx, taskCancel := context.WithTimeout(context.Background(), 5*time.Minute)
+			taskCtx, taskCancel := context.WithTimeout(ctx, 5*time.Minute)
 
 			// Process task in a goroutine
 			go func(ctx context.Context, cancel context.CancelFunc, t *models.Task) {
@@ -562,7 +562,7 @@ func (c *WebhookClient) handleTask(ctx context.Context, task *models.Task) error
 
 	// Update task status to running
 	task.Status = "running"
-	if err := c.updateTaskStatus(ctx, task); err != nil {
+	if err := c.updateTaskStatus(task); err != nil {
 		c.logger.Error().
 			Str("task_id", task.ID.String()).
 			Err(err).
@@ -593,7 +593,7 @@ func (c *WebhookClient) handleTask(ctx context.Context, task *models.Task) error
 			Err(err).
 			Msg("Task execution failed")
 		task.Status = "failed"
-		if updateErr := c.updateTaskStatus(ctx, task); updateErr != nil {
+		if updateErr := c.updateTaskStatus(task); updateErr != nil {
 			c.logger.Error().
 				Str("task_id", task.ID.String()).
 				Err(updateErr).
@@ -606,7 +606,7 @@ func (c *WebhookClient) handleTask(ctx context.Context, task *models.Task) error
 		Str("task_id", task.ID.String()).
 		Msg("Task execution completed successfully")
 	task.Status = "completed"
-	if err := c.updateTaskStatus(ctx, task); err != nil {
+	if err := c.updateTaskStatus(task); err != nil {
 		c.logger.Error().
 			Str("task_id", task.ID.String()).
 			Err(err).
@@ -620,7 +620,7 @@ func (c *WebhookClient) handleTask(ctx context.Context, task *models.Task) error
 	return nil
 }
 
-func (c *WebhookClient) updateTaskStatus(ctx context.Context, task *models.Task) error {
+func (c *WebhookClient) updateTaskStatus(task *models.Task) error {
 	c.logger.Debug().
 		Str("task_id", task.ID.String()).
 		Str("status", string(task.Status)).
@@ -694,11 +694,11 @@ func (c *WebhookClient) executeDockerTask(ctx context.Context, task *models.Task
 
 	// Check if Docker client is initialized
 	if c.dockerClient == nil {
-		return nil, fmt.Errorf("Docker client not initialized")
+		return nil, fmt.Errorf("docker client not initialized")
 	}
 
 	// Create a new context with timeout for Docker operations
-	dockerCtx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	dockerCtx, cancel := context.WithTimeout(ctx, 2*time.Minute)
 	defer cancel()
 
 	// Parse docker config
