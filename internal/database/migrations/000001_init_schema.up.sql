@@ -52,3 +52,20 @@ CREATE INDEX idx_task_results_device_id ON task_results(device_id);
 CREATE INDEX idx_task_results_device_id_hash ON task_results(device_id_hash);
 CREATE INDEX idx_task_results_runner_address ON task_results(runner_address);
 CREATE INDEX idx_task_results_creator_address ON task_results(creator_address);
+
+-- Create webhooks table
+CREATE TABLE IF NOT EXISTS webhooks (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    runner_id UUID NOT NULL,
+    device_id TEXT NOT NULL,
+    url TEXT NOT NULL,
+    last_heartbeat TIMESTAMP WITH TIME ZONE,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_webhooks_runner_id ON webhooks(runner_id);
+CREATE INDEX IF NOT EXISTS idx_webhooks_device_id ON webhooks(device_id);
+
+ALTER TABLE tasks ADD COLUMN IF NOT EXISTS webhook_id UUID REFERENCES webhooks(id) ON DELETE SET NULL;
+ALTER TABLE tasks ADD COLUMN IF NOT EXISTS error TEXT; 

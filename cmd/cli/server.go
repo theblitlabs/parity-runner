@@ -44,6 +44,8 @@ func verifyPortAvailable(host string, port string) error {
 }
 
 func RunServer() {
+	// Initialize logger with consistent formatting
+	logger.InitWithMode(logger.LogModePretty)
 	log := logger.Get()
 
 	// Verify device ID
@@ -92,7 +94,14 @@ func RunServer() {
 	// Initialize database
 	taskRepo := repositories.NewTaskRepository(dbx)
 	taskService := services.NewTaskService(taskRepo, ipfsClient)
+
+	// Create and start heartbeat monitor
+	heartbeatMonitor := services.NewHeartbeatMonitor(taskService)
+	go heartbeatMonitor.Start(shutdownCtx)
+
+	// Initialize task handler with the heartbeat monitor
 	taskHandler := handlers.NewTaskHandler(taskService)
+	taskHandler.SetHeartbeatMonitor(heartbeatMonitor)
 
 	// Start the task service cleanup ticker
 	taskService.StartCleanupTicker(shutdownCtx)

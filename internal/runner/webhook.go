@@ -8,7 +8,6 @@ import (
 	"io"
 	"net"
 	"net/http"
-	"strings"
 	"sync"
 	"time"
 
@@ -27,24 +26,27 @@ type WebhookMessage struct {
 }
 
 type WebhookClient struct {
-	serverURL       string
-	webhookURL      string
-	webhookPort     int
-	taskHandler     TaskHandler
-	runnerID        string
-	deviceID        string
-	service         *Service
-	connections     map[string]*http.Client
-	webhookID       string
-	server          *http.Server
-	stopChan        chan struct{}
-	mu              sync.Mutex
-	started         bool
-	completedTasks  map[string]time.Time
-	processingTasks map[string]bool // Track tasks currently being processed
-	lastCleanupTime time.Time
-	logger          zerolog.Logger
-	dockerClient    *client.Client
+	serverURL        string
+	webhookURL       string
+	webhookPort      int
+	taskHandler      TaskHandler
+	runnerID         string
+	deviceID         string
+	service          *Service
+	connections      map[string]*http.Client
+	webhookID        string
+	server           *http.Server
+	stopChan         chan struct{}
+	mu               sync.Mutex
+	started          bool
+	completedTasks   map[string]time.Time
+	processingTasks  map[string]bool // Track tasks currently being processed
+	lastCleanupTime  time.Time
+	logger           zerolog.Logger
+	dockerClient     *client.Client
+	heartbeatTicker  *time.Ticker
+	lastHeartbeat    time.Time
+	missedHeartbeats int
 }
 
 // NewWebhookClient creates a new webhook client
@@ -136,29 +138,30 @@ func (w *WebhookClient) Register() error {
 		return fmt.Errorf("webhook registration failed with status code: %d", resp.StatusCode)
 	}
 
-	// Try to parse response
-	var response struct {
-		ID      string `json:"id"`
-		Success bool   `json:"success"`
-	}
-
 	// For 201 Created responses, the server might not include a response body
 	// In this case, we'll consider it a success
 	if resp.StatusCode == http.StatusCreated {
-		// Extract webhook ID from the Location header if available
-		if location := resp.Header.Get("Location"); location != "" {
-			parts := strings.Split(location, "/")
-			if len(parts) > 0 {
-				w.webhookID = parts[len(parts)-1]
-				log.Info().Str("webhook_id", w.webhookID).Msg("Webhook registered successfully")
-				return nil
-			}
+		// Try to parse response for webhook ID
+		var response struct {
+			ID string `json:"id"`
+		}
+		if err := json.NewDecoder(resp.Body).Decode(&response); err != nil {
+			log.Warn().Err(err).Msg("Failed to parse webhook registration response")
+			// Generate a local ID as fallback
+			w.webhookID = uuid.New().String()
+			log.Info().Str("webhook_id", w.webhookID).Msg("Webhook registered successfully (local ID)")
+			return nil
 		}
 
-		// If no Location header, generate a local ID
-		w.webhookID = uuid.New().String()
-		log.Info().Str("webhook_id", w.webhookID).Msg("Webhook registered successfully (local ID)")
+		w.webhookID = response.ID
+		log.Info().Str("webhook_id", w.webhookID).Msg("Webhook registered successfully")
 		return nil
+	}
+
+	// For other status codes, try to parse the response body
+	var response struct {
+		ID      string `json:"id"`
+		Success bool   `json:"success"`
 	}
 
 	// For other status codes, try to parse the response body
@@ -285,6 +288,9 @@ func (w *WebhookClient) Start() error {
 		return nil
 	}
 
+	// Start heartbeat after successful registration
+	w.startHeartbeat()
+
 	w.started = true
 	return nil
 }
@@ -312,6 +318,12 @@ func (w *WebhookClient) Stop() error {
 	if !w.started {
 		log.Info().Msg("Webhook client not started, nothing to stop")
 		return nil
+	}
+
+	// Stop heartbeat ticker if running
+	if w.heartbeatTicker != nil {
+		w.heartbeatTicker.Stop()
+		w.heartbeatTicker = nil
 	}
 
 	// Close the stop channel first to prevent new operations
@@ -781,4 +793,145 @@ func (c *WebhookClient) executeDockerTask(ctx context.Context, task *models.Task
 	return &models.TaskResult{
 		Output: string(logContent),
 	}, nil
+}
+
+// startHeartbeat starts the heartbeat mechanism
+func (w *WebhookClient) startHeartbeat() {
+	w.mu.Lock()
+	if w.heartbeatTicker != nil {
+		w.mu.Unlock()
+		return
+	}
+	w.heartbeatTicker = time.NewTicker(30 * time.Second)
+	w.lastHeartbeat = time.Now()
+	w.missedHeartbeats = 0
+	w.mu.Unlock()
+
+	go func() {
+		for {
+			select {
+			case <-w.stopChan:
+				w.mu.Lock()
+				if w.heartbeatTicker != nil {
+					w.heartbeatTicker.Stop()
+					w.heartbeatTicker = nil
+				}
+				w.mu.Unlock()
+				return
+			case <-w.heartbeatTicker.C:
+				if err := w.sendHeartbeat(); err != nil {
+					w.mu.Lock()
+					w.missedHeartbeats++
+					if w.missedHeartbeats >= 3 {
+						w.logger.Error().
+							Int("missed_heartbeats", w.missedHeartbeats).
+							Msg("Multiple heartbeats missed, attempting to reconnect")
+						// Trigger reconnection
+						go w.reconnect()
+					}
+					w.mu.Unlock()
+				} else {
+					w.mu.Lock()
+					w.lastHeartbeat = time.Now()
+					w.missedHeartbeats = 0
+					w.mu.Unlock()
+				}
+			}
+		}
+	}()
+}
+
+// sendHeartbeat sends a heartbeat to the server
+func (w *WebhookClient) sendHeartbeat() error {
+	log := w.logger.With().Str("operation", "heartbeat").Logger()
+
+	if w.webhookID == "" {
+		log.Error().Msg("Cannot send heartbeat - webhook ID is empty")
+		return fmt.Errorf("webhook ID is empty")
+	}
+
+	url := fmt.Sprintf("%s/runners/webhooks/%s/heartbeat", w.serverURL, w.webhookID)
+	log.Debug().
+		Str("webhook_id", w.webhookID).
+		Str("url", url).
+		Msg("Sending heartbeat request")
+
+	req, err := http.NewRequest("POST", url, nil)
+	if err != nil {
+		log.Error().
+			Err(err).
+			Str("webhook_id", w.webhookID).
+			Str("url", url).
+			Msg("Failed to create heartbeat request")
+		return err
+	}
+
+	req.Header.Set("X-Runner-ID", w.runnerID)
+	req.Header.Set("X-Device-ID", w.deviceID)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	req = req.WithContext(ctx)
+
+	startTime := time.Now()
+	client := &http.Client{Timeout: 5 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		log.Error().
+			Err(err).
+			Str("webhook_id", w.webhookID).
+			Str("url", url).
+			Msg("Failed to send heartbeat")
+		return err
+	}
+	defer resp.Body.Close()
+
+	duration := time.Since(startTime)
+	if resp.StatusCode != http.StatusOK {
+		log.Error().
+			Int("status_code", resp.StatusCode).
+			Str("webhook_id", w.webhookID).
+			Str("url", url).
+			Dur("duration_ms", duration).
+			Msg("Heartbeat request failed with non-200 status")
+		return fmt.Errorf("heartbeat failed with status: %d", resp.StatusCode)
+	}
+
+	log.Info().
+		Str("webhook_id", w.webhookID).
+		Str("url", url).
+		Dur("duration_ms", duration).
+		Msg("Heartbeat sent successfully")
+	return nil
+}
+
+// reconnect attempts to re-establish the webhook connection
+func (w *WebhookClient) reconnect() {
+	log := w.logger.With().Str("operation", "reconnect").Logger()
+	log.Info().Msg("Attempting to reconnect webhook")
+
+	w.mu.Lock()
+	if w.heartbeatTicker != nil {
+		w.heartbeatTicker.Stop()
+		w.heartbeatTicker = nil
+	}
+	w.mu.Unlock()
+
+	// Try to unregister first
+	if err := w.Unregister(); err != nil {
+		log.Warn().Err(err).Msg("Failed to unregister webhook during reconnection")
+	}
+
+	// Wait a bit before trying to reconnect
+	time.Sleep(5 * time.Second)
+
+	// Try to register again
+	if err := w.Register(); err != nil {
+		log.Error().Err(err).Msg("Failed to re-register webhook")
+		return
+	}
+
+	// Restart heartbeat
+	w.startHeartbeat()
+	log.Info().Msg("Webhook reconnected successfully")
 }

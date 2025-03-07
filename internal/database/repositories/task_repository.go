@@ -96,6 +96,8 @@ type dbTask struct {
 	UpdatedAt       time.Time         `db:"updated_at"`
 	CompletedAt     *time.Time        `db:"completed_at"`
 	Environment     []byte            `db:"environment"`
+	WebhookID       *uuid.UUID        `db:"webhook_id"`
+	Error           string            `db:"error"`
 }
 
 func (r *TaskRepository) Get(ctx context.Context, id uuid.UUID) (*models.Task, error) {
@@ -124,6 +126,8 @@ func (r *TaskRepository) Get(ctx context.Context, id uuid.UUID) (*models.Task, e
 		CreatedAt:       dbTask.CreatedAt,
 		UpdatedAt:       dbTask.UpdatedAt,
 		CompletedAt:     dbTask.CompletedAt,
+		WebhookID:       dbTask.WebhookID,
+		Error:           dbTask.Error,
 	}
 
 	if err := json.Unmarshal(dbTask.Config, &task.Config); err != nil {
@@ -183,6 +187,8 @@ func (r *TaskRepository) ListByStatus(ctx context.Context, status models.TaskSta
 			CreatedAt:       dbTask.CreatedAt,
 			UpdatedAt:       dbTask.UpdatedAt,
 			CompletedAt:     dbTask.CompletedAt,
+			WebhookID:       dbTask.WebhookID,
+			Error:           dbTask.Error,
 		}
 
 		if err := json.Unmarshal(dbTask.Config, &tasks[i].Config); err != nil {
@@ -225,6 +231,8 @@ func (r *TaskRepository) List(ctx context.Context, limit, offset int) ([]*models
 			CreatedAt:       dbTask.CreatedAt,
 			UpdatedAt:       dbTask.UpdatedAt,
 			CompletedAt:     dbTask.CompletedAt,
+			WebhookID:       dbTask.WebhookID,
+			Error:           dbTask.Error,
 		}
 
 		if err := json.Unmarshal(dbTask.Config, &tasks[i].Config); err != nil {
@@ -265,6 +273,8 @@ func (r *TaskRepository) GetAll(ctx context.Context) ([]models.Task, error) {
 			CreatedAt:       dbTask.CreatedAt,
 			UpdatedAt:       dbTask.UpdatedAt,
 			CompletedAt:     dbTask.CompletedAt,
+			WebhookID:       dbTask.WebhookID,
+			Error:           dbTask.Error,
 		}
 
 		if err := json.Unmarshal(dbTask.Config, &tasks[i].Config); err != nil {
@@ -376,4 +386,64 @@ func (r *TaskRepository) GetTaskResult(ctx context.Context, taskID uuid.UUID) (*
 	}
 
 	return result, nil
+}
+
+// GetTasksByWebhook retrieves all tasks associated with a webhook
+func (r *TaskRepository) GetTasksByWebhook(webhookID string) ([]*models.Task, error) {
+	var tasks []*models.Task
+	query := `
+		SELECT * FROM tasks 
+		WHERE webhook_id = $1
+	`
+	if err := r.db.Select(&tasks, query, webhookID); err != nil {
+		return nil, fmt.Errorf("failed to get tasks by webhook: %w", err)
+	}
+	return tasks, nil
+}
+
+// UpdateTask updates a task's status and error message
+func (r *TaskRepository) UpdateTask(task *models.Task) error {
+	query := `
+		UPDATE tasks 
+		SET status = $1, error = $2, updated_at = NOW()
+		WHERE id = $3
+	`
+	result, err := r.db.Exec(query, task.Status, task.Error, task.ID)
+	if err != nil {
+		return fmt.Errorf("failed to update task: %w", err)
+	}
+
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("failed to get rows affected: %w", err)
+	}
+
+	if rows == 0 {
+		return fmt.Errorf("no task found with ID %s", task.ID)
+	}
+
+	return nil
+}
+
+// RemoveWebhook removes a webhook registration
+func (r *TaskRepository) RemoveWebhook(webhookID string) error {
+	query := `
+		DELETE FROM webhooks 
+		WHERE id = $1
+	`
+	result, err := r.db.Exec(query, webhookID)
+	if err != nil {
+		return fmt.Errorf("failed to remove webhook: %w", err)
+	}
+
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("failed to get rows affected: %w", err)
+	}
+
+	if rows == 0 {
+		return fmt.Errorf("no webhook found with ID %s", webhookID)
+	}
+
+	return nil
 }

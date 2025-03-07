@@ -54,9 +54,9 @@ func (c *TaskConfig) Validate(taskType TaskType) error {
 }
 
 type ResourceConfig struct {
-	Memory    string `json:"memory,omitempty"`     // e.g., "512m"
-	CPUShares int64  `json:"cpu_shares,omitempty"` // relative CPU share weight
-	Timeout   string `json:"timeout,omitempty"`    // e.g., "1h"
+	Memory    string `json:"memory,omitempty"`
+	CPUShares int64  `json:"cpu_shares,omitempty"`
+	Timeout   string `json:"timeout,omitempty"`
 }
 
 type Task struct {
@@ -65,13 +65,15 @@ type Task struct {
 	Description     string             `json:"description" db:"description"`
 	Type            TaskType           `json:"type" db:"type"`
 	Status          TaskStatus         `json:"status" db:"status"`
-	Config          json.RawMessage    `json:"config"`
+	Config          json.RawMessage    `json:"config" db:"config"`
 	Environment     *EnvironmentConfig `json:"environment,omitempty" db:"environment"`
 	Reward          float64            `json:"reward" db:"reward"`
 	CreatorID       uuid.UUID          `json:"creator_id" db:"creator_id"`
 	CreatorAddress  string             `json:"creator_address" db:"creator_address"`
 	CreatorDeviceID string             `json:"creator_device_id" db:"creator_device_id"`
 	RunnerID        *uuid.UUID         `json:"runner_id,omitempty" db:"runner_id"`
+	WebhookID       *uuid.UUID         `json:"webhook_id,omitempty" db:"webhook_id"`
+	Error           string             `json:"error,omitempty" db:"error"`
 	CreatedAt       time.Time          `json:"created_at" db:"created_at"`
 	UpdatedAt       time.Time          `json:"updated_at" db:"updated_at"`
 	CompletedAt     *time.Time         `json:"completed_at,omitempty" db:"completed_at"`

@@ -25,6 +25,8 @@ func isPortAvailable(port int) error {
 }
 
 func RunChain() {
+	// Initialize logger with consistent formatting
+	logger.InitWithMode(logger.LogModePretty)
 	log := logger.Get()
 
 	// Load config

@@ -71,6 +71,7 @@ func (r *Router) registerRoutes(router *mux.Router, taskHandler *handlers.TaskHa
 	// Webhook routes
 	runners.HandleFunc("/webhooks", taskHandler.RegisterWebhook).Methods("POST")
 	runners.HandleFunc("/webhooks/{id}", taskHandler.UnregisterWebhook).Methods("DELETE")
+	runners.HandleFunc("/webhooks/{id}/heartbeat", taskHandler.HandleHeartbeat).Methods("POST")
 }
 
 // AddMiddleware adds a new middleware to the router

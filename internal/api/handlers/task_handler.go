@@ -17,10 +17,10 @@ import (
 	"github.com/google/uuid"
 	"github.com/gorilla/mux"
 	"github.com/rs/zerolog/log"
+	"github.com/theblitlabs/parity-protocol/pkg/logger"
 
 	"github.com/theblitlabs/parity-protocol/internal/models"
 	"github.com/theblitlabs/parity-protocol/internal/services"
-	"github.com/theblitlabs/parity-protocol/pkg/logger"
 	"github.com/theblitlabs/parity-protocol/pkg/stakewallet"
 )
 
@@ -84,18 +84,23 @@ type TaskService interface {
 
 // TaskHandler handles task-related HTTP and webhook requests
 type TaskHandler struct {
-	service      TaskService
-	stakeWallet  stakewallet.StakeWallet
-	taskUpdateCh chan struct{} // Channel for task updates
-	webhooks     map[string]WebhookRegistration
-	webhookMutex sync.RWMutex
-	stopCh       chan struct{} // Channel for shutdown signal
+	taskService      TaskService
+	stakeWallet      stakewallet.StakeWallet
+	taskUpdateCh     chan struct{} // Channel for task updates
+	webhooks         map[string]WebhookRegistration
+	webhookMutex     sync.RWMutex
+	stopCh           chan struct{} // Channel for shutdown signal
+	heartbeatMonitor *services.HeartbeatMonitor
 }
 
 // NewTaskHandler creates a new TaskHandler instance
 func NewTaskHandler(service TaskService) *TaskHandler {
+	if _, ok := service.(*services.TaskService); !ok {
+		panic("service must be of type *services.TaskService")
+	}
+
 	return &TaskHandler{
-		service:      service,
+		taskService:  service,
 		webhooks:     make(map[string]WebhookRegistration),
 		taskUpdateCh: make(chan struct{}, 100), // Buffer for task updates
 	}
@@ -104,6 +109,11 @@ func NewTaskHandler(service TaskService) *TaskHandler {
 // SetStakeWallet sets the stake wallet for the handler
 func (h *TaskHandler) SetStakeWallet(wallet stakewallet.StakeWallet) {
 	h.stakeWallet = wallet
+}
+
+// SetHeartbeatMonitor sets the heartbeat monitor for the handler
+func (h *TaskHandler) SetHeartbeatMonitor(monitor *services.HeartbeatMonitor) {
+	h.heartbeatMonitor = monitor
 }
 
 // SetStopChannel sets a stop channel for graceful shutdown
@@ -138,7 +148,7 @@ func (h *TaskHandler) notifyWebhooks(tasks ...[]*models.Task) {
 		taskList = tasks[0]
 	} else {
 		var err error
-		taskList, err = h.service.ListAvailableTasks(context.Background())
+		taskList, err = h.taskService.ListAvailableTasks(context.Background())
 		if err != nil {
 			log.Error().Err(err).Msg("Failed to list tasks for webhook notification")
 			return
@@ -277,14 +287,19 @@ func (h *TaskHandler) RegisterWebhook(w http.ResponseWriter, r *http.Request) {
 	h.webhooks[webhookID] = registration
 	h.webhookMutex.Unlock()
 
+	// Record webhook in heartbeat monitor
+	if h.heartbeatMonitor != nil {
+		h.heartbeatMonitor.RecordHeartbeat(webhookID)
+	}
+
 	// Register with pool manager and update ping
-	if err := h.service.RegisterRunner(req.RunnerID, req.DeviceID, req.URL); err != nil {
+	if err := h.taskService.RegisterRunner(req.RunnerID, req.DeviceID, req.URL); err != nil {
 		http.Error(w, fmt.Sprintf("Failed to register runner: %v", err), http.StatusInternalServerError)
 		return
 	}
 
 	// Update runner's ping time
-	h.service.UpdateRunnerPing(req.RunnerID)
+	h.taskService.UpdateRunnerPing(req.RunnerID)
 
 	log.Info().
 		Str("webhook", webhookID).
@@ -306,7 +321,14 @@ func (h *TaskHandler) RegisterWebhook(w http.ResponseWriter, r *http.Request) {
 		}
 	}()
 
+	// Return the webhook ID in the response
+	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
+	if err := json.NewEncoder(w).Encode(map[string]string{
+		"id": webhookID,
+	}); err != nil {
+		log.Error().Err(err).Msg("Failed to encode webhook registration response")
+	}
 }
 
 // UnregisterWebhook removes a registered webhook
@@ -327,6 +349,11 @@ func (h *TaskHandler) UnregisterWebhook(w http.ResponseWriter, r *http.Request) 
 
 	delete(h.webhooks, webhookID)
 	h.webhookMutex.Unlock()
+
+	// Remove webhook from heartbeat monitor
+	if h.heartbeatMonitor != nil {
+		h.heartbeatMonitor.RecordHeartbeat(webhookID) // This will reset the heartbeat, allowing the monitor to detect it as stale
+	}
 
 	log := logger.WithComponent("webhook")
 	log.Info().
@@ -351,7 +378,7 @@ func (h *TaskHandler) GetTaskResult(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	result, err := h.service.GetTaskResult(r.Context(), taskID)
+	result, err := h.taskService.GetTaskResult(r.Context(), taskID)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -440,7 +467,7 @@ func (h *TaskHandler) CreateTask(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Continue with task creation
-	if err := h.service.CreateTask(r.Context(), task); err != nil {
+	if err := h.taskService.CreateTask(r.Context(), task); err != nil {
 		log.Error().Err(err).
 			Str("task_id", taskID.String()).
 			RawJSON("config", req.Config).
@@ -476,7 +503,7 @@ func (h *TaskHandler) StartTask(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// First assign the task to the runner
-	if err := h.service.AssignTaskToRunner(ctx, taskID, runnerID); err != nil {
+	if err := h.taskService.AssignTaskToRunner(ctx, taskID, runnerID); err != nil {
 		log.Error().Err(err).Str("task_id", taskID).Msg("Failed to assign task")
 		if err == services.ErrTaskNotFound {
 			http.Error(w, "Task not found", http.StatusNotFound)
@@ -487,7 +514,7 @@ func (h *TaskHandler) StartTask(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Then start the task
-	if err := h.service.StartTask(ctx, taskID); err != nil {
+	if err := h.taskService.StartTask(ctx, taskID); err != nil {
 		log.Error().Err(err).Str("task_id", taskID).Msg("Failed to start task")
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -534,7 +561,7 @@ func (h *TaskHandler) SaveTaskResult(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Save result
-	if err := h.service.SaveTaskResult(r.Context(), &result); err != nil {
+	if err := h.taskService.SaveTaskResult(r.Context(), &result); err != nil {
 		if err.Error() == "task already completed" {
 			// Task was already completed by another runner
 			log.Info().
@@ -641,7 +668,7 @@ func (h *TaskHandler) checkStakeBalance(ctx context.Context, task *models.Task) 
 
 // ListTasks returns all tasks
 func (h *TaskHandler) ListTasks(w http.ResponseWriter, r *http.Request) {
-	tasks, err := h.service.GetTasks(r.Context())
+	tasks, err := h.taskService.GetTasks(r.Context())
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -655,7 +682,7 @@ func (h *TaskHandler) ListTasks(w http.ResponseWriter, r *http.Request) {
 // GetTask returns a specific task by ID
 func (h *TaskHandler) GetTask(w http.ResponseWriter, r *http.Request) {
 	taskID := mux.Vars(r)["id"]
-	task, err := h.service.GetTask(r.Context(), taskID)
+	task, err := h.taskService.GetTask(r.Context(), taskID)
 	if err != nil {
 		if err == services.ErrTaskNotFound {
 			http.Error(w, "Task not found", http.StatusNotFound)
@@ -684,7 +711,7 @@ func (h *TaskHandler) AssignTask(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Runner ID is required", http.StatusBadRequest)
 		return
 	}
-	if err := h.service.AssignTaskToRunner(r.Context(), taskID, req.RunnerID); err != nil {
+	if err := h.taskService.AssignTaskToRunner(r.Context(), taskID, req.RunnerID); err != nil {
 		if err == services.ErrTaskNotFound {
 			http.Error(w, "Task not found", http.StatusNotFound)
 			return
@@ -699,7 +726,7 @@ func (h *TaskHandler) AssignTask(w http.ResponseWriter, r *http.Request) {
 // GetTaskReward returns the reward for a task
 func (h *TaskHandler) GetTaskReward(w http.ResponseWriter, r *http.Request) {
 	taskID := mux.Vars(r)["id"]
-	reward, err := h.service.GetTaskReward(r.Context(), taskID)
+	reward, err := h.taskService.GetTaskReward(r.Context(), taskID)
 	if err != nil {
 		if err == services.ErrTaskNotFound {
 			http.Error(w, "Task not found", http.StatusNotFound)
@@ -716,7 +743,7 @@ func (h *TaskHandler) GetTaskReward(w http.ResponseWriter, r *http.Request) {
 
 // ListAvailableTasks returns all available tasks
 func (h *TaskHandler) ListAvailableTasks(w http.ResponseWriter, r *http.Request) {
-	tasks, err := h.service.ListAvailableTasks(r.Context())
+	tasks, err := h.taskService.ListAvailableTasks(r.Context())
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -730,7 +757,7 @@ func (h *TaskHandler) ListAvailableTasks(w http.ResponseWriter, r *http.Request)
 // CompleteTask marks a task as completed
 func (h *TaskHandler) CompleteTask(w http.ResponseWriter, r *http.Request) {
 	taskID := mux.Vars(r)["id"]
-	if err := h.service.CompleteTask(r.Context(), taskID); err != nil {
+	if err := h.taskService.CompleteTask(r.Context(), taskID); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -770,7 +797,7 @@ func (h *TaskHandler) CleanupResources() {
 }
 
 func (h *TaskHandler) sendInitialWebhookNotification(webhook WebhookRegistration) error {
-	tasks, err := h.service.ListAvailableTasks(context.Background())
+	tasks, err := h.taskService.ListAvailableTasks(context.Background())
 	if err != nil {
 		return fmt.Errorf("failed to list tasks for initial webhook notification: %v", err)
 	}
@@ -973,7 +1000,7 @@ func (h *TaskHandler) UpdateTaskStatus(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Get task from service
-	task, err := h.service.GetTask(r.Context(), id.String())
+	task, err := h.taskService.GetTask(r.Context(), id.String())
 	if err != nil {
 		log.Error().Err(err).Str("task_id", taskID).Msg("Failed to get task")
 		http.Error(w, "Failed to get task", http.StatusInternalServerError)
@@ -982,7 +1009,7 @@ func (h *TaskHandler) UpdateTaskStatus(w http.ResponseWriter, r *http.Request) {
 
 	// Update task status
 	task.Status = models.TaskStatus(req.Status)
-	if err := h.service.UpdateTask(r.Context(), task); err != nil {
+	if err := h.taskService.UpdateTask(r.Context(), task); err != nil {
 		log.Error().Err(err).Str("task_id", taskID).Msg("Failed to update task")
 		http.Error(w, "Failed to update task", http.StatusInternalServerError)
 		return
@@ -992,6 +1019,20 @@ func (h *TaskHandler) UpdateTaskStatus(w http.ResponseWriter, r *http.Request) {
 		Str("task_id", taskID).
 		Str("status", req.Status).
 		Msg("Task status updated successfully")
+
+	w.WriteHeader(http.StatusOK)
+}
+
+// HandleHeartbeat handles webhook heartbeat requests
+func (h *TaskHandler) HandleHeartbeat(w http.ResponseWriter, r *http.Request) {
+	webhookID := mux.Vars(r)["id"]
+	if webhookID == "" {
+		http.Error(w, "Missing webhook ID", http.StatusBadRequest)
+		return
+	}
+
+	// Record the heartbeat
+	h.heartbeatMonitor.RecordHeartbeat(webhookID)
 
 	w.WriteHeader(http.StatusOK)
 }

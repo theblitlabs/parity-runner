@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/rs/zerolog"
 	"github.com/theblitlabs/parity-protocol/internal/database/repositories"
 	"github.com/theblitlabs/parity-protocol/internal/execution/sandbox"
 	"github.com/theblitlabs/parity-protocol/internal/ipfs"
@@ -30,6 +31,8 @@ type TaskRepository interface {
 	GetAll(ctx context.Context) ([]models.Task, error)
 	SaveTaskResult(ctx context.Context, result *models.TaskResult) error
 	GetTaskResult(ctx context.Context, taskID uuid.UUID) (*models.TaskResult, error)
+	GetTasksByWebhook(webhookID string) ([]*models.Task, error)
+	RemoveWebhook(webhookID string) error
 }
 
 type TaskService struct {
@@ -38,13 +41,16 @@ type TaskService struct {
 	poolManager  *PoolManager
 	lock         sync.RWMutex
 	runningTasks map[string]bool
+	logger       *zerolog.Logger
 }
 
 func NewTaskService(taskRepo *repositories.TaskRepository, ipfsClient *ipfs.Client) *TaskService {
+	logger := logger.Get().With().Str("component", "task_service").Logger()
 	svc := &TaskService{
 		taskRepo:     taskRepo,
 		ipfsClient:   ipfsClient,
 		runningTasks: make(map[string]bool),
+		logger:       &logger,
 	}
 	// Create pool manager with this service instance
 	pm := NewPoolManager(svc)
@@ -53,13 +59,13 @@ func NewTaskService(taskRepo *repositories.TaskRepository, ipfsClient *ipfs.Clie
 }
 
 func (s *TaskService) CreateTask(ctx context.Context, task *models.Task) error {
-	log := logger.WithComponent("task_service")
-
-	log.Debug().
+	log := s.logger.With().
 		Str("task_id", task.ID.String()).
 		Str("type", string(task.Type)).
 		Float64("reward", task.Reward).
-		Msg("Creating new task")
+		Logger()
+
+	log.Debug().Msg("Creating new task")
 
 	if err := s.taskRepo.Create(ctx, task); err != nil {
 		log.Error().
@@ -149,11 +155,12 @@ func (s *TaskService) StartCleanupTicker(ctx context.Context) {
 }
 
 func (s *TaskService) ListAvailableTasks(ctx context.Context) ([]*models.Task, error) {
-	log := logger.WithComponent("task_service")
+	log := s.logger.Info()
+	log.Msg("Retrieving available tasks")
 
 	tasks, err := s.taskRepo.ListByStatus(ctx, models.TaskStatusPending)
 	if err != nil {
-		log.Error().Err(err).Msg("Failed to list available tasks")
+		s.logger.Error().Err(err).Msg("Failed to list available tasks")
 		return nil, err
 	}
 
@@ -165,12 +172,15 @@ func (s *TaskService) ListAvailableTasks(ctx context.Context) ([]*models.Task, e
 		}
 	}
 
-	log.Debug().Int("count", len(availableTasks)).Msg("Retrieved available tasks")
+	s.logger.Debug().Int("count", len(availableTasks)).Msg("Retrieved available tasks")
 	return availableTasks, nil
 }
 
 func (s *TaskService) AssignTaskToRunner(ctx context.Context, taskID string, runnerID string) error {
-	log := logger.WithComponent("task_service")
+	log := s.logger.With().
+		Str("task", taskID).
+		Str("runner", runnerID).
+		Logger()
 
 	taskUUID, err := uuid.Parse(taskID)
 	if err != nil {
@@ -222,7 +232,9 @@ func (s *TaskService) AssignTaskToRunner(ctx context.Context, taskID string, run
 }
 
 func (s *TaskService) GetTaskReward(ctx context.Context, taskID string) (float64, error) {
-	log := logger.WithComponent("task_service")
+	log := s.logger.With().
+		Str("task_id", taskID).
+		Logger()
 
 	taskUUID, err := uuid.Parse(taskID)
 	if err != nil {
@@ -246,25 +258,23 @@ func (s *TaskService) GetTaskReward(ctx context.Context, taskID string) (float64
 }
 
 func (s *TaskService) GetTasks(ctx context.Context) ([]models.Task, error) {
-	log := logger.WithComponent("task_service")
+	log := s.logger.Info()
+	log.Msg("Retrieving all tasks")
 
 	tasks, err := s.taskRepo.GetAll(ctx)
 	if err != nil {
-		log.Error().
-			Err(err).
-			Msg("Failed to retrieve all tasks")
+		s.logger.Error().Err(err).Msg("Failed to retrieve all tasks")
 		return nil, err
 	}
 
-	log.Info().
-		Int("count", len(tasks)).
-		Msg("Retrieved all tasks")
-
+	s.logger.Info().Int("count", len(tasks)).Msg("Retrieved all tasks")
 	return tasks, nil
 }
 
 func (s *TaskService) StartTask(ctx context.Context, id string) error {
-	log := logger.WithComponent("task_service")
+	log := s.logger.With().
+		Str("task_id", id).
+		Logger()
 
 	taskUUID, err := uuid.Parse(id)
 	if err != nil {
@@ -303,7 +313,9 @@ func (s *TaskService) StartTask(ctx context.Context, id string) error {
 }
 
 func (s *TaskService) CompleteTask(ctx context.Context, id string) error {
-	log := logger.WithComponent("task_service")
+	log := s.logger.With().
+		Str("task_id", id).
+		Logger()
 
 	taskUUID, err := uuid.Parse(id)
 	if err != nil {
@@ -346,12 +358,12 @@ func (s *TaskService) CompleteTask(ctx context.Context, id string) error {
 }
 
 func (s *TaskService) ExecuteTask(ctx context.Context, task *models.Task) error {
-	log := logger.WithComponent("task_service")
-
-	log.Info().
+	log := s.logger.With().
 		Str("id", task.ID.String()).
 		Str("type", string(task.Type)).
-		Msg("Executing task")
+		Logger()
+
+	log.Info().Msg("Executing task")
 
 	executor, err := sandbox.NewDockerExecutor(&sandbox.ExecutorConfig{
 		MemoryLimit: "512m",
@@ -389,7 +401,9 @@ func (s *TaskService) ExecuteTask(ctx context.Context, task *models.Task) error 
 }
 
 func (s *TaskService) GetTaskResult(ctx context.Context, taskID string) (*models.TaskResult, error) {
-	log := logger.WithComponent("task_service")
+	log := s.logger.With().
+		Str("task_id", taskID).
+		Logger()
 
 	taskUUID, err := uuid.Parse(taskID)
 	if err != nil {
@@ -413,7 +427,9 @@ func (s *TaskService) GetTaskResult(ctx context.Context, taskID string) (*models
 }
 
 func (s *TaskService) SaveTaskResult(ctx context.Context, result *models.TaskResult) error {
-	log := logger.WithComponent("task_service")
+	log := s.logger.With().
+		Str("task_id", result.TaskID.String()).
+		Logger()
 
 	// Validate the task result
 	if err := result.Validate(); err != nil {
@@ -496,4 +512,44 @@ func (s *TaskService) SaveTaskResult(ctx context.Context, result *models.TaskRes
 
 func (s *TaskService) UpdateRunnerPing(runnerID string) {
 	s.poolManager.UpdateRunnerPing(runnerID)
+}
+
+// HandleStaleWebhook handles a stale webhook connection
+func (s *TaskService) HandleStaleWebhook(webhookID string) error {
+	log := s.logger.With().
+		Str("webhook_id", webhookID).
+		Logger()
+
+	log.Info().Msg("Handling stale webhook connection")
+
+	// Get tasks associated with this webhook
+	tasks, err := s.taskRepo.GetTasksByWebhook(webhookID)
+	if err != nil {
+		return fmt.Errorf("failed to get tasks for webhook: %w", err)
+	}
+
+	// Update status of any running tasks to failed
+	for _, task := range tasks {
+		if task.Status == "running" {
+			task.Status = "failed"
+			task.Error = "Webhook connection lost"
+			if err := s.taskRepo.UpdateTask(task); err != nil {
+				log.Error().
+					Err(err).
+					Str("task_id", task.ID.String()).
+					Msg("Failed to update task status after webhook disconnect")
+			}
+		}
+	}
+
+	// Remove webhook registration
+	if err := s.taskRepo.RemoveWebhook(webhookID); err != nil {
+		return fmt.Errorf("failed to remove webhook registration: %w", err)
+	}
+
+	log.Info().
+		Int("affected_tasks", len(tasks)).
+		Msg("Successfully handled stale webhook")
+
+	return nil
 }
