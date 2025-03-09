@@ -62,7 +62,7 @@ type ResourceConfig struct {
 
 type Task struct {
 	gorm.Model
-	ID              uuid.UUID          `gorm:"type:uuid;primary_key;default:uuid_generate_v4()" json:"id"`
+	ID              uuid.UUID          `gorm:"type:uuid;primary_key" json:"id"`
 	Title           string             `gorm:"type:varchar(255)" json:"title"`
 	Description     string             `gorm:"type:text" json:"description"`
 	Type            TaskType           `gorm:"type:varchar(50)" json:"type"`
