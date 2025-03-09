@@ -2,29 +2,20 @@ package database
 
 import (
 	"context"
-	"database/sql"
 	"fmt"
-	"time"
 
-	_ "github.com/lib/pq" // PostgreSQL driver
+	"github.com/theblitlabs/parity-protocol/internal/models"
+	"gorm.io/driver/postgres"
+	"gorm.io/gorm"
 )
 
 // Connect establishes a connection to the database
-func Connect(ctx context.Context, dbURL string) (*sql.DB, error) {
-	db, err := sql.Open("postgres", dbURL)
+func Connect(ctx context.Context, dbURL string) (*gorm.DB, error) {
+	db, err := gorm.Open(postgres.Open(dbURL), &gorm.Config{})
 	if err != nil {
 		return nil, fmt.Errorf("error opening database: %w", err)
 	}
 
-	// Set connection pool settings
-	db.SetMaxOpenConns(25)
-	db.SetMaxIdleConns(25)
-	db.SetConnMaxLifetime(5 * time.Minute)
-
-	// Verify connection with context
-	if err := db.PingContext(ctx); err != nil {
-		return nil, fmt.Errorf("error connecting to the database: %w", err)
-	}
-
+	db.AutoMigrate(&models.Task{})
 	return db, nil
 }

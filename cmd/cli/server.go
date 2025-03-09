@@ -13,7 +13,6 @@ import (
 	"time"
 
 	"github.com/ethereum/go-ethereum/common"
-	"github.com/jmoiron/sqlx"
 	"github.com/theblitlabs/parity-protocol/internal/api"
 	"github.com/theblitlabs/parity-protocol/internal/api/handlers"
 	"github.com/theblitlabs/parity-protocol/internal/config"
@@ -68,14 +67,6 @@ func RunServer() {
 		log.Fatal().Err(err).Msg("Failed to connect to database")
 	}
 
-	// Convert sql.DB to sqlx.DB
-	dbx := sqlx.NewDb(db, "postgres")
-
-	// Ping database to verify connection
-	if err := db.PingContext(ctx); err != nil {
-		log.Fatal().Err(err).Msg("Database connection check failed")
-	}
-
 	log.Info().Msg("Successfully connected to database")
 
 	// Initialize IPFS client
@@ -90,7 +81,7 @@ func RunServer() {
 	defer shutdownCancel() // Ensure resources are released in any case
 
 	// Initialize database
-	taskRepo := repositories.NewTaskRepository(dbx)
+	taskRepo := repositories.NewTaskRepository(db)
 	taskService := services.NewTaskService(taskRepo, ipfsClient)
 	taskHandler := handlers.NewTaskHandler(taskService)
 
@@ -204,16 +195,6 @@ func RunServer() {
 
 	// Close database connection
 	log.Info().Msg("Closing database connection...")
-	dbCloseStart := time.Now()
-	if err := db.Close(); err != nil {
-		log.Error().
-			Err(err).
-			Msg("Error closing database connection")
-	} else {
-		log.Info().
-			Dur("duration_ms", time.Since(dbCloseStart)).
-			Msg("Database connection closed successfully")
-	}
 
 	log.Info().Msg("Shutdown complete")
 }
