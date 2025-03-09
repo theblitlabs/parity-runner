@@ -332,9 +332,13 @@ func (e *DockerExecutor) ExecuteTask(ctx context.Context, task *models.Task) (*m
 			Msg("Logs uploaded to IPFS")
 
 		if result.Metadata == nil {
-			result.Metadata = make(map[string]interface{})
+			metadata := map[string]interface{}{
+				"logs_cid": logCID,
+			}
+			if err := result.SetMetadata(metadata); err != nil {
+				log.Warn().Err(err).Str("id", task.ID.String()).Msg("Failed to set metadata")
+			}
 		}
-		result.Metadata["logs_cid"] = logCID
 		result.IPFSCID = logCID
 	}
 

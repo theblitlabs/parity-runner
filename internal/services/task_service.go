@@ -391,11 +391,7 @@ func (s *TaskService) SaveTaskResult(ctx context.Context, result *models.TaskRes
 		return fmt.Errorf("failed to store result in IPFS: %w", err)
 	}
 
-	// Add IPFS CID to result metadata
-	if result.Metadata == nil {
-		result.Metadata = make(map[string]interface{})
-	}
-	result.Metadata["ipfs_cid"] = cid
+	result.IPFSCID = cid
 
 	// Save to database
 	if err := s.repo.SaveTaskResult(ctx, result); err != nil {
