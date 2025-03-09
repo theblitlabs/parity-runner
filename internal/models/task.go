@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"gorm.io/gorm"
 )
 
 type TaskStatus string
@@ -24,7 +23,6 @@ const (
 	TaskTypeFile    TaskType = "file"
 	TaskTypeDocker  TaskType = "docker"
 	TaskTypeCommand TaskType = "command"
-	// Add more task types as needed
 )
 
 type TaskConfig struct {
@@ -61,22 +59,21 @@ type ResourceConfig struct {
 }
 
 type Task struct {
-	gorm.Model
-	ID              uuid.UUID          `gorm:"type:uuid;primary_key" json:"id"`
-	Title           string             `gorm:"type:varchar(255)" json:"title"`
-	Description     string             `gorm:"type:text" json:"description"`
-	Type            TaskType           `gorm:"type:varchar(50)" json:"type"`
-	Status          TaskStatus         `gorm:"type:varchar(50)" json:"status"`
-	Config          json.RawMessage    `gorm:"type:jsonb" json:"config"`
-	Environment     *EnvironmentConfig `gorm:"type:jsonb" json:"environment"`
-	Reward          float64            `gorm:"type:decimal(20,8)" json:"reward"`
-	CreatorID       uuid.UUID          `gorm:"type:uuid" json:"creator_id"`
-	CreatorAddress  string             `gorm:"type:varchar(42)" json:"creator_address"`
-	CreatorDeviceID string             `gorm:"type:varchar(255)" json:"creator_device_id"`
-	RunnerID        *uuid.UUID         `gorm:"type:uuid" json:"runner_id"`
-	CreatedAt       time.Time          `gorm:"type:timestamp" json:"created_at"`
-	UpdatedAt       time.Time          `gorm:"type:timestamp" json:"updated_at"`
-	CompletedAt     *time.Time         `gorm:"type:timestamp" json:"completed_at"`
+	ID              uuid.UUID          `json:"id" gorm:"type:uuid;primaryKey"`
+	Title           string             `json:"title" gorm:"type:varchar(255)"`
+	Description     string             `json:"description" gorm:"type:text"`
+	Type            TaskType           `json:"type" gorm:"type:varchar(50)"`
+	Status          TaskStatus         `json:"status" gorm:"type:varchar(50)"`
+	Config          json.RawMessage    `json:"config" gorm:"type:jsonb"`
+	Environment     *EnvironmentConfig `json:"environment" gorm:"type:jsonb"`
+	Reward          float64            `json:"reward" gorm:"type:decimal(20,8)"`
+	CreatorID       uuid.UUID          `json:"creator_id" gorm:"type:uuid;not null"`
+	CreatorAddress  string             `json:"creator_address" gorm:"type:varchar(42)"`
+	CreatorDeviceID string             `json:"creator_device_id" gorm:"type:varchar(255)"`
+	RunnerID        *uuid.UUID         `json:"runner_id" gorm:"type:uuid"`
+	CreatedAt       time.Time          `json:"created_at" gorm:"type:timestamp"`
+	UpdatedAt       time.Time          `json:"updated_at" gorm:"type:timestamp"`
+	CompletedAt     *time.Time         `json:"completed_at" gorm:"type:timestamp"`
 }
 
 // NewTask creates a new Task with a generated UUID
@@ -118,5 +115,3 @@ func (t *Task) Validate() error {
 
 	return nil
 }
-
-// ... existing code ...

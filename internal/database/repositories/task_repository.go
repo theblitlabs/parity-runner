@@ -228,8 +228,7 @@ func (r *TaskRepository) GetAll(ctx context.Context) ([]models.Task, error) {
 }
 
 func (r *TaskRepository) SaveTaskResult(ctx context.Context, result *models.TaskResult) error {
-
-	dbResult := models.TaskResult{
+	dbResult := &models.TaskResult{
 		ID:              result.ID,
 		TaskID:          result.TaskID,
 		DeviceID:        result.DeviceID,
@@ -244,11 +243,26 @@ func (r *TaskRepository) SaveTaskResult(ctx context.Context, result *models.Task
 		CreatorDeviceID: result.CreatorDeviceID,
 		SolverDeviceID:  result.SolverDeviceID,
 		Reward:          result.Reward,
-		Metadata:        result.Metadata,
 		IPFSCID:         result.IPFSCID,
+		CPUSeconds:      result.CPUSeconds,
+		EstimatedCycles: result.EstimatedCycles,
+		MemoryGBHours:   result.MemoryGBHours,
+		StorageGB:       result.StorageGB,
+		NetworkDataGB:   result.NetworkDataGB,
 	}
 
-	return r.db.WithContext(ctx).Create(&dbResult).Error
+	// Convert metadata to JSON
+	if result.Metadata != nil {
+		data, err := json.Marshal(result.Metadata)
+		if err != nil {
+			return fmt.Errorf("failed to marshal metadata: %w", err)
+		}
+		dbResult.Metadata = data
+	} else {
+		dbResult.Metadata = json.RawMessage("{}")
+	}
+
+	return r.db.WithContext(ctx).Create(dbResult).Error
 }
 
 func (r *TaskRepository) GetTaskResult(ctx context.Context, taskID uuid.UUID) (*models.TaskResult, error) {
@@ -277,10 +291,12 @@ func (r *TaskRepository) GetTaskResult(ctx context.Context, taskID uuid.UUID) (*
 		SolverDeviceID:  dbResult.SolverDeviceID,
 		Reward:          dbResult.Reward,
 		IPFSCID:         dbResult.IPFSCID,
-	}
-
-	if len(dbResult.Metadata) > 0 {
-		taskResult.Metadata = dbResult.Metadata
+		CPUSeconds:      dbResult.CPUSeconds,
+		EstimatedCycles: dbResult.EstimatedCycles,
+		MemoryGBHours:   dbResult.MemoryGBHours,
+		StorageGB:       dbResult.StorageGB,
+		NetworkDataGB:   dbResult.NetworkDataGB,
+		Metadata:        dbResult.Metadata,
 	}
 
 	return taskResult, nil
