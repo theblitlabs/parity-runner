@@ -2,17 +2,15 @@ package repositories
 
 import (
 	"context"
-	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"time"
 
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/google/uuid"
-	"github.com/jmoiron/sqlx"
 	"github.com/theblitlabs/parity-protocol/internal/models"
 	"github.com/theblitlabs/parity-protocol/pkg/keystore"
+	"gorm.io/gorm"
 )
 
 var (
@@ -20,10 +18,10 @@ var (
 )
 
 type TaskRepository struct {
-	db *sqlx.DB
+	db *gorm.DB
 }
 
-func NewTaskRepository(db *sqlx.DB) *TaskRepository {
+func NewTaskRepository(db *gorm.DB) *TaskRepository {
 	return &TaskRepository{db: db}
 }
 
@@ -40,74 +38,34 @@ func (r *TaskRepository) Create(ctx context.Context, task *models.Task) error {
 		task.Config = []byte("{}")
 	}
 
-	var envJSON []byte
-	if task.Environment != nil {
-		envJSON, err = json.Marshal(task.Environment)
-		if err != nil {
-			return fmt.Errorf("failed to marshal environment: %w", err)
-		}
-	} else {
-		envJSON = []byte("{}")
+	dbTask := models.Task{
+		ID:              task.ID,
+		CreatorID:       task.CreatorID,
+		CreatorAddress:  creatorAddress,
+		CreatorDeviceID: task.CreatorDeviceID,
+		Title:           task.Title,
+		Description:     task.Description,
+		Type:            task.Type,
+		Config:          task.Config,
+		Status:          task.Status,
+		Reward:          task.Reward,
+		Environment:     task.Environment,
+		CreatedAt:       task.CreatedAt,
+		UpdatedAt:       task.UpdatedAt,
 	}
 
-	query := `
-		INSERT INTO tasks (
-			id, creator_id, creator_address, creator_device_id, title, description, type,
-			config, status, reward, environment,
-			created_at, updated_at
-		) VALUES (
-			$1, $2, $3, $4, $5, $6, $7,
-			$8::jsonb, $9, $10, $11::jsonb,
-			$12, $13
-		)
-	`
-
-	_, err = r.db.ExecContext(ctx, query,
-		task.ID,
-		task.CreatorID,
-		creatorAddress,
-		task.CreatorDeviceID,
-		task.Title,
-		task.Description,
-		task.Type,
-		string(task.Config),
-		task.Status,
-		task.Reward,
-		string(envJSON),
-		task.CreatedAt,
-		task.UpdatedAt,
-	)
-	return err
-}
-
-type dbTask struct {
-	ID              uuid.UUID         `db:"id"`
-	CreatorID       uuid.UUID         `db:"creator_id"`
-	CreatorAddress  string            `db:"creator_address"`
-	CreatorDeviceID string            `db:"creator_device_id"`
-	Title           string            `db:"title"`
-	Description     string            `db:"description"`
-	Type            models.TaskType   `db:"type"`
-	Config          []byte            `db:"config"`
-	Status          models.TaskStatus `db:"status"`
-	Reward          float64           `db:"reward"`
-	RunnerID        *uuid.UUID        `db:"runner_id"`
-	CreatedAt       time.Time         `db:"created_at"`
-	UpdatedAt       time.Time         `db:"updated_at"`
-	CompletedAt     *time.Time        `db:"completed_at"`
-	Environment     []byte            `db:"environment"`
+	result := r.db.WithContext(ctx).Create(&dbTask)
+	return result.Error
 }
 
 func (r *TaskRepository) Get(ctx context.Context, id uuid.UUID) (*models.Task, error) {
-	var dbTask dbTask
-	query := `SELECT * FROM tasks WHERE id = $1`
-
-	err := r.db.GetContext(ctx, &dbTask, query, id)
-	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
+	var dbTask models.Task
+	result := r.db.WithContext(ctx).Where("id = ?", id).First(&dbTask)
+	if result.Error != nil {
+		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
 			return nil, ErrTaskNotFound
 		}
-		return nil, err
+		return nil, result.Error
 	}
 
 	task := &models.Task{
@@ -131,40 +89,38 @@ func (r *TaskRepository) Get(ctx context.Context, id uuid.UUID) (*models.Task, e
 	}
 
 	if dbTask.Environment != nil {
-		task.Environment = &models.EnvironmentConfig{}
-		if err := json.Unmarshal(dbTask.Environment, task.Environment); err != nil {
-			return nil, fmt.Errorf("failed to unmarshal environment: %w", err)
-		}
+		task.Environment = dbTask.Environment
 	}
 
 	return task, nil
 }
 
 func (r *TaskRepository) Update(ctx context.Context, task *models.Task) error {
-	query := `
-		UPDATE tasks 
-		SET status = $1, runner_id = $2, updated_at = $3, config = $4
-		WHERE id = $5
-	`
+	updates := map[string]interface{}{
+		"status":       task.Status,
+		"runner_id":    task.RunnerID,
+		"updated_at":   task.UpdatedAt,
+		"config":       task.Config,
+		"completed_at": task.CompletedAt,
+	}
 
-	_, err := r.db.ExecContext(ctx, query,
-		task.Status,
-		task.RunnerID,
-		task.UpdatedAt,
-		task.Config,
-		task.ID,
-	)
+	result := r.db.WithContext(ctx).Model(&models.Task{}).Where("id = ?", task.ID).Updates(updates)
+	if result.Error != nil {
+		return result.Error
+	}
 
-	return err
+	if result.RowsAffected == 0 {
+		return ErrTaskNotFound
+	}
+
+	return nil
 }
 
 func (r *TaskRepository) ListByStatus(ctx context.Context, status models.TaskStatus) ([]*models.Task, error) {
-	var dbTasks []dbTask
-	query := `SELECT * FROM tasks WHERE status = $1 ORDER BY created_at DESC`
-
-	err := r.db.SelectContext(ctx, &dbTasks, query, status)
-	if err != nil {
-		return nil, err
+	var dbTasks []models.Task
+	result := r.db.WithContext(ctx).Where("status = ?", status).Order("created_at DESC").Find(&dbTasks)
+	if result.Error != nil {
+		return nil, result.Error
 	}
 
 	tasks := make([]*models.Task, len(dbTasks))
@@ -190,10 +146,7 @@ func (r *TaskRepository) ListByStatus(ctx context.Context, status models.TaskSta
 		}
 
 		if dbTask.Environment != nil {
-			tasks[i].Environment = &models.EnvironmentConfig{}
-			if err := json.Unmarshal(dbTask.Environment, tasks[i].Environment); err != nil {
-				return nil, fmt.Errorf("failed to unmarshal environment: %w", err)
-			}
+			tasks[i].Environment = dbTask.Environment
 		}
 	}
 
@@ -201,12 +154,10 @@ func (r *TaskRepository) ListByStatus(ctx context.Context, status models.TaskSta
 }
 
 func (r *TaskRepository) List(ctx context.Context, limit, offset int) ([]*models.Task, error) {
-	var dbTasks []dbTask
-	query := `SELECT * FROM tasks ORDER BY created_at DESC LIMIT $1 OFFSET $2`
-
-	err := r.db.SelectContext(ctx, &dbTasks, query, limit, offset)
-	if err != nil {
-		return nil, err
+	var dbTasks []models.Task
+	result := r.db.WithContext(ctx).Order("created_at DESC").Limit(limit).Offset(offset).Find(&dbTasks)
+	if result.Error != nil {
+		return nil, result.Error
 	}
 
 	tasks := make([]*models.Task, len(dbTasks))
@@ -232,10 +183,7 @@ func (r *TaskRepository) List(ctx context.Context, limit, offset int) ([]*models
 		}
 
 		if dbTask.Environment != nil {
-			tasks[i].Environment = &models.EnvironmentConfig{}
-			if err := json.Unmarshal(dbTask.Environment, tasks[i].Environment); err != nil {
-				return nil, fmt.Errorf("failed to unmarshal environment: %w", err)
-			}
+			tasks[i].Environment = dbTask.Environment
 		}
 	}
 
@@ -243,10 +191,10 @@ func (r *TaskRepository) List(ctx context.Context, limit, offset int) ([]*models
 }
 
 func (r *TaskRepository) GetAll(ctx context.Context) ([]models.Task, error) {
-	var dbTasks []dbTask
-	err := r.db.SelectContext(ctx, &dbTasks, "SELECT * FROM tasks")
-	if err != nil {
-		return nil, err
+	var dbTasks []models.Task
+	result := r.db.WithContext(ctx).Find(&dbTasks)
+	if result.Error != nil {
+		return nil, result.Error
 	}
 
 	tasks := make([]models.Task, len(dbTasks))
@@ -272,10 +220,7 @@ func (r *TaskRepository) GetAll(ctx context.Context) ([]models.Task, error) {
 		}
 
 		if dbTask.Environment != nil {
-			tasks[i].Environment = &models.EnvironmentConfig{}
-			if err := json.Unmarshal(dbTask.Environment, tasks[i].Environment); err != nil {
-				return nil, fmt.Errorf("failed to unmarshal environment: %w", err)
-			}
+			tasks[i].Environment = dbTask.Environment
 		}
 	}
 
@@ -349,21 +294,42 @@ func (r *TaskRepository) SaveTaskResult(ctx context.Context, result *models.Task
 	)
 
 	return err
+=======
+func (r *TaskRepository) SaveTaskResult(ctx context.Context, result *models.TaskResult) error {
+
+	dbResult := models.TaskResult{
+		ID:              result.ID,
+		TaskID:          result.TaskID,
+		DeviceID:        result.DeviceID,
+		DeviceIDHash:    result.DeviceIDHash,
+		RunnerAddress:   result.RunnerAddress,
+		CreatorAddress:  result.CreatorAddress,
+		Output:          result.Output,
+		Error:           result.Error,
+		ExitCode:        result.ExitCode,
+		ExecutionTime:   result.ExecutionTime,
+		CreatedAt:       result.CreatedAt,
+		CreatorDeviceID: result.CreatorDeviceID,
+		SolverDeviceID:  result.SolverDeviceID,
+		Reward:          result.Reward,
+		Metadata:        result.Metadata,
+		IPFSCID:         result.IPFSCID,
+	}
+
+	return r.db.WithContext(ctx).Create(&dbResult).Error
 }
 
 func (r *TaskRepository) GetTaskResult(ctx context.Context, taskID uuid.UUID) (*models.TaskResult, error) {
-	query := `SELECT * FROM task_results WHERE task_id = $1`
-	var dbResult dbTaskResult
-
-	err := r.db.GetContext(ctx, &dbResult, query, taskID)
-	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
+	var dbResult models.TaskResult
+	result := r.db.WithContext(ctx).Where("task_id = ?", taskID).First(&dbResult)
+	if result.Error != nil {
+		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
 			return nil, nil
 		}
-		return nil, err
+		return nil, result.Error
 	}
 
-	result := &models.TaskResult{
+	taskResult := &models.TaskResult{
 		ID:              dbResult.ID,
 		TaskID:          dbResult.TaskID,
 		DeviceID:        dbResult.DeviceID,
@@ -387,10 +353,8 @@ func (r *TaskRepository) GetTaskResult(ctx context.Context, taskID uuid.UUID) (*
 	}
 
 	if len(dbResult.Metadata) > 0 {
-		if err := json.Unmarshal(dbResult.Metadata, &result.Metadata); err != nil {
-			return nil, fmt.Errorf("failed to unmarshal metadata: %w", err)
-		}
+		taskResult.Metadata = dbResult.Metadata
 	}
 
-	return result, nil
+	return taskResult, nil
 }

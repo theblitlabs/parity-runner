@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"gorm.io/gorm"
 )
 
 type TaskResult struct {
@@ -34,6 +35,14 @@ type TaskResult struct {
 
 func (r *TaskResult) Clean() {
 	r.Output = strings.TrimSpace(r.Output)
+}
+
+// BeforeCreate GORM hook to set ID if not already set
+func (r *TaskResult) BeforeCreate(tx *gorm.DB) error {
+	if r.ID == uuid.Nil {
+		r.ID = uuid.New()
+	}
+	return nil
 }
 
 // Validate checks if all required fields are present and valid
