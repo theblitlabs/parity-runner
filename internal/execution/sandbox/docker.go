@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"math"
 	"strconv"
 	"strings"
 	"time"
@@ -16,6 +17,7 @@ import (
 	"github.com/theblitlabs/parity-protocol/internal/models"
 	"github.com/theblitlabs/parity-protocol/pkg/ipfs"
 	"github.com/theblitlabs/parity-protocol/pkg/logger"
+	"github.com/theblitlabs/parity-protocol/pkg/metrics"
 )
 
 type DockerExecutor struct {
@@ -245,9 +247,29 @@ func (e *DockerExecutor) ExecuteTask(ctx context.Context, task *models.Task) (*m
 	}
 
 	log.Debug().
-		Str("id", task.ID.String()).
-		Str("container", containerID).
-		Msg("Container started")
+		Str("task_id", task.ID.String()).
+		Str("container_id", containerID).
+		Msg("Container started successfully")
+
+	collector, err := metrics.NewResourceCollector(containerID)
+	if err != nil {
+		log.Error().
+			Err(err).
+			Str("task_id", task.ID.String()).
+			Str("container_id", containerID).
+			Msg("Failed to create resource collector")
+		return nil, fmt.Errorf("resource collector creation failed: %w", err)
+	}
+
+	if err := collector.Start(ctx); err != nil {
+		log.Error().
+			Err(err).
+			Str("task_id", task.ID.String()).
+			Str("container_id", containerID).
+			Msg("Failed to start resource collector")
+		return nil, fmt.Errorf("resource collector start failed: %w", err)
+	}
+	defer collector.Stop()
 
 	statusCh, errCh := e.client.ContainerWait(ctx, containerID, container.WaitConditionNotRunning)
 	select {
@@ -316,12 +338,24 @@ func (e *DockerExecutor) ExecuteTask(ctx context.Context, task *models.Task) (*m
 		result.IPFSCID = logCID
 	}
 
-	result.ExecutionTime = time.Since(startTime).Nanoseconds()
+	resourceMetrics := collector.GetMetrics()
+	result.CPUSeconds = resourceMetrics.CPUSeconds
+	result.EstimatedCycles = resourceMetrics.EstimatedCycles
+	result.MemoryGBHours = resourceMetrics.MemoryGBHours
+	result.StorageGB = resourceMetrics.StorageGB
+	result.NetworkDataGB = resourceMetrics.NetworkDataGB
 
+	elapsedTime := time.Since(startTime)
 	log.Info().
-		Str("id", task.ID.String()).
-		Int("exit", result.ExitCode).
-		Int64("duration_ns", result.ExecutionTime).
+		Str("task_id", task.ID.String()).
+		Str("container_id", containerID).
+		Int("exit_code", result.ExitCode).
+		Str("duration", elapsedTime.Round(time.Millisecond).String()).
+		Float64("cpu_seconds", math.Round(result.CPUSeconds*100)/100).
+		Uint64("estimated_cycles", result.EstimatedCycles).
+		Float64("memory_gb_hours", math.Round(result.MemoryGBHours*1000)/1000).
+		Float64("storage_gb", math.Round(result.StorageGB*100)/100).
+		Float64("network_gb", math.Round(result.NetworkDataGB*100)/100).
 		Msg("Task execution completed")
 
 	return result, nil

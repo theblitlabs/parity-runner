@@ -25,7 +25,7 @@ CREATE INDEX idx_tasks_runner_id ON tasks(runner_id);
 CREATE INDEX idx_tasks_creator_address ON tasks(creator_address);
 CREATE INDEX idx_tasks_creator_device_id ON tasks(creator_device_id);
 
--- Create task_results table
+-- Create task_results table with all metrics columns included
 CREATE TABLE task_results (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     task_id UUID NOT NULL,
@@ -42,6 +42,12 @@ CREATE TABLE task_results (
     reward DECIMAL(20,8),
     ipfs_cid TEXT,
     metadata JSONB DEFAULT '{}',
+    -- Resource metrics columns
+    cpu_seconds DECIMAL(20,8) DEFAULT 0,
+    memory_gb_hours DECIMAL(20,8) DEFAULT 0,
+    storage_gb DECIMAL(20,8) DEFAULT 0,
+    network_data_gb DECIMAL(20,8) DEFAULT 0,
+    estimated_cycles BIGINT NOT NULL DEFAULT 0,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     CONSTRAINT fk_task FOREIGN KEY (task_id) REFERENCES tasks(id) ON DELETE CASCADE
 );

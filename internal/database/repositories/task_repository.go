@@ -299,6 +299,11 @@ type dbTaskResult struct {
 	Reward          float64   `db:"reward"`
 	Metadata        []byte    `db:"metadata"`
 	IPFSCID         string    `db:"ipfs_cid"`
+	CPUSeconds      float64   `db:"cpu_seconds"`
+	EstimatedCycles uint64    `db:"estimated_cycles"`
+	MemoryGBHours   float64   `db:"memory_gb_hours"`
+	StorageGB       float64   `db:"storage_gb"`
+	NetworkDataGB   float64   `db:"network_data_gb"`
 }
 
 func (r *TaskRepository) SaveTaskResult(ctx context.Context, result *models.TaskResult) error {
@@ -306,9 +311,11 @@ func (r *TaskRepository) SaveTaskResult(ctx context.Context, result *models.Task
 		INSERT INTO task_results (
 			id, task_id, device_id, device_id_hash, runner_address, creator_address,
 			output, error, exit_code, execution_time, created_at, creator_device_id,
-			solver_device_id, reward, metadata, ipfs_cid
+			solver_device_id, reward, metadata, ipfs_cid,
+			cpu_seconds, estimated_cycles, memory_gb_hours, storage_gb, network_data_gb
 		) VALUES (
-			$1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16
+			$1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16,
+			$17, $18, $19, $20, $21
 		)
 	`
 
@@ -334,6 +341,11 @@ func (r *TaskRepository) SaveTaskResult(ctx context.Context, result *models.Task
 		result.Reward,
 		metadataJSON,
 		result.IPFSCID,
+		result.CPUSeconds,
+		result.EstimatedCycles,
+		result.MemoryGBHours,
+		result.StorageGB,
+		result.NetworkDataGB,
 	)
 
 	return err
@@ -367,6 +379,11 @@ func (r *TaskRepository) GetTaskResult(ctx context.Context, taskID uuid.UUID) (*
 		SolverDeviceID:  dbResult.SolverDeviceID,
 		Reward:          dbResult.Reward,
 		IPFSCID:         dbResult.IPFSCID,
+		CPUSeconds:      dbResult.CPUSeconds,
+		EstimatedCycles: dbResult.EstimatedCycles,
+		MemoryGBHours:   dbResult.MemoryGBHours,
+		StorageGB:       dbResult.StorageGB,
+		NetworkDataGB:   dbResult.NetworkDataGB,
 	}
 
 	if len(dbResult.Metadata) > 0 {

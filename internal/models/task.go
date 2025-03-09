@@ -23,7 +23,6 @@ const (
 	TaskTypeFile    TaskType = "file"
 	TaskTypeDocker  TaskType = "docker"
 	TaskTypeCommand TaskType = "command"
-	// Add more task types as needed
 )
 
 type TaskConfig struct {
@@ -116,5 +115,3 @@ func (t *Task) Validate() error {
 
 	return nil
 }
-
-// ... existing code ...

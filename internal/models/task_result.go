@@ -25,6 +25,11 @@ type TaskResult struct {
 	Reward          float64                `json:"reward" db:"reward"`
 	Metadata        map[string]interface{} `json:"metadata" db:"metadata"`
 	IPFSCID         string                 `json:"ipfs_cid" db:"ipfs_cid"`
+	CPUSeconds      float64                `json:"cpu_seconds" db:"cpu_seconds"`
+	EstimatedCycles uint64                 `json:"estimated_cycles" db:"estimated_cycles"`
+	MemoryGBHours   float64                `json:"memory_gb_hours" db:"memory_gb_hours"`
+	StorageGB       float64                `json:"storage_gb" db:"storage_gb"`
+	NetworkDataGB   float64                `json:"network_data_gb" db:"network_data_gb"`
 }
 
 func (r *TaskResult) Clean() {
