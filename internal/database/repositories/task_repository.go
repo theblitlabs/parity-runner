@@ -226,6 +226,7 @@ func (r *TaskRepository) GetAll(ctx context.Context) ([]models.Task, error) {
 
 	return tasks, nil
 }
+
 func (r *TaskRepository) SaveTaskResult(ctx context.Context, result *models.TaskResult) error {
 	dbResult := &models.TaskResult{
 		ID:              result.ID,
