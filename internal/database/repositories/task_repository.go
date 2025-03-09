@@ -107,11 +107,11 @@ func (r *TaskRepository) Update(ctx context.Context, task *models.Task) error {
 	if result.Error != nil {
 		return result.Error
 	}
-	
+
 	if result.RowsAffected == 0 {
 		return ErrTaskNotFound
 	}
-	
+
 	return nil
 }
 

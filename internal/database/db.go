@@ -6,7 +6,6 @@ import (
 	"github.com/theblitlabs/parity-protocol/internal/config"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
-
 )
 
 func NewDB(cfg *config.DatabaseConfig) (*gorm.DB, error) {

@@ -57,7 +57,7 @@ func (c *TaskConfig) Validate(taskType TaskType) error {
 type ResourceConfig struct {
 	Memory    string `json:"memory,omitempty"`
 	CPUShares int64  `json:"cpu_shares,omitempty"`
-	Timeout   string `json:"timeout,omitempty"`    
+	Timeout   string `json:"timeout,omitempty"`
 }
 
 type Task struct {

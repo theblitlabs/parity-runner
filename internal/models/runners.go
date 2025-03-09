@@ -16,10 +16,7 @@ type Runner struct {
 type RunnerStatus string
 
 const (
-	RunnerStatusOnline RunnerStatus = "online"
+	RunnerStatusOnline  RunnerStatus = "online"
 	RunnerStatusOffline RunnerStatus = "offline"
-	RunnerStatusBusy RunnerStatus = "busy"
+	RunnerStatusBusy    RunnerStatus = "busy"
 )
-
-
-

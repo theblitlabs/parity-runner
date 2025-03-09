@@ -18,6 +18,6 @@ func Connect(ctx context.Context, dbURL string) (*gorm.DB, error) {
 	if err := db.AutoMigrate(&models.Task{}, &models.TaskResult{}, &models.Runner{}); err != nil {
 		return nil, fmt.Errorf("error migrating database: %w", err)
 	}
-	
+
 	return db, nil
 }
