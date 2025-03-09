@@ -12,12 +12,13 @@ require (
 	github.com/gorilla/mux v1.8.1
 	github.com/gorilla/websocket v1.5.3
 	github.com/ipfs/go-ipfs-api v0.7.0
-	github.com/jmoiron/sqlx v1.3.5
 	github.com/lib/pq v1.10.9
 	github.com/rs/zerolog v1.31.0
 	github.com/spf13/cobra v1.5.0
 	github.com/spf13/viper v1.18.2
 	github.com/stretchr/testify v1.10.0
+	gorm.io/driver/postgres v1.5.11
+	gorm.io/gorm v1.25.12
 )
 
 require (
@@ -48,8 +49,6 @@ require (
 	github.com/multiformats/go-multistream v0.4.1 // indirect
 	github.com/multiformats/go-varint v0.0.7 // indirect
 	github.com/spaolacci/murmur3 v1.1.0 // indirect
-	gorm.io/driver/postgres v1.5.11 // indirect
-	gorm.io/gorm v1.25.12 // indirect
 	lukechampine.com/blake3 v1.1.7 // indirect
 )
 
