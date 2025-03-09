@@ -97,10 +97,11 @@ func (r *TaskRepository) Get(ctx context.Context, id uuid.UUID) (*models.Task, e
 
 func (r *TaskRepository) Update(ctx context.Context, task *models.Task) error {
 	updates := map[string]interface{}{
-		"status":     task.Status,
-		"runner_id":  task.RunnerID,
-		"updated_at": task.UpdatedAt,
-		"config":     task.Config,
+		"status":       task.Status,
+		"runner_id":    task.RunnerID,
+		"updated_at":   task.UpdatedAt,
+		"config":       task.Config,
+		"completed_at": task.CompletedAt,
 	}
 
 	result := r.db.WithContext(ctx).Model(&models.Task{}).Where("id = ?", task.ID).Updates(updates)
