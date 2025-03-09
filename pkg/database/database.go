@@ -15,11 +15,9 @@ func Connect(ctx context.Context, dbURL string) (*gorm.DB, error) {
 	if err != nil {
 		return nil, fmt.Errorf("error opening database: %w", err)
 	}
-	if err := db.AutoMigrate(&models.Task{}); err != nil {
+	if err := db.AutoMigrate(&models.Task{}, &models.TaskResult{}, &models.Runner{}); err != nil {
 		return nil, fmt.Errorf("error migrating database: %w", err)
 	}
-	if err := db.AutoMigrate(&models.TaskResult{}); err != nil {
-		return nil, fmt.Errorf("error migrating database: %w", err)
-	}
+	
 	return db, nil
 }
