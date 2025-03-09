@@ -37,4 +37,3 @@ func (ec *EnvironmentConfig) Scan(value interface{}) error {
 
 	return json.Unmarshal(bytes, &ec)
 }
-
