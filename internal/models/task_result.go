@@ -6,29 +6,38 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"gorm.io/gorm"
 )
 
 type TaskResult struct {
-	ID              uuid.UUID              `json:"id" db:"id"`
-	TaskID          uuid.UUID              `json:"task_id" db:"task_id"`
-	DeviceID        string                 `json:"device_id" db:"device_id"`
-	DeviceIDHash    string                 `json:"device_id_hash" db:"device_id_hash"`
-	RunnerAddress   string                 `json:"runner_address" db:"runner_address"`
-	CreatorAddress  string                 `json:"creator_address" db:"creator_address"`
-	Output          string                 `json:"output" db:"output"`
-	Error           string                 `json:"error,omitempty" db:"error"`
-	ExitCode        int                    `json:"exit_code" db:"exit_code"`
-	ExecutionTime   int64                  `json:"execution_time" db:"execution_time"`
-	CreatedAt       time.Time              `json:"created_at" db:"created_at"`
-	CreatorDeviceID string                 `json:"creator_device_id" db:"creator_device_id"`
-	SolverDeviceID  string                 `json:"solver_device_id" db:"solver_device_id"`
-	Reward          float64                `json:"reward" db:"reward"`
-	Metadata        map[string]interface{} `json:"metadata" db:"metadata"`
-	IPFSCID         string                 `json:"ipfs_cid" db:"ipfs_cid"`
+	ID              uuid.UUID              `json:"id" gorm:"primaryKey;type:uuid"`
+	TaskID          uuid.UUID              `json:"task_id" gorm:"type:uuid;index"`
+	DeviceID        string                 `json:"device_id" gorm:"index"`
+	DeviceIDHash    string                 `json:"device_id_hash" gorm:"index"`
+	RunnerAddress   string                 `json:"runner_address" gorm:"index"`
+	CreatorAddress  string                 `json:"creator_address" gorm:"index"`
+	Output          string                 `json:"output" gorm:"type:text"`
+	Error           string                 `json:"error,omitempty" gorm:"type:text"`
+	ExitCode        int                    `json:"exit_code"`
+	ExecutionTime   int64                  `json:"execution_time"`
+	CreatedAt       time.Time              `json:"created_at" gorm:"index"`
+	CreatorDeviceID string                 `json:"creator_device_id" gorm:"index"`
+	SolverDeviceID  string                 `json:"solver_device_id" gorm:"index"`
+	Reward          float64                `json:"reward"`
+	Metadata        map[string]interface{} `json:"metadata" gorm:"serializer:json"`
+	IPFSCID         string                 `json:"ipfs_cid"`
 }
 
 func (r *TaskResult) Clean() {
 	r.Output = strings.TrimSpace(r.Output)
+}
+
+// BeforeCreate GORM hook to set ID if not already set
+func (r *TaskResult) BeforeCreate(tx *gorm.DB) error {
+	if r.ID == uuid.Nil {
+		r.ID = uuid.New()
+	}
+	return nil
 }
 
 // Validate checks if all required fields are present and valid
