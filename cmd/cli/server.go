@@ -193,8 +193,20 @@ func RunServer() {
 		Dur("duration_ms", time.Since(cleanupStart)).
 		Msg("Webhook resources cleanup completed")
 
-	// Close database connection
-	log.Info().Msg("Closing database connection...")
+	dbCloseStart := time.Now()
+
+	sqlDB, err := db.DB()
+	if err != nil {
+		log.Error().Err(err).Msg("Error getting underlying *sql.DB instance")
+	} else {
+		if err := sqlDB.Close(); err != nil {
+			log.Error().Err(err).Msg("Error closing database connection")
+		} else {
+			log.Info().
+				Dur("duration_ms", time.Since(dbCloseStart)).
+				Msg("Database connection closed successfully")
+		}
+	}
 
 	log.Info().Msg("Shutdown complete")
 }
