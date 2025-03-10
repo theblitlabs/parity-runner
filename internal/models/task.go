@@ -20,7 +20,6 @@ const (
 )
 
 const (
-	TaskTypeFile    TaskType = "file"
 	TaskTypeDocker  TaskType = "docker"
 	TaskTypeCommand TaskType = "command"
 )
@@ -41,10 +40,6 @@ func (c *TaskConfig) Validate(taskType TaskType) error {
 	case TaskTypeCommand:
 		if len(c.Command) == 0 {
 			return errors.New("command is required for Command tasks")
-		}
-	case TaskTypeFile:
-		if c.FileURL == "" {
-			return errors.New("file_url is required for File tasks")
 		}
 	default:
 		return fmt.Errorf("unsupported task type: %s", taskType)

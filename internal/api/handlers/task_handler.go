@@ -444,7 +444,7 @@ func (h *TaskHandler) CreateTask(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Validate task type
-	if req.Type != models.TaskTypeFile && req.Type != models.TaskTypeDocker && req.Type != models.TaskTypeCommand {
+	if req.Type != models.TaskTypeDocker && req.Type != models.TaskTypeCommand {
 		http.Error(w, "Invalid request body", http.StatusBadRequest)
 		return
 	}

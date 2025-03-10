@@ -23,7 +23,8 @@ func configToJSON(t *testing.T, config models.TaskConfig) json.RawMessage {
 func TestCreateTask(t *testing.T) {
 	mockRepo := new(MockTaskRepository)
 	mockIPFS := &ipfs.Client{}
-	service := services.NewTaskService(mockRepo, mockIPFS)
+	rewardCalc := services.NewRewardCalculator()
+	service := services.NewTaskService(mockRepo, mockIPFS, rewardCalc)
 	ctx := context.Background()
 
 	creatorID := uuid.New()
@@ -36,20 +37,26 @@ func TestCreateTask(t *testing.T) {
 		wantErr bool
 	}{
 		{
-			name: "valid file task",
+			name: "valid docker task with file config",
 			task: &models.Task{
 				Title:       "Test Task",
 				Description: "Test Description",
-				Type:        models.TaskTypeFile,
+				Type:        models.TaskTypeDocker,
 				Config: configToJSON(t, models.TaskConfig{
-					FileURL: "https://example.com/task.zip",
+					Command: []string{"echo", "hiiii"},
 					Resources: models.ResourceConfig{
 						Memory:    "512m",
 						CPUShares: 1024,
 						Timeout:   "1h",
 					},
 				}),
-				Reward:          100,
+				Environment: &models.EnvironmentConfig{
+					Type: "docker",
+					Config: map[string]interface{}{
+						"image":   "alpine:latest",
+						"workdir": "/app",
+					},
+				},
 				CreatorID:       creatorID,
 				CreatorDeviceID: creatorDeviceID,
 				CreatorAddress:  creatorAddress,
@@ -80,7 +87,6 @@ func TestCreateTask(t *testing.T) {
 						"workdir": "/app",
 					},
 				},
-				Reward:          100,
 				CreatorID:       creatorID,
 				CreatorDeviceID: creatorDeviceID,
 				CreatorAddress:  creatorAddress,
@@ -94,37 +100,21 @@ func TestCreateTask(t *testing.T) {
 			name: "invalid task - empty title",
 			task: &models.Task{
 				Description: "Test Description",
-				Type:        models.TaskTypeFile,
+				Type:        models.TaskTypeDocker,
 				Config: configToJSON(t, models.TaskConfig{
-					FileURL: "https://example.com/task.zip",
+					Command: []string{"echo", "hello"},
 					Resources: models.ResourceConfig{
 						Memory:    "512m",
 						CPUShares: 1024,
 						Timeout:   "1h",
 					},
 				}),
-				Reward:          100,
-				CreatorID:       creatorID,
-				CreatorDeviceID: creatorDeviceID,
-				CreatorAddress:  creatorAddress,
-			},
-			wantErr: true,
-		},
-		{
-			name: "invalid task - zero reward",
-			task: &models.Task{
-				Title:       "Test Task",
-				Description: "Test Description",
-				Type:        models.TaskTypeFile,
-				Config: configToJSON(t, models.TaskConfig{
-					FileURL: "https://example.com/task.zip",
-					Resources: models.ResourceConfig{
-						Memory:    "512m",
-						CPUShares: 1024,
-						Timeout:   "1h",
+				Environment: &models.EnvironmentConfig{
+					Type: "docker",
+					Config: map[string]interface{}{
+						"image": "alpine:latest",
 					},
-				}),
-				Reward:          0,
+				},
 				CreatorID:       creatorID,
 				CreatorDeviceID: creatorDeviceID,
 				CreatorAddress:  creatorAddress,
@@ -145,7 +135,6 @@ func TestCreateTask(t *testing.T) {
 						Timeout:   "1h",
 					},
 				}),
-				Reward:          100,
 				CreatorID:       creatorID,
 				CreatorDeviceID: creatorDeviceID,
 				CreatorAddress:  creatorAddress,
@@ -180,7 +169,8 @@ func TestCreateTask(t *testing.T) {
 func TestAssignTaskToRunner(t *testing.T) {
 	mockRepo := new(MockTaskRepository)
 	mockIPFS := &ipfs.Client{}
-	service := services.NewTaskService(mockRepo, mockIPFS)
+	rewardCalc := services.NewRewardCalculator()
+	service := services.NewTaskService(mockRepo, mockIPFS, rewardCalc)
 	ctx := context.Background()
 
 	taskID := uuid.New()
@@ -244,7 +234,8 @@ func TestAssignTaskToRunner(t *testing.T) {
 func TestGetTask(t *testing.T) {
 	mockRepo := new(MockTaskRepository)
 	mockIPFS := &ipfs.Client{}
-	service := services.NewTaskService(mockRepo, mockIPFS)
+	rewardCalc := services.NewRewardCalculator()
+	service := services.NewTaskService(mockRepo, mockIPFS, rewardCalc)
 	ctx := context.Background()
 
 	taskID := uuid.New()
@@ -320,7 +311,8 @@ func TestGetTask(t *testing.T) {
 func TestListAvailableTasks(t *testing.T) {
 	mockRepo := new(MockTaskRepository)
 	mockIPFS := &ipfs.Client{}
-	service := services.NewTaskService(mockRepo, mockIPFS)
+	rewardCalc := services.NewRewardCalculator()
+	service := services.NewTaskService(mockRepo, mockIPFS, rewardCalc)
 	ctx := context.Background()
 
 	creatorID := uuid.New()
@@ -403,17 +395,19 @@ func TestListAvailableTasks(t *testing.T) {
 func TestGetTaskReward(t *testing.T) {
 	mockRepo := new(MockTaskRepository)
 	mockIPFS := &ipfs.Client{}
-	service := services.NewTaskService(mockRepo, mockIPFS)
+	rewardCalc := services.NewRewardCalculator()
+	service := services.NewTaskService(mockRepo, mockIPFS, rewardCalc)
 	ctx := context.Background()
 
 	taskID := uuid.New()
 	creatorID := uuid.New()
+	reward := float64(100.0)
 	task := &models.Task{
 		ID:              taskID,
-		Reward:          100.0,
 		CreatorID:       creatorID,
 		CreatorDeviceID: "device123",
 		CreatorAddress:  "0x1234567890123456789012345678901234567890",
+		Reward:          &reward,
 	}
 
 	tests := []struct {
@@ -474,7 +468,8 @@ func TestGetTaskReward(t *testing.T) {
 func TestStartTask(t *testing.T) {
 	mockRepo := new(MockTaskRepository)
 	mockIPFS := &ipfs.Client{}
-	service := services.NewTaskService(mockRepo, mockIPFS)
+	rewardCalc := services.NewRewardCalculator()
+	service := services.NewTaskService(mockRepo, mockIPFS, rewardCalc)
 	ctx := context.Background()
 
 	taskID := uuid.New()
@@ -533,4 +528,117 @@ func TestStartTask(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestTaskService_CreateTask(t *testing.T) {
+	repo := &MockTaskRepository{}
+	mockIPFS := &ipfs.Client{}
+	rewardCalc := services.NewRewardCalculator()
+	service := services.NewTaskService(repo, mockIPFS, rewardCalc)
+	ctx := context.Background()
+
+	t.Run("creates task successfully", func(t *testing.T) {
+		task := &models.Task{
+			Title:           "Test Docker Task",
+			Type:            models.TaskTypeDocker,
+			Config:          []byte(`{"command": ["echo", "hello"]}`),
+			CreatorID:       uuid.New(),
+			CreatorDeviceID: "device123",
+			CreatorAddress:  "0x1234567890123456789012345678901234567890",
+			Environment: &models.EnvironmentConfig{
+				Type: "docker",
+				Config: map[string]interface{}{
+					"image": "alpine:latest",
+				},
+			},
+		}
+
+		repo.On("Create", ctx, mock.AnythingOfType("*models.Task")).Return(nil)
+
+		err := service.CreateTask(ctx, task)
+		assert.NoError(t, err)
+		assert.NotNil(t, task)
+		assert.Equal(t, "Test Docker Task", task.Title)
+		assert.Equal(t, models.TaskStatusPending, task.Status)
+		assert.NotZero(t, task.CreatedAt)
+		assert.NotZero(t, task.UpdatedAt)
+	})
+
+	t.Run("validates task fields", func(t *testing.T) {
+		task := &models.Task{
+			Title:  "",
+			Type:   models.TaskTypeDocker,
+			Config: []byte(`{"command": ["echo", "hello"]}`),
+		}
+
+		err := service.CreateTask(ctx, task)
+		assert.Error(t, err)
+		assert.Equal(t, services.ErrInvalidTask, err)
+	})
+
+	t.Run("handles repository error", func(t *testing.T) {
+		task := &models.Task{
+			Title:           "Test Docker Task",
+			Type:            models.TaskTypeDocker,
+			Config:          []byte(`{"command": ["echo", "hello"]}`),
+			CreatorID:       uuid.New(),
+			CreatorDeviceID: "device123",
+			CreatorAddress:  "0x1234567890123456789012345678901234567890",
+			Environment: &models.EnvironmentConfig{
+				Type: "docker",
+				Config: map[string]interface{}{
+					"image": "alpine:latest",
+				},
+			},
+		}
+
+		// Clear existing mock expectations
+		repo.ExpectedCalls = nil
+		repo.On("Create", ctx, mock.AnythingOfType("*models.Task")).Return(assert.AnError)
+
+		err := service.CreateTask(ctx, task)
+		assert.Error(t, err)
+		assert.Equal(t, assert.AnError, err)
+	})
+}
+
+func TestTaskService_GetTask(t *testing.T) {
+	repo := &MockTaskRepository{}
+	mockIPFS := &ipfs.Client{}
+	rewardCalc := services.NewRewardCalculator()
+	service := services.NewTaskService(repo, mockIPFS, rewardCalc)
+	ctx := context.Background()
+
+	t.Run("gets task successfully", func(t *testing.T) {
+		task := &models.Task{
+			Title:           "Test Docker Task",
+			Type:            models.TaskTypeDocker,
+			Config:          []byte(`{"command": ["echo", "hello"]}`),
+			CreatorID:       uuid.New(),
+			CreatorDeviceID: "device123",
+			CreatorAddress:  "0x1234567890123456789012345678901234567890",
+			Environment: &models.EnvironmentConfig{
+				Type: "docker",
+				Config: map[string]interface{}{
+					"image": "alpine:latest",
+				},
+			},
+		}
+
+		repo.On("Get", ctx, mock.AnythingOfType("uuid.UUID")).Return(task, nil)
+
+		result, err := service.GetTask(ctx, uuid.New().String())
+		assert.NoError(t, err)
+		assert.Equal(t, task, result)
+	})
+
+	t.Run("handles repository error", func(t *testing.T) {
+		repo.ExpectedCalls = nil
+		repo.On("Get", ctx, mock.AnythingOfType("uuid.UUID")).Return(nil, assert.AnError)
+
+		result, err := service.GetTask(ctx, uuid.New().String())
+		assert.Error(t, err)
+		assert.Equal(t, assert.AnError, err)
+		assert.Nil(t, result)
+	})
 }

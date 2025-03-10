@@ -2,6 +2,7 @@ package runner
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -54,7 +55,7 @@ func TestTaskHandler(t *testing.T) {
 		task := test.CreateTestTask()
 
 		// Set up expectations - StartTask fails
-		mockTaskClient.On("StartTask", task.ID.String()).Return(assert.AnError)
+		mockTaskClient.On("StartTask", task.ID.String()).Return(fmt.Errorf("task start error"))
 
 		// Execute test
 		err := handler.HandleTask(task)
@@ -119,7 +120,7 @@ func TestTaskHandler(t *testing.T) {
 
 		// Set up expectations
 		mockTaskClient.On("StartTask", task.ID.String()).Return(nil)
-		mockExecutor.On("ExecuteTask", mock.Anything, task).Return(nil, assert.AnError)
+		mockExecutor.On("ExecuteTask", mock.Anything, task).Return(nil, fmt.Errorf("execution error"))
 
 		// Execute test
 		err := handler.HandleTask(task)
