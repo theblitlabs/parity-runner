@@ -22,3 +22,17 @@ jobs:
           GOOS=linux GOARCH=amd64 go build -v ./...
           GOOS=darwin GOARCH=amd64 go build -v ./...
           GOOS=windows GOARCH=amd64 go build -v ./...
+
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - name: Set up Go
+        uses: actions/setup-go@v4
+        with:
+          go-version: "1.21"
+          cache: true
+      - name: Test
+        run: |
+          go test -v ./...
