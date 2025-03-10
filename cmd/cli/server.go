@@ -18,7 +18,6 @@ import (
 	"github.com/theblitlabs/parity-protocol/internal/config"
 	"github.com/theblitlabs/parity-protocol/internal/database/repositories"
 	"github.com/theblitlabs/parity-protocol/internal/ipfs"
-	"github.com/theblitlabs/parity-protocol/internal/runner"
 	"github.com/theblitlabs/parity-protocol/internal/services"
 	"github.com/theblitlabs/parity-protocol/pkg/database"
 	"github.com/theblitlabs/parity-protocol/pkg/device"
@@ -86,7 +85,7 @@ func RunServer() {
 	rewardCalculator := services.NewRewardCalculator()
 
 	// Initialize reward client
-	rewardClient := runner.NewEthereumRewardClient(cfg)
+	rewardClient := NewEthereumRewardClient(cfg)
 
 	taskService := services.NewTaskService(taskRepo, ipfsClient, rewardCalculator)
 	taskService.SetRewardClient(rewardClient)
