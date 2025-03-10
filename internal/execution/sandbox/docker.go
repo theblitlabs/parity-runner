@@ -23,7 +23,7 @@ import (
 type DockerExecutor struct {
 	client     *client.Client
 	config     *ExecutorConfig
-	ipfsClient *ipfs.Service
+	ipfsClient ipfs.Client
 }
 
 type ExecutorConfig struct {
@@ -37,7 +37,7 @@ func NewDockerExecutor(config *ExecutorConfig) (*DockerExecutor, error) {
 	return NewDockerExecutorWithClient(config, nil)
 }
 
-func NewDockerExecutorWithClient(config *ExecutorConfig, ipfsClient *ipfs.Service) (*DockerExecutor, error) {
+func NewDockerExecutorWithClient(config *ExecutorConfig, ipfsClient ipfs.Client) (*DockerExecutor, error) {
 	log := logger.WithComponent("docker")
 
 	cli, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
