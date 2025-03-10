@@ -15,18 +15,14 @@ import (
 	"time"
 
 	"github.com/ethereum/go-ethereum/accounts/abi/bind"
-	"github.com/ethereum/go-ethereum/common"
 	"github.com/google/uuid"
 	"github.com/gorilla/mux"
 	"github.com/rs/zerolog/log"
 
-	"github.com/theblitlabs/parity-protocol/internal/config"
 	"github.com/theblitlabs/parity-protocol/internal/models"
 	"github.com/theblitlabs/parity-protocol/internal/services"
-	"github.com/theblitlabs/parity-protocol/pkg/keystore"
 	"github.com/theblitlabs/parity-protocol/pkg/logger"
 	"github.com/theblitlabs/parity-protocol/pkg/stakewallet"
-	"github.com/theblitlabs/parity-protocol/pkg/wallet"
 )
 
 type WebhookRegistration struct {
@@ -606,113 +602,9 @@ func (h *TaskHandler) SaveTaskResult(w http.ResponseWriter, r *http.Request) {
 
 	log.Info().Str("task", taskID).Msg("Task result saved")
 
-	go func() {
-		if err := h.distributeRewards(context.Background(), &result); err != nil {
-			log.Error().Err(err).Str("task", taskID).Msg("Failed to distribute rewards")
-			return
-		}
-		log.Info().Str("task", taskID).Msg("Rewards distributed successfully")
-	}()
-
 	h.NotifyTaskUpdate()
 
 	w.WriteHeader(http.StatusOK)
-}
-
-func (h *TaskHandler) distributeRewards(ctx context.Context, result *models.TaskResult) error {
-	log := logger.WithComponent("rewards")
-
-	cfg, err := config.LoadConfig("config/config.yaml")
-	if err != nil {
-		return fmt.Errorf("config load failed: %w", err)
-	}
-
-	privateKey, err := keystore.GetPrivateKey()
-	if err != nil {
-		return fmt.Errorf("auth required: %w", err)
-	}
-
-	client, err := wallet.NewClientWithKey(
-		cfg.Ethereum.RPC,
-		big.NewInt(cfg.Ethereum.ChainID),
-		privateKey,
-	)
-	if err != nil {
-		return fmt.Errorf("wallet client failed: %w", err)
-	}
-
-	recipientAddr := client.Address()
-	log.Debug().Str("recipient", recipientAddr.Hex()).Msg("Using auth wallet")
-
-	stakeWallet, err := stakewallet.NewStakeWallet(
-		common.HexToAddress(cfg.Ethereum.StakeWalletAddress),
-		client,
-	)
-	if err != nil {
-		return fmt.Errorf("stake wallet init failed: %w", err)
-	}
-
-	balance, err := stakeWallet.GetBalanceByDeviceID(&bind.CallOpts{}, result.DeviceID)
-	if err != nil {
-		log.Error().Err(err).Msg("Balance check failed")
-		return fmt.Errorf("invalid device ID format")
-	}
-
-	if balance.Cmp(big.NewInt(0)) == 0 {
-		log.Debug().Msg("No stake found")
-		return nil
-	}
-
-	task, err := h.service.GetTask(ctx, result.TaskID.String())
-	if err != nil {
-		return fmt.Errorf("task fetch failed: %w", err)
-	}
-
-	rewardWei := new(big.Float).Mul(
-		new(big.Float).SetFloat64(result.Reward),
-		new(big.Float).SetFloat64(1e18),
-	)
-	rewardAmount, _ := rewardWei.Int(nil)
-
-	if rewardAmount.Cmp(balance) > 0 {
-		log.Error().
-			Str("balance", balance.String()).
-			Str("reward", rewardAmount.String()).
-			Msg("Insufficient balance for reward")
-		return fmt.Errorf("insufficient balance for reward")
-	}
-
-	log.Info().
-		Str("reward_wei", rewardAmount.String()).
-		Float64("reward_eth", result.Reward).
-		Msg("Initiating transfer")
-
-	txOpts, err := client.GetTransactOpts()
-	if err != nil {
-		return fmt.Errorf("tx opts failed: %w", err)
-	}
-
-	tx, err := stakeWallet.TransferPayment(
-		txOpts,
-		task.CreatorDeviceID,
-		result.DeviceID,
-		rewardAmount,
-	)
-	if err != nil {
-		log.Error().Err(err).Msg("Transfer failed")
-		return fmt.Errorf("transfer failed: %w", err)
-	}
-
-	receipt, err := bind.WaitMined(ctx, client, tx)
-	if err != nil {
-		return fmt.Errorf("confirmation failed: %w", err)
-	}
-
-	if receipt.Status == 0 {
-		return fmt.Errorf("transfer reverted")
-	}
-
-	return nil
 }
 
 func (h *TaskHandler) checkStakeBalance(task *models.Task) error {
