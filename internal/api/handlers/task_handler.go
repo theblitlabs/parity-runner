@@ -436,7 +436,12 @@ func (h *TaskHandler) CreateTask(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Get device ID from header
+	// Validate required fields
+	if req.Title == "" || req.Description == "" {
+		http.Error(w, "Title and description are required", http.StatusBadRequest)
+		return
+	}
+
 	deviceID := r.Header.Get("X-Device-ID")
 	if deviceID == "" {
 		http.Error(w, "Device ID is required", http.StatusBadRequest)
@@ -485,37 +490,31 @@ func (h *TaskHandler) CreateTask(w http.ResponseWriter, r *http.Request) {
 	// Log task details for debugging
 	log.Debug().
 		Str("task_id", taskID.String()).
-		Str("creator_id", task.CreatorID.String()).
 		Str("creator_device_id", task.CreatorDeviceID).
-		RawJSON("config", req.Config).
 		Msg("Creating task")
 
 	// Check if sufficient stake exists for reward
 	if err := h.checkStakeBalance(task); err != nil {
 		log.Error().Err(err).
 			Str("device_id", deviceID).
-			Float64("reward", *task.Reward).
 			Msg("Insufficient stake balance for task reward")
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 
-	// Continue with task creation
 	if err := h.service.CreateTask(r.Context(), task); err != nil {
-		log.Error().Err(err).
-			Str("task_id", taskID.String()).
-			RawJSON("config", req.Config).
-			Msg("Failed to create task")
+		log.Error().Err(err).Msg("Failed to create task")
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 
-	h.NotifyTaskUpdate() // Notify connected clients about the new task
+	// Notify clients about the new task
+	h.NotifyTaskUpdate()
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
 	if err := json.NewEncoder(w).Encode(task); err != nil {
-		log.Error().Err(err).Str("task_id", task.ID.String()).Msg("Failed to encode task response")
+		log.Error().Err(err).Msg("Failed to encode task response")
 	}
 }
 
@@ -627,43 +626,25 @@ func (h *TaskHandler) SaveTaskResult(w http.ResponseWriter, r *http.Request) {
 
 	if err := h.service.SaveTaskResult(r.Context(), &result); err != nil {
 		if strings.Contains(err.Error(), "invalid task result:") {
-			log.Debug().Err(err).
-				Str("task", taskID).
-				Str("device", deviceID).
-				Msg("Invalid result")
+			log.Debug().Err(err).Str("task", taskID).Msg("Invalid result")
 			http.Error(w, err.Error(), http.StatusBadRequest)
-		} else {
-			log.Error().Err(err).
-				Str("task", taskID).
-				Str("device", deviceID).
-				Msg("Result save failed")
-			http.Error(w, "Result save failed", http.StatusInternalServerError)
+			return
 		}
+		log.Error().Err(err).Str("task", taskID).Msg("Failed to save task result")
+		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 
-	if result.ExitCode == 0 {
-		if err := h.distributeRewards(r.Context(), &result); err != nil {
-			log.Error().Err(err).
-				Str("task", taskID).
-				Str("device", deviceID).
-				Str("runner", result.RunnerAddress).
-				Msg("Reward distribution failed")
-		} else {
-			log.Info().
-				Str("task", taskID).
-				Str("device", deviceID).
-				Str("runner", result.RunnerAddress).
-				Float64("reward", result.Reward).
-				Msg("Task completed with rewards")
+	log.Info().Str("task", taskID).Msg("Task result saved")
+
+	// Try to distribute rewards in a goroutine to avoid blocking the response
+	go func() {
+		if err := h.distributeRewards(context.Background(), &result); err != nil {
+			log.Error().Err(err).Str("task", taskID).Msg("Failed to distribute rewards")
+			return
 		}
-	} else {
-		log.Info().
-			Str("task", taskID).
-			Str("device", deviceID).
-			Int("exit", result.ExitCode).
-			Msg("Task completed with error")
-	}
+		log.Info().Str("task", taskID).Msg("Rewards distributed successfully")
+	}()
 
 	h.NotifyTaskUpdate() // Notify connected clients about task completion
 
@@ -693,10 +674,7 @@ func (h *TaskHandler) distributeRewards(ctx context.Context, result *models.Task
 	}
 
 	recipientAddr := client.Address()
-	log.Debug().
-		Str("device", result.DeviceID).
-		Str("recipient", recipientAddr.Hex()).
-		Msg("Using auth wallet")
+	log.Debug().Str("recipient", recipientAddr.Hex()).Msg("Using auth wallet")
 
 	stakeWallet, err := stakewallet.NewStakeWallet(
 		common.HexToAddress(cfg.Ethereum.StakeWalletAddress),
@@ -708,25 +686,14 @@ func (h *TaskHandler) distributeRewards(ctx context.Context, result *models.Task
 
 	balance, err := stakeWallet.GetBalanceByDeviceID(&bind.CallOpts{}, result.DeviceID)
 	if err != nil {
-		log.Error().
-			Err(err).
-			Str("device", result.DeviceID).
-			Str("addr", cfg.Ethereum.StakeWalletAddress).
-			Msg("Balance check failed")
+		log.Error().Err(err).Msg("Balance check failed")
 		return fmt.Errorf("invalid device ID format")
 	}
 
 	if balance.Cmp(big.NewInt(0)) == 0 {
-		log.Debug().
-			Str("device", result.DeviceID).
-			Msg("No stake found")
+		log.Debug().Msg("No stake found")
 		return nil
 	}
-
-	log.Debug().
-		Str("device", result.DeviceID).
-		Str("balance", balance.String()).
-		Msg("Found stake")
 
 	task, err := h.service.GetTask(ctx, result.TaskID.String())
 	if err != nil {
@@ -741,16 +708,13 @@ func (h *TaskHandler) distributeRewards(ctx context.Context, result *models.Task
 
 	if rewardAmount.Cmp(balance) > 0 {
 		log.Error().
-			Str("device", result.DeviceID).
 			Str("balance", balance.String()).
 			Str("reward", rewardAmount.String()).
 			Msg("Insufficient balance for reward")
 		return fmt.Errorf("insufficient balance for reward")
 	}
 
-	log.Debug().
-		Str("device", result.DeviceID).
-		Str("recipient", recipientAddr.Hex()).
+	log.Info().
 		Str("reward_wei", rewardAmount.String()).
 		Float64("reward_eth", result.Reward).
 		Msg("Initiating transfer")
@@ -767,11 +731,7 @@ func (h *TaskHandler) distributeRewards(ctx context.Context, result *models.Task
 		rewardAmount,
 	)
 	if err != nil {
-		log.Error().
-			Err(err).
-			Str("recipient", recipientAddr.Hex()).
-			Str("reward", rewardAmount.String()).
-			Msg("Transfer failed")
+		log.Error().Err(err).Msg("Transfer failed")
 		return fmt.Errorf("transfer failed: %w", err)
 	}
 

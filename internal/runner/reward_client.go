@@ -44,7 +44,6 @@ func (c *EthereumRewardClient) DistributeRewards(result *models.TaskResult) erro
 	log := logger.WithComponent("rewards").With().
 		Str("task", result.TaskID.String()).
 		Str("device", result.DeviceID).
-		Float64("reward", result.Reward).
 		Logger()
 
 	log.Info().Msg("Starting reward distribution")
@@ -68,31 +67,20 @@ func (c *EthereumRewardClient) DistributeRewards(result *models.TaskResult) erro
 			return nil // Don't fail the task
 		}
 
-		log.Debug().Str("amount", stakeInfo.Amount.String()).Msg("Found stake")
-
 		rewardWei := new(big.Float).Mul(
 			new(big.Float).SetFloat64(result.Reward),
 			new(big.Float).SetFloat64(1e18),
 		)
 		rewardAmount, _ := rewardWei.Int(nil)
 
-		log.Debug().
-			Str("reward", rewardAmount.String()).
-			Str("creator", result.CreatorDeviceID).
-			Msg("Initiating transfer")
-
 		if err := c.stakeWallet.TransferPayment(nil, result.CreatorAddress, result.DeviceID, rewardAmount); err != nil {
 			log.Error().Err(err).
 				Str("reward", rewardAmount.String()).
-				Str("creator", result.CreatorDeviceID).
 				Msg("Transfer failed")
 			return fmt.Errorf("reward transfer failed: %w", err)
 		}
 
-		log.Info().
-			Str("reward", rewardAmount.String()).
-			Str("creator", result.CreatorDeviceID).
-			Msg("Transfer completed")
+		log.Info().Str("reward", rewardAmount.String()).Msg("Transfer completed")
 		return nil
 	}
 

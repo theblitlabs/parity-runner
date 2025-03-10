@@ -43,7 +43,6 @@ func (c *EthereumRewardClient) DistributeRewards(result *models.TaskResult) erro
 	log := logger.WithComponent("rewards").With().
 		Str("task", result.TaskID.String()).
 		Str("device", result.DeviceID).
-		Float64("reward", result.Reward).
 		Logger()
 
 	log.Info().Msg("Starting reward distribution")
@@ -65,31 +64,20 @@ func (c *EthereumRewardClient) DistributeRewards(result *models.TaskResult) erro
 			return nil
 		}
 
-		log.Debug().Str("amount", stakeInfo.Amount.String()).Msg("Found stake")
-
 		rewardWei := new(big.Float).Mul(
 			new(big.Float).SetFloat64(result.Reward),
 			new(big.Float).SetFloat64(1e18),
 		)
 		rewardAmount, _ := rewardWei.Int(nil)
 
-		log.Debug().
-			Str("reward", rewardAmount.String()).
-			Str("creator", result.CreatorDeviceID).
-			Msg("Initiating transfer")
-
 		if err := c.stakeWallet.TransferPayment(nil, result.CreatorAddress, result.DeviceID, rewardAmount); err != nil {
 			log.Error().Err(err).
 				Str("reward", rewardAmount.String()).
-				Str("creator", result.CreatorDeviceID).
 				Msg("Transfer failed")
 			return fmt.Errorf("reward transfer failed: %w", err)
 		}
 
-		log.Info().
-			Str("reward", rewardAmount.String()).
-			Str("creator", result.CreatorDeviceID).
-			Msg("Transfer completed")
+		log.Info().Str("reward", rewardAmount.String()).Msg("Transfer completed")
 		return nil
 	}
 
@@ -105,25 +93,14 @@ func (c *EthereumRewardClient) DistributeRewards(result *models.TaskResult) erro
 		privateKey,
 	)
 	if err != nil {
-		log.Error().Err(err).
-			Str("rpc", c.cfg.Ethereum.RPC).
-			Int64("chain", c.cfg.Ethereum.ChainID).
-			Msg("Client creation failed")
+		log.Error().Err(err).Msg("Client creation failed")
 		return fmt.Errorf("wallet client failed: %w", err)
 	}
-
-	log.Debug().
-		Str("wallet", client.Address().Hex()).
-		Str("rpc", c.cfg.Ethereum.RPC).
-		Int64("chain", c.cfg.Ethereum.ChainID).
-		Msg("Client initialized")
 
 	stakeWalletAddr := common.HexToAddress(c.cfg.Ethereum.StakeWalletAddress)
 	stakeWallet, err := stakewallet.NewStakeWallet(stakeWalletAddr, client)
 	if err != nil {
-		log.Error().Err(err).
-			Str("addr", stakeWalletAddr.Hex()).
-			Msg("Contract init failed")
+		log.Error().Err(err).Msg("Contract init failed")
 		return fmt.Errorf("stake wallet init failed: %w", err)
 	}
 
@@ -138,13 +115,9 @@ func (c *EthereumRewardClient) DistributeRewards(result *models.TaskResult) erro
 		return nil
 	}
 
-	log.Debug().Str("amount", stakeInfo.Amount.String()).Msg("Found stake")
-
 	txOpts, err := client.GetTransactOpts()
 	if err != nil {
-		log.Error().Err(err).
-			Str("wallet", client.Address().Hex()).
-			Msg("TX opts failed")
+		log.Error().Err(err).Msg("TX opts failed")
 		return fmt.Errorf("tx opts failed: %w", err)
 	}
 
@@ -153,11 +126,6 @@ func (c *EthereumRewardClient) DistributeRewards(result *models.TaskResult) erro
 		new(big.Float).SetFloat64(1e18),
 	)
 	rewardAmount, _ := rewardWei.Int(nil)
-
-	log.Debug().
-		Str("reward", rewardAmount.String()).
-		Str("creator", result.CreatorDeviceID).
-		Msg("Initiating transfer")
 
 	tx, err := stakeWallet.TransferPayment(
 		txOpts,
@@ -168,35 +136,25 @@ func (c *EthereumRewardClient) DistributeRewards(result *models.TaskResult) erro
 	if err != nil {
 		log.Error().Err(err).
 			Str("reward", rewardAmount.String()).
-			Str("creator", result.CreatorDeviceID).
 			Msg("Transfer failed")
 		return fmt.Errorf("reward transfer failed: %w", err)
 	}
 
-	log.Info().
-		Str("tx", tx.Hash().Hex()).
-		Str("reward", rewardAmount.String()).
-		Msg("Transfer submitted")
+	log.Info().Str("tx", tx.Hash().Hex()).Msg("Transfer submitted")
 
 	receipt, err := bind.WaitMined(context.Background(), client, tx)
 	if err != nil {
-		log.Error().Err(err).
-			Str("tx", tx.Hash().Hex()).
-			Msg("Confirmation failed")
+		log.Error().Err(err).Str("tx", tx.Hash().Hex()).Msg("Confirmation failed")
 		return fmt.Errorf("confirmation failed: %w", err)
 	}
 
 	if receipt.Status == 0 {
-		log.Error().
-			Str("tx", tx.Hash().Hex()).
-			Str("reward", rewardAmount.String()).
-			Msg("Transfer reverted")
+		log.Error().Str("tx", tx.Hash().Hex()).Msg("Transfer reverted")
 		return fmt.Errorf("transfer reverted")
 	}
 
 	log.Info().
 		Str("tx", tx.Hash().Hex()).
-		Str("reward", rewardAmount.String()).
 		Str("block", receipt.BlockNumber.String()).
 		Msg("Transfer confirmed")
 
