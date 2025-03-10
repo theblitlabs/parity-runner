@@ -125,43 +125,58 @@ func runSysctl(param string, value int) error {
 
 // verifyContentAvailability checks if the content with given CID is available on the IPFS network
 func (s *Service) verifyContentAvailability(cid string, timeout time.Duration) error {
-	// Check if we can actually retrieve the content
-	reader, err := s.shell.Cat(cid)
-	if err != nil {
-		return fmt.Errorf("content not retrievable: %w", err)
+	done := make(chan error, 1)
+
+	go func() {
+		// Check if we can actually retrieve the content
+		reader, err := s.shell.Cat(cid)
+		if err != nil {
+			done <- fmt.Errorf("content not retrievable: %w", err)
+			return
+		}
+		defer reader.Close()
+
+		// Try reading a small amount of data to verify it's actually available
+		buf := make([]byte, 1024)
+		_, err = reader.Read(buf)
+		if err != nil && err != io.EOF {
+			done <- fmt.Errorf("content not readable: %w", err)
+			return
+		}
+
+		logger.Info(component, fmt.Sprintf("Content preview for CID %s: %s", cid, string(buf)))
+
+		// Ensure the content is pinned locally
+		err = s.shell.Pin(cid)
+		if err != nil {
+			logger.Error(component, err, fmt.Sprintf("Failed to pin content for CID %s", cid))
+			done <- fmt.Errorf("content not pinnable: %w", err)
+			return
+		}
+
+		// Verify pin status
+		pins, err := s.shell.Pins()
+		if err != nil {
+			logger.Error(component, err, fmt.Sprintf("Failed to check pins for CID %s", cid))
+			done <- fmt.Errorf("failed to verify pin status: %w", err)
+			return
+		}
+
+		_, isPinned := pins[cid]
+		if !isPinned {
+			done <- fmt.Errorf("content uploaded but not pinned")
+			return
+		}
+		logger.Info(component, fmt.Sprintf("Content successfully pinned for CID: %s", cid))
+		done <- nil
+	}()
+
+	select {
+	case err := <-done:
+		return err
+	case <-time.After(timeout):
+		return fmt.Errorf("operation timed out after %v", timeout)
 	}
-	defer reader.Close()
-
-	// Try reading a small amount of data to verify it's actually available
-	buf := make([]byte, 1024)
-	_, err = reader.Read(buf)
-	if err != nil && err != io.EOF {
-		return fmt.Errorf("content not readable: %w", err)
-	}
-
-	logger.Info(component, fmt.Sprintf("Content preview for CID %s: %s", cid, string(buf)))
-
-	// Ensure the content is pinned locally
-	err = s.shell.Pin(cid)
-	if err != nil {
-		logger.Error(component, err, fmt.Sprintf("Failed to pin content for CID %s", cid))
-		return fmt.Errorf("content not pinnable: %w", err)
-	}
-
-	// Verify pin status
-	pins, err := s.shell.Pins()
-	if err != nil {
-		logger.Error(component, err, fmt.Sprintf("Failed to check pins for CID %s", cid))
-		return fmt.Errorf("failed to verify pin status: %w", err)
-	}
-
-	_, isPinned := pins[cid]
-	if !isPinned {
-		return fmt.Errorf("content uploaded but not pinned")
-	}
-	logger.Info(component, fmt.Sprintf("Content successfully pinned for CID: %s", cid))
-
-	return nil
 }
 
 // UploadFile uploads a file to IPFS, pins it, returns its CID, and verifies its availability

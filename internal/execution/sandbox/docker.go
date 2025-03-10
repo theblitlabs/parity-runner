@@ -34,6 +34,10 @@ type ExecutorConfig struct {
 }
 
 func NewDockerExecutor(config *ExecutorConfig) (*DockerExecutor, error) {
+	return NewDockerExecutorWithClient(config, nil)
+}
+
+func NewDockerExecutorWithClient(config *ExecutorConfig, ipfsClient *ipfs.Service) (*DockerExecutor, error) {
 	log := logger.WithComponent("docker")
 
 	cli, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
@@ -42,12 +46,14 @@ func NewDockerExecutor(config *ExecutorConfig) (*DockerExecutor, error) {
 		return nil, fmt.Errorf("docker client creation failed: %w", err)
 	}
 
-	ipfsClient, err := ipfs.New(ipfs.Config{
-		APIEndpoint: config.IPFSEndpoint,
-	})
-	if err != nil {
-		log.Error().Err(err).Str("endpoint", config.IPFSEndpoint).Msg("Failed to create IPFS client")
-		return nil, fmt.Errorf("ipfs client creation failed: %w", err)
+	if ipfsClient == nil {
+		ipfsClient, err = ipfs.New(ipfs.Config{
+			APIEndpoint: config.IPFSEndpoint,
+		})
+		if err != nil {
+			log.Error().Err(err).Str("endpoint", config.IPFSEndpoint).Msg("Failed to create IPFS client")
+			return nil, fmt.Errorf("ipfs client creation failed: %w", err)
+		}
 	}
 
 	log.Debug().
