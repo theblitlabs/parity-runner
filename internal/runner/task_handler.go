@@ -47,7 +47,6 @@ func (h *DefaultTaskHandler) HandleTask(task *models.Task) error {
 	}
 
 	log.Info().
-		Float64("reward", task.Reward).
 		Str("title", task.Title).
 		Msg("Starting task execution")
 
@@ -119,7 +118,9 @@ func (h *DefaultTaskHandler) HandleTask(task *models.Task) error {
 	result.CreatorDeviceID = task.CreatorDeviceID
 	result.CreatorAddress = task.CreatorAddress
 	result.RunnerAddress = deviceID
-	result.Reward = task.Reward
+	if task.Reward != nil {
+		result.Reward = *task.Reward
+	}
 
 	// Log fields at debug level
 	log.Debug().
@@ -127,6 +128,7 @@ func (h *DefaultTaskHandler) HandleTask(task *models.Task) error {
 		Str("creator_address", result.CreatorAddress).
 		Str("solver_device_id", result.SolverDeviceID).
 		Str("device_id", result.DeviceID).
+		Float64("reward", result.Reward).
 		Msg("Task result fields")
 
 	// Validate result fields
@@ -156,7 +158,7 @@ func (h *DefaultTaskHandler) HandleTask(task *models.Task) error {
 	}
 
 	log.Info().
-		Float64("reward", task.Reward).
+		Float64("reward", result.Reward).
 		Int64("execution_time_ms", result.ExecutionTime/1e6).
 		Bool("success", result.ExitCode == 0).
 		Msg("Task completed")

@@ -474,7 +474,7 @@ func (h *TaskHandler) CreateTask(w http.ResponseWriter, r *http.Request) {
 		Type:            req.Type,
 		Config:          req.Config,
 		Environment:     req.Environment,
-		Reward:          req.Reward,
+		Reward:          &req.Reward,
 		CreatorID:       creatorID,
 		CreatorDeviceID: deviceID,
 		Status:          models.TaskStatusPending,
@@ -494,7 +494,7 @@ func (h *TaskHandler) CreateTask(w http.ResponseWriter, r *http.Request) {
 	if err := h.checkStakeBalance(task); err != nil {
 		log.Error().Err(err).
 			Str("device_id", deviceID).
-			Float64("reward", task.Reward).
+			Float64("reward", *task.Reward).
 			Msg("Insufficient stake balance for task reward")
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
@@ -617,7 +617,9 @@ func (h *TaskHandler) SaveTaskResult(w http.ResponseWriter, r *http.Request) {
 	result.SolverDeviceID = deviceID
 	result.RunnerAddress = deviceID
 	result.CreatedAt = time.Now()
-	result.Reward = task.Reward
+	if task.Reward != nil {
+		result.Reward = *task.Reward
+	}
 
 	hash := sha256.Sum256([]byte(deviceID))
 	result.DeviceIDHash = hex.EncodeToString(hash[:])
@@ -731,33 +733,44 @@ func (h *TaskHandler) distributeRewards(ctx context.Context, result *models.Task
 		return fmt.Errorf("task fetch failed: %w", err)
 	}
 
-	rewardWei := new(big.Int).Mul(
-		big.NewInt(int64(task.Reward)),
-		big.NewInt(1e18),
+	rewardWei := new(big.Float).Mul(
+		new(big.Float).SetFloat64(result.Reward),
+		new(big.Float).SetFloat64(1e18),
 	)
+	rewardAmount, _ := rewardWei.Int(nil)
+
+	if rewardAmount.Cmp(balance) > 0 {
+		log.Error().
+			Str("device", result.DeviceID).
+			Str("balance", balance.String()).
+			Str("reward", rewardAmount.String()).
+			Msg("Insufficient balance for reward")
+		return fmt.Errorf("insufficient balance for reward")
+	}
+
+	log.Debug().
+		Str("device", result.DeviceID).
+		Str("recipient", recipientAddr.Hex()).
+		Str("reward_wei", rewardAmount.String()).
+		Float64("reward_eth", result.Reward).
+		Msg("Initiating transfer")
 
 	txOpts, err := client.GetTransactOpts()
 	if err != nil {
 		return fmt.Errorf("tx opts failed: %w", err)
 	}
 
-	log.Debug().
-		Str("device", result.DeviceID).
-		Str("recipient", recipientAddr.Hex()).
-		Str("reward", rewardWei.String()).
-		Msg("Initiating transfer")
-
 	tx, err := stakeWallet.TransferPayment(
 		txOpts,
 		task.CreatorDeviceID,
 		result.DeviceID,
-		rewardWei,
+		rewardAmount,
 	)
 	if err != nil {
 		log.Error().
 			Err(err).
 			Str("recipient", recipientAddr.Hex()).
-			Str("reward", rewardWei.String()).
+			Str("reward", rewardAmount.String()).
 			Msg("Transfer failed")
 		return fmt.Errorf("transfer failed: %w", err)
 	}
@@ -780,7 +793,7 @@ func (h *TaskHandler) checkStakeBalance(task *models.Task) error {
 	}
 
 	rewardWei := new(big.Float).Mul(
-		new(big.Float).SetFloat64(task.Reward),
+		new(big.Float).SetFloat64(*task.Reward),
 		new(big.Float).SetFloat64(1e18),
 	)
 	rewardAmount, _ := rewardWei.Int(nil)

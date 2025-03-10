@@ -49,6 +49,12 @@ func (c *EthereumRewardClient) DistributeRewards(result *models.TaskResult) erro
 
 	log.Info().Msg("Starting reward distribution")
 
+	// Validate reward amount
+	if result.Reward <= 0 {
+		log.Error().Msg("Invalid reward amount - must be greater than zero")
+		return fmt.Errorf("invalid reward amount: must be greater than zero")
+	}
+
 	// If we have a mock stake wallet (for testing), use it
 	if c.stakeWallet != nil {
 		stakeInfo, err := c.stakeWallet.GetStakeInfo(&bind.CallOpts{}, result.DeviceID)
@@ -72,18 +78,21 @@ func (c *EthereumRewardClient) DistributeRewards(result *models.TaskResult) erro
 
 		log.Debug().
 			Str("reward", rewardAmount.String()).
-			Str("creator", result.CreatorAddress).
+			Str("creator", result.CreatorDeviceID).
 			Msg("Initiating transfer")
 
 		if err := c.stakeWallet.TransferPayment(nil, result.CreatorAddress, result.DeviceID, rewardAmount); err != nil {
 			log.Error().Err(err).
 				Str("reward", rewardAmount.String()).
-				Str("creator", result.CreatorAddress).
+				Str("creator", result.CreatorDeviceID).
 				Msg("Transfer failed")
 			return fmt.Errorf("reward transfer failed: %w", err)
 		}
 
-		log.Info().Str("reward", rewardAmount.String()).Msg("Transfer completed")
+		log.Info().
+			Str("reward", rewardAmount.String()).
+			Str("creator", result.CreatorDeviceID).
+			Msg("Transfer completed")
 		return nil
 	}
 

@@ -82,7 +82,8 @@ func RunServer() {
 
 	// Initialize database
 	taskRepo := repositories.NewTaskRepository(db)
-	taskService := services.NewTaskService(taskRepo, ipfsClient)
+	rewardCalculator := services.NewRewardCalculator()
+	taskService := services.NewTaskService(taskRepo, ipfsClient, rewardCalculator)
 	taskHandler := handlers.NewTaskHandler(taskService)
 
 	// Connect the handler to the shutdown context

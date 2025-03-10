@@ -13,6 +13,7 @@ import (
 	"github.com/theblitlabs/parity-protocol/internal/ipfs"
 	"github.com/theblitlabs/parity-protocol/internal/models"
 	"github.com/theblitlabs/parity-protocol/pkg/logger"
+	"github.com/theblitlabs/parity-protocol/pkg/metrics"
 )
 
 var (
@@ -31,15 +32,22 @@ type TaskRepository interface {
 	GetTaskResult(ctx context.Context, taskID uuid.UUID) (*models.TaskResult, error)
 }
 
-type TaskService struct {
-	repo TaskRepository
-	ipfs *ipfs.Client
+// RewardCalculatorService defines the interface for calculating rewards
+type RewardCalculatorService interface {
+	CalculateReward(resourceMetrics metrics.ResourceMetrics) float64
 }
 
-func NewTaskService(repo TaskRepository, ipfs *ipfs.Client) *TaskService {
+type TaskService struct {
+	repo             TaskRepository
+	ipfs             *ipfs.Client
+	rewardCalculator RewardCalculatorService
+}
+
+func NewTaskService(repo TaskRepository, ipfs *ipfs.Client, rewardCalculator RewardCalculatorService) *TaskService {
 	return &TaskService{
-		repo: repo,
-		ipfs: ipfs,
+		repo:             repo,
+		ipfs:             ipfs,
+		rewardCalculator: rewardCalculator,
 	}
 }
 
@@ -51,7 +59,6 @@ func (s *TaskService) CreateTask(ctx context.Context, task *models.Task) error {
 			Interface("task", map[string]interface{}{
 				"title":  task.Title,
 				"type":   task.Type,
-				"reward": task.Reward,
 				"config": task.Config,
 			}).Msg("Invalid task")
 		return ErrInvalidTask
@@ -71,7 +78,6 @@ func (s *TaskService) CreateTask(ctx context.Context, task *models.Task) error {
 	log.Info().
 		Str("id", task.ID.String()).
 		Str("type", string(task.Type)).
-		Float64("reward", task.Reward).
 		Msg("Creating task")
 
 	if err := s.repo.Create(ctx, task); err != nil {
@@ -171,7 +177,6 @@ func (s *TaskService) AssignTaskToRunner(ctx context.Context, taskID string, run
 	log.Info().
 		Str("task", taskID).
 		Str("runner", runnerID).
-		Float64("reward", task.Reward).
 		Msg("Task assigned")
 
 	return nil
@@ -198,7 +203,10 @@ func (s *TaskService) GetTaskReward(ctx context.Context, taskID string) (float64
 		return 0, err
 	}
 
-	return task.Reward, nil
+	if task.Reward == nil {
+		return 0, nil
+	}
+	return *task.Reward, nil
 }
 
 func (s *TaskService) GetTasks(ctx context.Context) ([]models.Task, error) {
@@ -371,6 +379,19 @@ func (s *TaskService) GetTaskResult(ctx context.Context, taskID string) (*models
 func (s *TaskService) SaveTaskResult(ctx context.Context, result *models.TaskResult) error {
 	log := logger.WithComponent("task_service")
 
+	// Calculate reward based on resource metrics
+	if result != nil {
+		resourceMetrics := metrics.ResourceMetrics{
+			CPUSeconds:      result.CPUSeconds,
+			EstimatedCycles: result.EstimatedCycles,
+			MemoryGBHours:   result.MemoryGBHours,
+			StorageGB:       result.StorageGB,
+			NetworkDataGB:   result.NetworkDataGB,
+		}
+		reward := s.rewardCalculator.CalculateReward(resourceMetrics)
+		result.Reward = reward
+	}
+
 	// Validate the task result
 	if err := result.Validate(); err != nil {
 		log.Error().
@@ -408,6 +429,7 @@ func (s *TaskService) SaveTaskResult(ctx context.Context, result *models.TaskRes
 		Str("ipfs_cid", cid).
 		Int("exit_code", result.ExitCode).
 		Int64("execution_time_ns", result.ExecutionTime).
+		Float64("reward", result.Reward).
 		Msg("Task result saved successfully")
 
 	return nil
