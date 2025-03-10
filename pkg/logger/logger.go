@@ -17,53 +17,34 @@ var (
 	mu  sync.RWMutex
 )
 
-// LogLevel represents the logging level
 type LogLevel string
 
 const (
-	// LogLevelDebug enables debug level logging
-	LogLevelDebug LogLevel = "debug"
-	// LogLevelInfo enables info level logging
-	LogLevelInfo LogLevel = "info"
-	// LogLevelWarn enables warn level logging
-	LogLevelWarn LogLevel = "warn"
-	// LogLevelError enables error level logging
-	LogLevelError LogLevel = "error"
-	// LogLevelDisabled disables all logging
+	LogLevelDebug    LogLevel = "debug"
+	LogLevelInfo     LogLevel = "info"
+	LogLevelWarn     LogLevel = "warn"
+	LogLevelError    LogLevel = "error"
 	LogLevelDisabled LogLevel = "disabled"
 )
 
-// LogMode represents a predefined logging configuration
 type LogMode string
 
 const (
-	// LogModeDebug is verbose logging with pretty formatting for development
-	LogModeDebug LogMode = "debug"
-	// LogModePretty is nicely formatted logs with info level for development
+	LogModeDebug  LogMode = "debug"
 	LogModePretty LogMode = "pretty"
-	// LogModeInfo is standard info-level logging without pretty formatting
-	LogModeInfo LogMode = "info"
-	// LogModeProd is production-optimized logging (minimal, focused on important info)
-	LogModeProd LogMode = "prod"
-	// LogModeTest is minimal logging for test environments
-	LogModeTest LogMode = "test"
+	LogModeInfo   LogMode = "info"
+	LogModeProd   LogMode = "prod"
+	LogModeTest   LogMode = "test"
 )
 
-// Config represents logger configuration
 type Config struct {
-	// Level sets the logging level (debug, info, warn, error)
-	Level LogLevel
-	// Pretty enables pretty console output (for development)
-	Pretty bool
-	// TimeFormat sets the time format string
-	TimeFormat string
-	// CallerEnabled determines if the caller information is included
+	Level         LogLevel
+	Pretty        bool
+	TimeFormat    string
 	CallerEnabled bool
-	// NoColor disables color output when Pretty is true
-	NoColor bool
+	NoColor       bool
 }
 
-// DefaultConfig returns the default logger configuration
 func DefaultConfig() Config {
 	return Config{
 		Level:         LogLevelInfo,
@@ -74,7 +55,6 @@ func DefaultConfig() Config {
 	}
 }
 
-// ConfigForMode returns a logger configuration for the specified mode
 func ConfigForMode(mode LogMode) Config {
 	switch mode {
 	case LogModeDebug:
@@ -122,7 +102,6 @@ func ConfigForMode(mode LogMode) Config {
 	}
 }
 
-// InitWithMode initializes the logger with a predefined mode
 func InitWithMode(mode LogMode) {
 	Init(ConfigForMode(mode))
 }
@@ -131,7 +110,6 @@ func Init(cfg Config) {
 	mu.Lock()
 	defer mu.Unlock()
 
-	// If logging is disabled, set global level to disabled and return early
 	if cfg.Level == LogLevelDisabled {
 		zerolog.SetGlobalLevel(zerolog.Disabled)
 		log = zerolog.New(io.Discard).With().Logger()
@@ -233,7 +211,6 @@ func Init(cfg Config) {
 	zerolog.DefaultContextLogger = &log
 }
 
-// ANSI color codes
 const (
 	gray    = "\x1b[37m"
 	blue    = "\x1b[34m"
@@ -284,7 +261,6 @@ func WithTraceID(traceID string) zerolog.Logger {
 	return log.With().Str("trace_id", traceID).Logger()
 }
 
-// Error logs an error message with a component and optional fields
 func Error(component string, err error, msg string, fields ...map[string]interface{}) {
 	logger := WithComponent(component)
 	event := logger.Error().Err(err)
@@ -296,7 +272,6 @@ func Error(component string, err error, msg string, fields ...map[string]interfa
 	event.Msg(msg)
 }
 
-// Info logs an info message with a component and optional fields
 func Info(component string, msg string, fields ...map[string]interface{}) {
 	logger := WithComponent(component)
 	event := logger.Info()
@@ -308,7 +283,6 @@ func Info(component string, msg string, fields ...map[string]interface{}) {
 	event.Msg(msg)
 }
 
-// Debug logs a debug message with a component and optional fields
 func Debug(component string, msg string, fields ...map[string]interface{}) {
 	logger := WithComponent(component)
 	event := logger.Debug()
@@ -320,7 +294,6 @@ func Debug(component string, msg string, fields ...map[string]interface{}) {
 	event.Msg(msg)
 }
 
-// Warn logs a warning message with a component and optional fields
 func Warn(component string, msg string, fields ...map[string]interface{}) {
 	logger := WithComponent(component)
 	event := logger.Warn()

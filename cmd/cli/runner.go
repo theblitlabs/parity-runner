@@ -15,7 +15,6 @@ import (
 	"github.com/theblitlabs/parity-protocol/pkg/logger"
 )
 
-// checkPortAvailable verifies if a port is available for use
 func checkPortAvailable(port int) error {
 	ln, err := net.Listen("tcp", fmt.Sprintf(":%d", port))
 	if err != nil {
@@ -25,7 +24,6 @@ func checkPortAvailable(port int) error {
 	return nil
 }
 
-// checkServerConnectivity verifies if the API server is reachable
 func checkServerConnectivity(serverURL string) error {
 	client := &http.Client{
 		Timeout: 5 * time.Second,
@@ -51,13 +49,11 @@ func checkServerConnectivity(serverURL string) error {
 func RunRunner() {
 	log := logger.Get().With().Str("component", "cli").Logger()
 
-	// Load configuration
 	cfg, err := config.LoadConfig("config/config.yaml")
 	if err != nil {
 		log.Fatal().Err(err).Msg("Failed to load config")
 	}
 
-	// Check if webhook port is available
 	webhookPort := 8090
 	if cfg.Runner.WebhookPort > 0 {
 		webhookPort = cfg.Runner.WebhookPort
@@ -67,20 +63,16 @@ func RunRunner() {
 		log.Fatal().Err(err).Int("port", webhookPort).Msg("Webhook port is not available")
 	}
 
-	// Check if the server is reachable before proceeding
 	if err := checkServerConnectivity(cfg.Runner.ServerURL); err != nil {
 		log.Warn().Err(err).Str("server_url", cfg.Runner.ServerURL).
 			Msg("API server is not reachable. The runner will start but webhook registration may fail")
 	}
 
-	// Set up graceful shutdown with a buffered channel
 	stopChan := make(chan os.Signal, 1)
 	signal.Notify(stopChan, os.Interrupt, syscall.SIGTERM, syscall.SIGINT)
 
-	// Create a context that will be cancelled when shutdown is triggered
 	ctx, cancel := context.WithCancel(context.Background())
 
-	// Run a goroutine that will cancel the context when a signal is received
 	go func() {
 		sig := <-stopChan
 		log.Info().
@@ -89,8 +81,6 @@ func RunRunner() {
 		cancel()
 	}()
 
-	// Create and start runner service in a separate goroutine to avoid blocking
-	// the signal handler if service creation or startup takes too long
 	serviceChan := make(chan *runner.Service, 1)
 	errorChan := make(chan error, 1)
 
@@ -99,7 +89,7 @@ func RunRunner() {
 		if err != nil {
 			log.Error().Err(err).Msg("Failed to create runner service")
 			errorChan <- err
-			cancel() // Trigger shutdown if service creation fails
+			cancel()
 			return
 		}
 
@@ -108,54 +98,43 @@ func RunRunner() {
 		if err := service.Start(); err != nil {
 			log.Error().Err(err).Msg("Failed to start runner service")
 			errorChan <- err
-			cancel() // Trigger shutdown if service start fails
+			cancel()
 			return
 		}
 
 		log.Info().Msg("Runner service started successfully")
 	}()
 
-	// Wait for either service creation, error, or shutdown signal
 	var service *runner.Service
 	select {
 	case service = <-serviceChan:
-		// Service created successfully, continue
 	case err := <-errorChan:
-		// Error occurred, exit gracefully
 		log.Fatal().Err(err).Msg("Runner failed to initialize")
 	case <-ctx.Done():
-		// Shutdown triggered before service was created
 		log.Info().Msg("Shutdown requested before service initialization completed")
 		return
 	}
 
-	// Wait for context cancellation (shutdown signal)
 	forceExitChan := make(chan struct{})
 	go func() {
 		<-ctx.Done()
-		// Normal shutdown path, do nothing
 	}()
 
-	// Wait for context cancellation (shutdown signal)
 	<-ctx.Done()
-	close(forceExitChan) // Close channel to prevent force exit
+	close(forceExitChan)
 
-	// Create a deadline for shutdown
 	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer shutdownCancel()
 
-	// Shutdown the service
 	shutdownStart := time.Now()
 
-	// Add a goroutine to force exit if shutdown takes too long
 	forceShutdownChan := make(chan struct{})
 	go func() {
 		select {
-		case <-time.After(35 * time.Second): // Give a bit more time than the context timeout
+		case <-time.After(35 * time.Second):
 			log.Error().Msg("Shutdown timeout exceeded, forcing exit")
 			os.Exit(1)
 		case <-forceShutdownChan:
-			// Normal shutdown completed
 			return
 		}
 	}()
@@ -173,8 +152,6 @@ func RunRunner() {
 		}
 	}
 
-	// Signal that normal shutdown completed
 	close(forceShutdownChan)
-
 	log.Info().Msg("Runner shutdown complete")
 }

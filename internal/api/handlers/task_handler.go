@@ -29,7 +29,6 @@ import (
 	"github.com/theblitlabs/parity-protocol/pkg/wallet"
 )
 
-// WebhookRegistration represents a registered webhook endpoint
 type WebhookRegistration struct {
 	ID        string    `json:"id"`
 	URL       string    `json:"url"`
@@ -59,7 +58,6 @@ type CreateTaskRequest struct {
 	CreatorID   string                    `json:"creator_id"`
 }
 
-// TaskService defines the interface for task operations
 type TaskService interface {
 	CreateTask(ctx context.Context, task *models.Task) error
 	GetTask(ctx context.Context, id string) (*models.Task, error)
@@ -73,60 +71,49 @@ type TaskService interface {
 	GetTaskResult(ctx context.Context, taskID string) (*models.TaskResult, error)
 }
 
-// TaskHandler handles task-related HTTP and webhook requests
 type TaskHandler struct {
 	service      TaskService
 	stakeWallet  stakewallet.StakeWallet
-	taskUpdateCh chan struct{} // Channel for task updates
+	taskUpdateCh chan struct{}
 	webhooks     map[string]WebhookRegistration
 	webhookMutex sync.RWMutex
-	stopCh       chan struct{} // Channel for shutdown signal
+	stopCh       chan struct{}
 }
 
-// NewTaskHandler creates a new TaskHandler instance
 func NewTaskHandler(service TaskService) *TaskHandler {
 	return &TaskHandler{
 		service:      service,
 		webhooks:     make(map[string]WebhookRegistration),
-		taskUpdateCh: make(chan struct{}, 100), // Buffer for task updates
+		taskUpdateCh: make(chan struct{}, 100),
 	}
 }
 
-// SetStakeWallet sets the stake wallet for the handler
 func (h *TaskHandler) SetStakeWallet(wallet stakewallet.StakeWallet) {
 	h.stakeWallet = wallet
 }
 
-// SetStopChannel sets a stop channel for graceful shutdown
 func (h *TaskHandler) SetStopChannel(stopCh chan struct{}) {
 	h.stopCh = stopCh
 }
 
-// NotifyTaskUpdate notifies registered webhook clients about task updates
 func (h *TaskHandler) NotifyTaskUpdate() {
 	select {
 	case h.taskUpdateCh <- struct{}{}:
-		// Trigger notification to webhooks
 		go h.notifyWebhooks()
 	case <-h.stopCh:
-		// We're shutting down, don't start new notifications
 		log.Debug().Msg("NotifyTaskUpdate: Ignoring update during shutdown")
 	default:
-		// Channel is full, which means there's already a pending update
 	}
 }
 
-// notifyWebhooks sends notifications to all registered webhook endpoints
 func (h *TaskHandler) notifyWebhooks() {
 	log := logger.WithComponent("webhook")
 
-	// Check if we're shutting down
 	select {
 	case <-h.stopCh:
 		log.Debug().Msg("notifyWebhooks: Ignoring webhook notification during shutdown")
 		return
 	default:
-		// Continue if not shutting down
 	}
 
 	tasks, err := h.service.ListAvailableTasks(context.Background())
@@ -145,7 +132,6 @@ func (h *TaskHandler) notifyWebhooks() {
 		Payload: tasks,
 	}
 
-	// Marshal payload once for all webhooks
 	payloadBytes, err := json.Marshal(payload)
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to marshal webhook payload")
@@ -164,7 +150,6 @@ func (h *TaskHandler) notifyWebhooks() {
 		return
 	}
 
-	// Create a client with appropriate timeouts
 	client := &http.Client{
 		Timeout: 5 * time.Second,
 		Transport: &http.Transport{
@@ -174,7 +159,6 @@ func (h *TaskHandler) notifyWebhooks() {
 		},
 	}
 
-	// Send notifications concurrently with a maximum of 10 concurrent requests
 	sem := make(chan struct{}, 10)
 	var wg sync.WaitGroup
 
@@ -184,12 +168,12 @@ func (h *TaskHandler) notifyWebhooks() {
 			log.Debug().Msg("Cancelling webhook notifications due to shutdown")
 			return
 		default:
-			sem <- struct{}{} // Acquire semaphore
+			sem <- struct{}{}
 			wg.Add(1)
 
 			go func(webhook WebhookRegistration) {
 				defer func() {
-					<-sem // Release semaphore
+					<-sem
 					wg.Done()
 				}()
 
@@ -238,7 +222,6 @@ func (h *TaskHandler) notifyWebhooks() {
 	wg.Wait()
 }
 
-// RegisterWebhook registers a new webhook endpoint
 func (h *TaskHandler) RegisterWebhook(w http.ResponseWriter, r *http.Request) {
 	var req RegisterWebhookRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -284,7 +267,6 @@ func (h *TaskHandler) RegisterWebhook(w http.ResponseWriter, r *http.Request) {
 		Int("total_webhooks", len(h.webhooks)).
 		Msg("Webhook registered")
 
-	// Send initial task list to the new webhook
 	go func() {
 		tasks, err := h.service.ListAvailableTasks(context.Background())
 		if err != nil {
@@ -370,7 +352,6 @@ func (h *TaskHandler) RegisterWebhook(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// UnregisterWebhook removes a registered webhook
 func (h *TaskHandler) UnregisterWebhook(w http.ResponseWriter, r *http.Request) {
 	webhookID := mux.Vars(r)["id"]
 	if webhookID == "" {
@@ -403,7 +384,6 @@ func (h *TaskHandler) UnregisterWebhook(w http.ResponseWriter, r *http.Request) 
 	w.WriteHeader(http.StatusOK)
 }
 
-// GetTaskResult retrieves a task result
 func (h *TaskHandler) GetTaskResult(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	taskID := vars["id"]
@@ -436,7 +416,6 @@ func (h *TaskHandler) CreateTask(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Validate required fields
 	if req.Title == "" || req.Description == "" {
 		http.Error(w, "Title and description are required", http.StatusBadRequest)
 		return
@@ -448,13 +427,11 @@ func (h *TaskHandler) CreateTask(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Validate task type
 	if req.Type != models.TaskTypeDocker && req.Type != models.TaskTypeCommand {
 		http.Error(w, "Invalid request body", http.StatusBadRequest)
 		return
 	}
 
-	// Validate task config
 	if req.Type == models.TaskTypeDocker {
 		if len(req.Config) == 0 {
 			http.Error(w, "Command is required for Docker tasks", http.StatusBadRequest)
@@ -466,10 +443,7 @@ func (h *TaskHandler) CreateTask(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Generate a new UUID for the task
 	taskID := uuid.New()
-
-	// Generate a new UUID for the creator ID
 	creatorID := uuid.New()
 
 	task := &models.Task{
@@ -487,13 +461,11 @@ func (h *TaskHandler) CreateTask(w http.ResponseWriter, r *http.Request) {
 		UpdatedAt:       time.Now(),
 	}
 
-	// Log task details for debugging
 	log.Debug().
 		Str("task_id", taskID.String()).
 		Str("creator_device_id", task.CreatorDeviceID).
 		Msg("Creating task")
 
-	// Check if sufficient stake exists for reward
 	if err := h.checkStakeBalance(task); err != nil {
 		log.Error().Err(err).
 			Str("device_id", deviceID).
@@ -508,7 +480,6 @@ func (h *TaskHandler) CreateTask(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Notify clients about the new task
 	h.NotifyTaskUpdate()
 
 	w.Header().Set("Content-Type", "application/json")
@@ -535,7 +506,6 @@ func (h *TaskHandler) StartTask(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// First assign the task to the runner
 	if err := h.service.AssignTaskToRunner(ctx, taskID, runnerID); err != nil {
 		log.Error().Err(err).Str("task_id", taskID).Msg("Failed to assign task")
 		if err == services.ErrTaskNotFound {
@@ -546,14 +516,13 @@ func (h *TaskHandler) StartTask(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Then start the task
 	if err := h.service.StartTask(ctx, taskID); err != nil {
 		log.Error().Err(err).Str("task_id", taskID).Msg("Failed to start task")
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 
-	h.NotifyTaskUpdate() // Notify connected clients about task status change
+	h.NotifyTaskUpdate()
 
 	w.WriteHeader(http.StatusOK)
 }
@@ -637,7 +606,6 @@ func (h *TaskHandler) SaveTaskResult(w http.ResponseWriter, r *http.Request) {
 
 	log.Info().Str("task", taskID).Msg("Task result saved")
 
-	// Try to distribute rewards in a goroutine to avoid blocking the response
 	go func() {
 		if err := h.distributeRewards(context.Background(), &result); err != nil {
 			log.Error().Err(err).Str("task", taskID).Msg("Failed to distribute rewards")
@@ -646,7 +614,7 @@ func (h *TaskHandler) SaveTaskResult(w http.ResponseWriter, r *http.Request) {
 		log.Info().Str("task", taskID).Msg("Rewards distributed successfully")
 	}()
 
-	h.NotifyTaskUpdate() // Notify connected clients about task completion
+	h.NotifyTaskUpdate()
 
 	w.WriteHeader(http.StatusOK)
 }

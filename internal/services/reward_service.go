@@ -4,9 +4,7 @@ import (
 	"github.com/theblitlabs/parity-protocol/pkg/metrics"
 )
 
-// RewardCalculator implements RewardCalculatorService
 type RewardCalculator struct {
-	// Cost per unit of resource usage
 	cpuCostPerSecond     float64
 	memoryCostPerGBHour  float64
 	storageCostPerGB     float64
@@ -14,7 +12,6 @@ type RewardCalculator struct {
 	cyclesCostPerMillion float64
 }
 
-// NewRewardCalculator creates a new reward calculator with default costs
 func NewRewardCalculator() RewardCalculatorService {
 	return &RewardCalculator{
 		cpuCostPerSecond:     0.00001,  // $0.00001 per CPU second
@@ -25,7 +22,6 @@ func NewRewardCalculator() RewardCalculatorService {
 	}
 }
 
-// CalculateReward calculates the reward based on resource metrics
 func (rc *RewardCalculator) CalculateReward(metrics metrics.ResourceMetrics) float64 {
 	cpuCost := metrics.CPUSeconds * rc.cpuCostPerSecond
 	memoryCost := metrics.MemoryGBHours * rc.memoryCostPerGBHour
@@ -36,7 +32,6 @@ func (rc *RewardCalculator) CalculateReward(metrics metrics.ResourceMetrics) flo
 	// Sum all costs and add a 20% margin
 	totalCost := (cpuCost + memoryCost + storageCost + networkCost + cyclesCost) * 1.2
 
-	// Ensure minimum reward of $0.0001
 	if totalCost < 0.0001 {
 		totalCost = 0.0001
 	}

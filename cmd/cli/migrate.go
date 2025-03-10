@@ -14,18 +14,14 @@ import (
 )
 
 func GetMigrationFiles(migrationType string) ([]string, error) {
-	// Migration directory path
 	migrationDir := "internal/database/migrations"
 
-	// Read all files in the migrations directory
 	files, err := filepath.Glob(filepath.Join(migrationDir, "*."+migrationType+".sql"))
 	if err != nil {
 		return nil, fmt.Errorf("failed to read migration files: %w", err)
 	}
 
-	// Sort files by version number
 	sort.Slice(files, func(i, j int) bool {
-		// Extract version numbers from filenames
 		versionI := strings.Split(filepath.Base(files[i]), "_")[0]
 		versionJ := strings.Split(filepath.Base(files[j]), "_")[0]
 		return versionI < versionJ
@@ -40,14 +36,12 @@ func RunMigrate(down bool) {
 	})
 	log := logger.Get()
 
-	// Load configuration
 	cfg, err := config.LoadConfig("config/config.yaml")
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to load config")
 		return
 	}
 
-	// connection string for postgres
 	dsn := fmt.Sprintf("postgres://%s:%s@%s:%d/%s?sslmode=%s",
 		cfg.Database.User,
 		cfg.Database.Password,
@@ -65,12 +59,10 @@ func RunMigrate(down bool) {
 	defer db.Close()
 
 	migrationType := "up"
-
 	if down {
 		migrationType = "down"
 	}
 
-	// Get sorted migration files
 	migrationFiles, err := GetMigrationFiles(migrationType)
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to get migration files")
@@ -82,7 +74,6 @@ func RunMigrate(down bool) {
 		return
 	}
 
-	// Execute each migration file in order
 	for _, sqlFile := range migrationFiles {
 		log.Info().Str("file", filepath.Base(sqlFile)).Msgf("Executing %s migration", migrationType)
 
@@ -92,7 +83,6 @@ func RunMigrate(down bool) {
 			return
 		}
 
-		// Execute the migration
 		_, err = db.Exec(string(migrationSQL))
 		if err != nil {
 			log.Error().Err(err).Msg("Failed to execute migration")

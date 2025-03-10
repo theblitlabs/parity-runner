@@ -21,7 +21,6 @@ func NewClient(cfg *config.Config) *Client {
 	}
 }
 
-// StoreJSON stores a JSON-serializable object in IPFS and returns its CID
 func (c *Client) StoreJSON(data interface{}) (string, error) {
 	jsonData, err := json.Marshal(data)
 	if err != nil {
@@ -31,11 +30,9 @@ func (c *Client) StoreJSON(data interface{}) (string, error) {
 	return c.StoreData(jsonData)
 }
 
-// StoreData stores raw data in IPFS and returns its CID
 func (c *Client) StoreData(data []byte) (string, error) {
 	url := fmt.Sprintf("%s/api/v0/add", c.apiURL)
 
-	// Create multipart form data
 	body := &bytes.Buffer{}
 	writer := multipart.NewWriter(body)
 	part, err := writer.CreateFormFile("file", "data")
@@ -51,14 +48,12 @@ func (c *Client) StoreData(data []byte) (string, error) {
 		return "", fmt.Errorf("failed to close writer: %w", err)
 	}
 
-	// Create request
 	req, err := http.NewRequest("POST", url, body)
 	if err != nil {
 		return "", fmt.Errorf("failed to create request: %w", err)
 	}
 	req.Header.Set("Content-Type", writer.FormDataContentType())
 
-	// Send request
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		return "", fmt.Errorf("failed to send request: %w", err)
@@ -70,7 +65,6 @@ func (c *Client) StoreData(data []byte) (string, error) {
 		return "", fmt.Errorf("IPFS API error: %s - %s", resp.Status, string(body))
 	}
 
-	// Parse response
 	var result struct {
 		Hash string `json:"Hash"`
 	}
@@ -81,7 +75,6 @@ func (c *Client) StoreData(data []byte) (string, error) {
 	return result.Hash, nil
 }
 
-// GetData retrieves data from IPFS by its CID
 func (c *Client) GetData(cid string) ([]byte, error) {
 	url := fmt.Sprintf("%s/api/v0/cat/%s", c.apiURL, cid)
 
@@ -99,7 +92,6 @@ func (c *Client) GetData(cid string) ([]byte, error) {
 	return io.ReadAll(resp.Body)
 }
 
-// GetJSON retrieves and unmarshals JSON data from IPFS
 func (c *Client) GetJSON(cid string, target interface{}) error {
 	data, err := c.GetData(cid)
 	if err != nil {

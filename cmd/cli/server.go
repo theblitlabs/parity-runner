@@ -27,7 +27,6 @@ import (
 	"github.com/theblitlabs/parity-protocol/pkg/wallet"
 )
 
-// verifyPortAvailable checks if the given port is available for use
 func verifyPortAvailable(host string, port string) error {
 	portNum, err := strconv.Atoi(port)
 	if err != nil {
@@ -45,7 +44,6 @@ func verifyPortAvailable(host string, port string) error {
 func RunServer() {
 	log := logger.Get()
 
-	// Verify device ID
 	deviceID, err := device.VerifyDeviceID()
 	if err != nil {
 		log.Fatal().Err(err).Msg("Failed to verify device ID")
@@ -58,7 +56,6 @@ func RunServer() {
 		log.Error().Err(err).Msg("Failed to load config")
 	}
 
-	// Create database connection with timeout context
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
@@ -69,29 +66,23 @@ func RunServer() {
 
 	log.Info().Msg("Successfully connected to database")
 
-	// Initialize IPFS client
 	ipfsClient := ipfs.NewClient(cfg)
 
-	// Set up graceful shutdown
 	stopChan := make(chan os.Signal, 1)
 	signal.Notify(stopChan, os.Interrupt, syscall.SIGTERM, syscall.SIGINT)
 
-	// Create a context that will be canceled when a shutdown signal is received
 	shutdownCtx, shutdownCancel := context.WithCancel(context.Background())
-	defer shutdownCancel() // Ensure resources are released in any case
+	defer shutdownCancel()
 
-	// Initialize database
 	taskRepo := repositories.NewTaskRepository(db)
 	rewardCalculator := services.NewRewardCalculator()
 
-	// Initialize reward client
 	rewardClient := NewEthereumRewardClient(cfg)
 
 	taskService := services.NewTaskService(taskRepo, ipfsClient, rewardCalculator)
 	taskService.SetRewardClient(rewardClient)
 	taskHandler := handlers.NewTaskHandler(taskService)
 
-	// Connect the handler to the shutdown context
 	internalStopCh := make(chan struct{})
 	go func() {
 		<-shutdownCtx.Done()
@@ -99,7 +90,6 @@ func RunServer() {
 	}()
 	taskHandler.SetStopChannel(internalStopCh)
 
-	// Initialize stake wallet
 	privateKey, err := keystore.GetPrivateKey()
 	if err != nil {
 		log.Fatal().Err(err).Msg("Failed to get private key - please authenticate first")
@@ -122,16 +112,13 @@ func RunServer() {
 		log.Fatal().Err(err).Msg("Failed to create stake wallet")
 	}
 
-	// Set stake wallet in task handler
 	taskHandler.SetStakeWallet(stakeWallet)
 
-	// Initialize API handlers and start server
 	router := api.NewRouter(
 		taskHandler,
 		cfg.Server.Endpoint,
 	)
 
-	// Check if the server port is available before starting
 	if err := verifyPortAvailable(cfg.Server.Host, cfg.Server.Port); err != nil {
 		log.Fatal().
 			Err(err).
@@ -145,15 +132,13 @@ func RunServer() {
 		Handler: router,
 	}
 
-	// Wait for shutdown signal in a goroutine
 	go func() {
 		<-stopChan
 		log.Info().
 			Msg("Shutdown signal received, gracefully shutting down...")
-		shutdownCancel() // Cancel the context, triggering all cleanup
+		shutdownCancel()
 	}()
 
-	// Start server in a goroutine
 	go func() {
 		log.Info().
 			Str("address", fmt.Sprintf("%s:%s", cfg.Server.Host, cfg.Server.Port)).
@@ -163,10 +148,8 @@ func RunServer() {
 		}
 	}()
 
-	// Wait for shutdown context to be canceled
 	<-shutdownCtx.Done()
 
-	// Create a deadline for server shutdown
 	serverShutdownCtx, serverShutdownCancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer serverShutdownCancel()
 
@@ -174,7 +157,6 @@ func RunServer() {
 		Int("shutdown_timeout_seconds", 15).
 		Msg("Initiating server shutdown sequence")
 
-	// Shutdown the server
 	shutdownStart := time.Now()
 	if err := server.Shutdown(serverShutdownCtx); err != nil {
 		log.Error().
@@ -191,7 +173,6 @@ func RunServer() {
 			Msg("Server HTTP connections gracefully closed")
 	}
 
-	// Clean up task handler resources (webhooks, etc.)
 	log.Info().Msg("Starting webhook resource cleanup...")
 	cleanupStart := time.Now()
 	taskHandler.CleanupResources()
