@@ -12,6 +12,7 @@ import (
 	"github.com/theblitlabs/parity-protocol/internal/execution/sandbox"
 	"github.com/theblitlabs/parity-protocol/internal/ipfs"
 	"github.com/theblitlabs/parity-protocol/internal/models"
+	"github.com/theblitlabs/parity-protocol/internal/runner"
 	"github.com/theblitlabs/parity-protocol/pkg/logger"
 	"github.com/theblitlabs/parity-protocol/pkg/metrics"
 )
@@ -41,6 +42,7 @@ type TaskService struct {
 	repo             TaskRepository
 	ipfs             *ipfs.Client
 	rewardCalculator RewardCalculatorService
+	rewardClient     runner.RewardClient
 }
 
 func NewTaskService(repo TaskRepository, ipfs *ipfs.Client, rewardCalculator RewardCalculatorService) *TaskService {
@@ -49,6 +51,11 @@ func NewTaskService(repo TaskRepository, ipfs *ipfs.Client, rewardCalculator Rew
 		ipfs:             ipfs,
 		rewardCalculator: rewardCalculator,
 	}
+}
+
+// SetRewardClient sets the reward client for the task service
+func (s *TaskService) SetRewardClient(client runner.RewardClient) {
+	s.rewardClient = client
 }
 
 func (s *TaskService) CreateTask(ctx context.Context, task *models.Task) error {
@@ -390,6 +397,24 @@ func (s *TaskService) SaveTaskResult(ctx context.Context, result *models.TaskRes
 		}
 		reward := s.rewardCalculator.CalculateReward(resourceMetrics)
 		result.Reward = reward
+
+		// Update task with calculated reward
+		task, err := s.repo.Get(ctx, result.TaskID)
+		if err != nil {
+			log.Error().Err(err).
+				Str("task_id", result.TaskID.String()).
+				Msg("Failed to get task for reward update")
+			return fmt.Errorf("failed to get task for reward update: %w", err)
+		}
+
+		task.Reward = &reward
+		if err := s.repo.Update(ctx, task); err != nil {
+			log.Error().Err(err).
+				Str("task_id", result.TaskID.String()).
+				Float64("reward", reward).
+				Msg("Failed to update task reward")
+			return fmt.Errorf("failed to update task reward: %w", err)
+		}
 	}
 
 	// Validate the task result
@@ -422,6 +447,18 @@ func (s *TaskService) SaveTaskResult(ctx context.Context, result *models.TaskRes
 			Str("ipfs_cid", cid).
 			Msg("Failed to save task result in database")
 		return fmt.Errorf("failed to save task result: %w", err)
+	}
+
+	// Distribute rewards if task was successful and reward client is set
+	if result.ExitCode == 0 && s.rewardClient != nil {
+		if err := s.rewardClient.DistributeRewards(result); err != nil {
+			log.Error().
+				Err(err).
+				Str("task_id", result.TaskID.String()).
+				Float64("reward", result.Reward).
+				Msg("Failed to distribute rewards")
+			// Don't fail the task if reward distribution fails
+		}
 	}
 
 	log.Info().

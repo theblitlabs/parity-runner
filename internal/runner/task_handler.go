@@ -149,14 +149,6 @@ func (h *DefaultTaskHandler) HandleTask(task *models.Task) error {
 		return fmt.Errorf("failed to complete task: %w", err)
 	}
 
-	// Distribute rewards if task was successful
-	if result.ExitCode == 0 {
-		if err := h.rewardClient.DistributeRewards(result); err != nil {
-			log.Error().Err(err).Msg("Failed to distribute rewards")
-			// Don't fail the task if reward distribution fails
-		}
-	}
-
 	log.Info().
 		Float64("reward", result.Reward).
 		Int64("execution_time_ms", result.ExecutionTime/1e6).

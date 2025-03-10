@@ -18,6 +18,7 @@ import (
 	"github.com/theblitlabs/parity-protocol/internal/config"
 	"github.com/theblitlabs/parity-protocol/internal/database/repositories"
 	"github.com/theblitlabs/parity-protocol/internal/ipfs"
+	"github.com/theblitlabs/parity-protocol/internal/runner"
 	"github.com/theblitlabs/parity-protocol/internal/services"
 	"github.com/theblitlabs/parity-protocol/pkg/database"
 	"github.com/theblitlabs/parity-protocol/pkg/device"
@@ -83,7 +84,12 @@ func RunServer() {
 	// Initialize database
 	taskRepo := repositories.NewTaskRepository(db)
 	rewardCalculator := services.NewRewardCalculator()
+
+	// Initialize reward client
+	rewardClient := runner.NewEthereumRewardClient(cfg)
+
 	taskService := services.NewTaskService(taskRepo, ipfsClient, rewardCalculator)
+	taskService.SetRewardClient(rewardClient)
 	taskHandler := handlers.NewTaskHandler(taskService)
 
 	// Connect the handler to the shutdown context
