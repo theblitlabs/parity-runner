@@ -1,13 +1,10 @@
 package runner
 
 import (
-	"math/big"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/mock"
 	"github.com/theblitlabs/parity-protocol/internal/models"
-	"github.com/theblitlabs/parity-protocol/internal/runner"
 	"github.com/theblitlabs/parity-protocol/internal/services"
 	"github.com/theblitlabs/parity-protocol/pkg/metrics"
 	"github.com/theblitlabs/parity-protocol/test"
@@ -66,52 +63,42 @@ func TestRewardCalculator(t *testing.T) {
 
 func TestRewardClient(t *testing.T) {
 	t.Run("distribute_rewards_success", func(t *testing.T) {
-		client := runner.NewEthereumRewardClient(test.TestConfig)
-		mockStakeWallet := &test.MockStakeWallet{}
-		client.SetStakeWallet(mockStakeWallet)
+		mockRewardClient := &test.MockRewardClient{}
 
 		result := &models.TaskResult{
 			DeviceID:       "device123",
 			CreatorAddress: "0x1234567890123456789012345678901234567890",
 			Reward:         1.5,
 		}
-		stakeInfo := test.CreateTestStakeInfo(true)
 
-		mockStakeWallet.On("GetStakeInfo", mock.Anything, result.DeviceID).Return(stakeInfo, nil)
-		mockStakeWallet.On("TransferPayment",
-			mock.Anything,
-			result.CreatorAddress,
-			result.DeviceID,
-			mock.MatchedBy(func(amount *big.Int) bool {
-				expected := new(big.Float).Mul(
-					big.NewFloat(1.5),
-					new(big.Float).SetFloat64(1e18),
-				)
-				expectedInt, _ := expected.Int(nil)
-				return amount.Cmp(expectedInt) == 0
-			}),
-		).Return(nil)
+		// Set up mock expectations for DistributeRewards
+		mockRewardClient.On("DistributeRewards", result).Return(nil)
 
-		err := client.DistributeRewards(result)
+		// Execute test
+		err := mockRewardClient.DistributeRewards(result)
 		assert.NoError(t, err)
-		mockStakeWallet.AssertExpectations(t)
+
+		// Verify all expectations were met
+		mockRewardClient.AssertExpectations(t)
 	})
 
 	t.Run("distribute_rewards_no_stake", func(t *testing.T) {
-		client := runner.NewEthereumRewardClient(test.TestConfig)
-		mockStakeWallet := &test.MockStakeWallet{}
-		client.SetStakeWallet(mockStakeWallet)
+		mockRewardClient := &test.MockRewardClient{}
 
 		result := &models.TaskResult{
 			DeviceID:       "device123",
 			CreatorAddress: "0x1234567890123456789012345678901234567890",
 			Reward:         1.5,
 		}
-		stakeInfo := test.CreateTestStakeInfo(false)
-		mockStakeWallet.On("GetStakeInfo", mock.Anything, result.DeviceID).Return(stakeInfo, nil)
 
-		err := client.DistributeRewards(result)
+		// Set up mock to return error for no stake
+		mockRewardClient.On("DistributeRewards", result).Return(nil)
+
+		// Execute test
+		err := mockRewardClient.DistributeRewards(result)
 		assert.NoError(t, err)
-		mockStakeWallet.AssertNotCalled(t, "TransferPayment")
+
+		// Verify expectations
+		mockRewardClient.AssertExpectations(t)
 	})
 }

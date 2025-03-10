@@ -19,7 +19,6 @@ func NewRouter(taskHandler *handlers.TaskHandler, endpoint string) *Router {
 		endpoint:   endpoint,
 	}
 
-	r.setup()
 	apiRouter := r.Router.PathPrefix("/").Subrouter()
 	for _, m := range r.middleware {
 		apiRouter.Use(m)
@@ -27,12 +26,6 @@ func NewRouter(taskHandler *handlers.TaskHandler, endpoint string) *Router {
 
 	r.registerRoutes(apiRouter, taskHandler)
 	return r
-}
-
-func (r *Router) setup() {
-	for _, m := range r.middleware {
-		r.Use(m)
-	}
 }
 
 func (r *Router) registerRoutes(router *mux.Router, taskHandler *handlers.TaskHandler) {

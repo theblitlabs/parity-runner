@@ -28,7 +28,6 @@ type Service struct {
 	webhookClient  *WebhookClient
 	taskHandler    TaskHandler
 	taskClient     TaskClient
-	rewardClient   RewardClient
 	dockerExecutor *sandbox.DockerExecutor
 	dockerClient   *client.Client
 	ipfsContainer  string
@@ -77,8 +76,7 @@ func NewService(cfg *config.Config) (*Service, error) {
 	}
 
 	taskClient := NewHTTPTaskClient(cfg.Runner.ServerURL)
-	rewardClient := NewEthereumRewardClient(cfg)
-	taskHandler := NewTaskHandler(executor, taskClient, rewardClient)
+	taskHandler := NewTaskHandler(executor, taskClient)
 
 	deviceID, err := device.VerifyDeviceID()
 	if err != nil {
@@ -110,7 +108,6 @@ func NewService(cfg *config.Config) (*Service, error) {
 	svc.webhookClient = webhookClient
 	svc.taskHandler = taskHandler
 	svc.taskClient = taskClient
-	svc.rewardClient = rewardClient
 	svc.dockerExecutor = executor
 
 	log.Info().

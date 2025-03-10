@@ -11,7 +11,6 @@ import (
 	"github.com/theblitlabs/parity-protocol/internal/execution/sandbox"
 	"github.com/theblitlabs/parity-protocol/internal/ipfs"
 	"github.com/theblitlabs/parity-protocol/internal/models"
-	"github.com/theblitlabs/parity-protocol/internal/runner"
 	"github.com/theblitlabs/parity-protocol/pkg/logger"
 	"github.com/theblitlabs/parity-protocol/pkg/metrics"
 )
@@ -40,7 +39,7 @@ type TaskService struct {
 	repo             TaskRepository
 	ipfs             *ipfs.Client
 	rewardCalculator RewardCalculatorService
-	rewardClient     runner.RewardClient
+	rewardClient     RewardClient
 }
 
 func NewTaskService(repo TaskRepository, ipfs *ipfs.Client, rewardCalculator RewardCalculatorService) *TaskService {
@@ -51,7 +50,7 @@ func NewTaskService(repo TaskRepository, ipfs *ipfs.Client, rewardCalculator Rew
 	}
 }
 
-func (s *TaskService) SetRewardClient(client runner.RewardClient) {
+func (s *TaskService) SetRewardClient(client RewardClient) {
 	s.rewardClient = client
 }
 

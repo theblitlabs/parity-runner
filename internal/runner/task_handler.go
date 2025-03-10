@@ -18,16 +18,14 @@ type TaskHandler interface {
 }
 
 type DefaultTaskHandler struct {
-	executor     TaskExecutor
-	taskClient   TaskClient
-	rewardClient RewardClient
+	executor   TaskExecutor
+	taskClient TaskClient
 }
 
-func NewTaskHandler(executor TaskExecutor, taskClient TaskClient, rewardClient RewardClient) *DefaultTaskHandler {
+func NewTaskHandler(executor TaskExecutor, taskClient TaskClient) *DefaultTaskHandler {
 	return &DefaultTaskHandler{
-		executor:     executor,
-		taskClient:   taskClient,
-		rewardClient: rewardClient,
+		executor:   executor,
+		taskClient: taskClient,
 	}
 }
 
@@ -147,12 +145,6 @@ func (h *DefaultTaskHandler) HandleTask(task *models.Task) error {
 	if err := h.taskClient.CompleteTask(task.ID.String()); err != nil {
 		log.Error().Err(err).Msg("Failed to complete task")
 		return fmt.Errorf("failed to complete task: %w", err)
-	}
-
-	// Distribute rewards
-	if err := h.rewardClient.DistributeRewards(result); err != nil {
-		log.Error().Err(err).Msg("Failed to distribute rewards")
-		return fmt.Errorf("failed to distribute rewards: %w", err)
 	}
 
 	log.Info().
