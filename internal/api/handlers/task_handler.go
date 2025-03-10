@@ -491,7 +491,7 @@ func (h *TaskHandler) CreateTask(w http.ResponseWriter, r *http.Request) {
 		Msg("Creating task")
 
 	// Check if sufficient stake exists for reward
-	if err := h.checkStakeBalance(r.Context(), task); err != nil {
+	if err := h.checkStakeBalance(task); err != nil {
 		log.Error().Err(err).
 			Str("device_id", deviceID).
 			Float64("reward", task.Reward).
@@ -774,19 +774,17 @@ func (h *TaskHandler) distributeRewards(ctx context.Context, result *models.Task
 	return nil
 }
 
-func (h *TaskHandler) checkStakeBalance(ctx context.Context, task *models.Task) error {
+func (h *TaskHandler) checkStakeBalance(task *models.Task) error {
 	if h.stakeWallet == nil {
 		return fmt.Errorf("stake wallet not initialized")
 	}
 
-	// Convert reward to wei (assuming reward is in whole tokens)
 	rewardWei := new(big.Float).Mul(
 		new(big.Float).SetFloat64(task.Reward),
 		new(big.Float).SetFloat64(1e18),
 	)
 	rewardAmount, _ := rewardWei.Int(nil)
 
-	// Check device stake balance
 	stakeInfo, err := h.stakeWallet.GetStakeInfo(&bind.CallOpts{}, task.CreatorDeviceID)
 	if err != nil || !stakeInfo.Exists {
 		return fmt.Errorf("creator device not registered - please stake first")
@@ -801,7 +799,6 @@ func (h *TaskHandler) checkStakeBalance(ctx context.Context, task *models.Task) 
 	return nil
 }
 
-// ListTasks returns all tasks
 func (h *TaskHandler) ListTasks(w http.ResponseWriter, r *http.Request) {
 	tasks, err := h.service.GetTasks(r.Context())
 	if err != nil {
@@ -814,7 +811,6 @@ func (h *TaskHandler) ListTasks(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// GetTask returns a specific task by ID
 func (h *TaskHandler) GetTask(w http.ResponseWriter, r *http.Request) {
 	taskID := mux.Vars(r)["id"]
 	task, err := h.service.GetTask(r.Context(), taskID)
@@ -832,7 +828,6 @@ func (h *TaskHandler) GetTask(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// AssignTask assigns a task to a runner
 func (h *TaskHandler) AssignTask(w http.ResponseWriter, r *http.Request) {
 	taskID := mux.Vars(r)["id"]
 	var req struct {
@@ -858,7 +853,6 @@ func (h *TaskHandler) AssignTask(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 }
 
-// GetTaskReward returns the reward for a task
 func (h *TaskHandler) GetTaskReward(w http.ResponseWriter, r *http.Request) {
 	taskID := mux.Vars(r)["id"]
 	reward, err := h.service.GetTaskReward(r.Context(), taskID)
@@ -876,7 +870,6 @@ func (h *TaskHandler) GetTaskReward(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// ListAvailableTasks returns all available tasks
 func (h *TaskHandler) ListAvailableTasks(w http.ResponseWriter, r *http.Request) {
 	tasks, err := h.service.ListAvailableTasks(r.Context())
 	if err != nil {
@@ -889,7 +882,6 @@ func (h *TaskHandler) ListAvailableTasks(w http.ResponseWriter, r *http.Request)
 	}
 }
 
-// CompleteTask marks a task as completed
 func (h *TaskHandler) CompleteTask(w http.ResponseWriter, r *http.Request) {
 	taskID := mux.Vars(r)["id"]
 	if err := h.service.CompleteTask(r.Context(), taskID); err != nil {
@@ -900,11 +892,9 @@ func (h *TaskHandler) CompleteTask(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 }
 
-// CleanupResources cleans up the TaskHandler's resources during server shutdown
 func (h *TaskHandler) CleanupResources() {
 	log := logger.WithComponent("webhook")
 
-	// Log webhook count before cleanup
 	h.webhookMutex.RLock()
 	webhookCount := len(h.webhooks)
 	h.webhookMutex.RUnlock()
@@ -913,18 +903,11 @@ func (h *TaskHandler) CleanupResources() {
 		Int("total_webhooks", webhookCount).
 		Msg("Starting webhook cleanup")
 
-	// The channel is now managed externally via SetStopChannel, so we no longer close it here
-	// We only perform the actual resource cleanup
-
-	// Safely close taskUpdateCh only once
 	select {
-	case <-h.taskUpdateCh: // Try to drain the channel first
+	case <-h.taskUpdateCh:
 	default:
 	}
 	close(h.taskUpdateCh)
-
-	// Clean up any other resources
-	// We could add more detailed cleanup steps here if needed
 
 	log.Info().
 		Int("total_webhooks_cleaned", webhookCount).

@@ -12,19 +12,35 @@ AIR_VERSION=v1.49.0
 GOPATH=$(shell go env GOPATH)
 AIR=$(GOPATH)/bin/air
 
+# Test related variables
+COVERAGE_DIR=coverage
+COVERAGE_PROFILE=$(COVERAGE_DIR)/coverage.out
+COVERAGE_HTML=$(COVERAGE_DIR)/coverage.html
+TEST_FLAGS=-race -coverprofile=$(COVERAGE_PROFILE) -covermode=atomic
+TEST_PACKAGES=./...  # This will test all packages
+TEST_PATH=./test/...
+
 # Build flags
 BUILD_FLAGS=-v
 
 # Add these lines after the existing parameters
 INSTALL_PATH=/usr/local/bin
 
-.PHONY: all build run clean deps fmt help docker-up docker-down docker-logs docker-build docker-clean install-air watch migrate-up migrate-down tools install uninstall install-lint-tools lint
+.PHONY: all build test run clean deps fmt help docker-up docker-down docker-logs docker-build docker-clean install-air watch migrate-up migrate-down tools install uninstall install-lint-tools lint
 
 all: clean build
 
 build: ## Build the application
 	$(GOBUILD) $(BUILD_FLAGS) -o $(BINARY_NAME) ./cmd
 	chmod +x $(BINARY_NAME)
+
+test: setup-coverage ## Run tests with coverage
+	$(GOTEST) $(TEST_FLAGS) -v $(TEST_PACKAGES)
+	@go tool cover -func=$(COVERAGE_PROFILE)
+	@go tool cover -html=$(COVERAGE_PROFILE) -o $(COVERAGE_HTML)
+
+setup-coverage: ## Create coverage directory
+	@mkdir -p $(COVERAGE_DIR)
 
 run:  ## Run the application
 	$(GOCMD) run $(MAIN_PATH) --help
