@@ -27,29 +27,19 @@ func TestTaskValidation(t *testing.T) {
 		wantErr bool
 	}{
 		{
-			name: "valid file task",
-			task: &models.Task{
-				Title:     "Test File Task",
-				Type:      models.TaskTypeFile,
-				Reward:    1.0,
-				Config:    json.RawMessage(`{"file_url": "https://example.com/file.txt"}`),
-				CreatorID: uuid.New(),
-				CreatedAt: time.Now(),
-				UpdatedAt: time.Now(),
-			},
-			wantErr: false,
-		},
-		{
 			name: "valid docker task",
 			task: &models.Task{
-				Title:       "Test Docker Task",
-				Type:        models.TaskTypeDocker,
-				Reward:      1.0,
-				Config:      json.RawMessage(`{"command": ["echo", "hello"]}`),
-				Environment: &models.EnvironmentConfig{Type: "docker"},
-				CreatorID:   uuid.New(),
-				CreatedAt:   time.Now(),
-				UpdatedAt:   time.Now(),
+				Title:     "Test Docker Task",
+				Type:      models.TaskTypeDocker,
+				Config:    json.RawMessage(`{"command": ["echo", "hello"]}`),
+				CreatorID: uuid.New(),
+				CreatedAt: time.Now(),
+				Environment: &models.EnvironmentConfig{
+					Type: "docker",
+					Config: map[string]interface{}{
+						"image": "alpine:latest",
+					},
+				},
 			},
 			wantErr: false,
 		},
@@ -57,24 +47,32 @@ func TestTaskValidation(t *testing.T) {
 			name: "valid command task",
 			task: &models.Task{
 				Title:     "Test Command Task",
-				Type:      models.TaskTypeCommand,
-				Reward:    1.0,
+				Type:      models.TaskTypeDocker,
 				Config:    json.RawMessage(`{"command": ["ls", "-la"]}`),
 				CreatorID: uuid.New(),
 				CreatedAt: time.Now(),
-				UpdatedAt: time.Now(),
+				Environment: &models.EnvironmentConfig{
+					Type: "docker",
+					Config: map[string]interface{}{
+						"image": "ubuntu:latest",
+					},
+				},
 			},
 			wantErr: false,
 		},
 		{
 			name: "missing title",
 			task: &models.Task{
-				Type:      models.TaskTypeFile,
-				Reward:    1.0,
-				Config:    json.RawMessage(`{"file_url": "https://example.com/file.txt"}`),
+				Type:      models.TaskTypeDocker,
+				Config:    json.RawMessage(`{"command": ["echo", "hello"]}`),
 				CreatorID: uuid.New(),
 				CreatedAt: time.Now(),
-				UpdatedAt: time.Now(),
+				Environment: &models.EnvironmentConfig{
+					Type: "docker",
+					Config: map[string]interface{}{
+						"image": "alpine:latest",
+					},
+				},
 			},
 			wantErr: true,
 		},
@@ -82,51 +80,49 @@ func TestTaskValidation(t *testing.T) {
 			name: "missing type",
 			task: &models.Task{
 				Title:     "Test Task",
-				Reward:    1.0,
-				Config:    json.RawMessage(`{"file_url": "https://example.com/file.txt"}`),
+				Config:    json.RawMessage(`{"command": ["echo", "hello"]}`),
 				CreatorID: uuid.New(),
 				CreatedAt: time.Now(),
-				UpdatedAt: time.Now(),
-			},
-			wantErr: true,
-		},
-		{
-			name: "invalid reward",
-			task: &models.Task{
-				Title:     "Test Task",
-				Type:      models.TaskTypeFile,
-				Reward:    0.0,
-				Config:    json.RawMessage(`{"file_url": "https://example.com/file.txt"}`),
-				CreatorID: uuid.New(),
-				CreatedAt: time.Now(),
-				UpdatedAt: time.Now(),
-			},
-			wantErr: true,
-		},
-		{
-			name: "invalid config for file task",
-			task: &models.Task{
-				Title:     "Test Task",
-				Type:      models.TaskTypeFile,
-				Reward:    1.0,
-				Config:    json.RawMessage(`{}`),
-				CreatorID: uuid.New(),
-				CreatedAt: time.Now(),
-				UpdatedAt: time.Now(),
+				Environment: &models.EnvironmentConfig{
+					Type: "docker",
+					Config: map[string]interface{}{
+						"image": "alpine:latest",
+					},
+				},
 			},
 			wantErr: true,
 		},
 		{
 			name: "invalid config for docker task",
 			task: &models.Task{
-				Title:       "Test Task",
-				Type:        models.TaskTypeDocker,
-				Reward:      1.0,
-				Config:      json.RawMessage(`{}`),
-				Environment: &models.EnvironmentConfig{Type: "docker"},
-				CreatorID:   uuid.New(),
-				CreatedAt:   time.Now(),
-				UpdatedAt:   time.Now(),
+				Title:     "Test Task",
+				Type:      models.TaskTypeDocker,
+				Config:    json.RawMessage(`{}`),
+				CreatorID: uuid.New(),
+				CreatedAt: time.Now(),
+				Environment: &models.EnvironmentConfig{
+					Type: "docker",
+					Config: map[string]interface{}{
+						"image": "alpine:latest",
+					},
+				},
+			},
+			wantErr: true,
+		},
+		{
+			name: "invalid config for docker task",
+			task: &models.Task{
+				Title:     "Test Task",
+				Type:      models.TaskTypeDocker,
+				Config:    json.RawMessage(`{"wrong_field": "value"}`),
+				CreatorID: uuid.New(),
+				CreatedAt: time.Now(),
+				Environment: &models.EnvironmentConfig{
+					Type: "docker",
+					Config: map[string]interface{}{
+						"image": "alpine:latest",
+					},
+				},
 			},
 			wantErr: true,
 		},
@@ -135,11 +131,9 @@ func TestTaskValidation(t *testing.T) {
 			task: &models.Task{
 				Title:     "Test Task",
 				Type:      models.TaskTypeDocker,
-				Reward:    1.0,
 				Config:    json.RawMessage(`{"command": ["echo", "hello"]}`),
 				CreatorID: uuid.New(),
 				CreatedAt: time.Now(),
-				UpdatedAt: time.Now(),
 			},
 			wantErr: true,
 		},
@@ -155,4 +149,105 @@ func TestTaskValidation(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestTask_Validate(t *testing.T) {
+	t.Run("valid task", func(t *testing.T) {
+		task := &models.Task{
+			Title:  "Test Task",
+			Type:   models.TaskTypeDocker,
+			Config: json.RawMessage(`{"command": ["echo", "hello"]}`),
+			Environment: &models.EnvironmentConfig{
+				Type: "docker",
+				Config: map[string]interface{}{
+					"image": "alpine:latest",
+				},
+			},
+		}
+
+		err := task.Validate()
+		assert.NoError(t, err)
+	})
+
+	t.Run("missing title", func(t *testing.T) {
+		task := &models.Task{
+			Type:   models.TaskTypeDocker,
+			Config: json.RawMessage(`{"command": ["echo", "hello"]}`),
+			Environment: &models.EnvironmentConfig{
+				Type: "docker",
+				Config: map[string]interface{}{
+					"image": "alpine:latest",
+				},
+			},
+		}
+
+		err := task.Validate()
+		assert.Error(t, err)
+	})
+
+	t.Run("missing type", func(t *testing.T) {
+		task := &models.Task{
+			Title:  "Test Task",
+			Config: json.RawMessage(`{"command": ["echo", "hello"]}`),
+			Environment: &models.EnvironmentConfig{
+				Type: "docker",
+				Config: map[string]interface{}{
+					"image": "alpine:latest",
+				},
+			},
+		}
+
+		err := task.Validate()
+		assert.Error(t, err)
+	})
+
+	t.Run("invalid type", func(t *testing.T) {
+		task := &models.Task{
+			Title:  "Test Task",
+			Type:   "invalid_type",
+			Config: json.RawMessage(`{"command": ["echo", "hello"]}`),
+			Environment: &models.EnvironmentConfig{
+				Type: "docker",
+				Config: map[string]interface{}{
+					"image": "alpine:latest",
+				},
+			},
+		}
+
+		err := task.Validate()
+		assert.Error(t, err)
+	})
+
+	t.Run("missing config", func(t *testing.T) {
+		task := &models.Task{
+			Title: "Test Task",
+			Type:  models.TaskTypeDocker,
+			Environment: &models.EnvironmentConfig{
+				Type: "docker",
+				Config: map[string]interface{}{
+					"image": "alpine:latest",
+				},
+			},
+		}
+
+		err := task.Validate()
+		assert.Error(t, err)
+	})
+
+	t.Run("invalid config json", func(t *testing.T) {
+		task := &models.Task{
+			Title:  "Test Task",
+			Type:   models.TaskTypeDocker,
+			Config: []byte(`invalid json`),
+			Environment: &models.EnvironmentConfig{
+				Type: "docker",
+				Config: map[string]interface{}{
+					"image": "alpine:latest",
+				},
+			},
+		}
+
+		err := task.Validate()
+		assert.Error(t, err)
+	})
 }

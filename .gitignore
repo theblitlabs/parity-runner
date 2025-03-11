@@ -77,3 +77,6 @@ node_modules/
 
 # Config files
 config/config.yaml
+
+# Cursor rules
+.cursor/

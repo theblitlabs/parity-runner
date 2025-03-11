@@ -63,7 +63,6 @@ func (c *HTTPTaskClient) StartTask(taskID string) error {
 		return fmt.Errorf("failed to create request: %w", err)
 	}
 
-	// Add runner ID header
 	req.Header.Set("X-Runner-ID", uuid.New().String())
 
 	resp, err := http.DefaultClient.Do(req)
@@ -100,13 +99,11 @@ func (c *HTTPTaskClient) SaveTaskResult(taskID string, result *models.TaskResult
 	baseURL := strings.TrimSuffix(c.baseURL, "/api")
 	url := fmt.Sprintf("%s/api/runners/tasks/%s/result", baseURL, taskID)
 
-	// Get device ID
 	deviceID, err := device.VerifyDeviceID()
 	if err != nil {
 		return fmt.Errorf("failed to get device ID: %w", err)
 	}
 
-	// Ensure all required fields are set
 	if result.ID == uuid.Nil {
 		result.ID = uuid.New()
 	}
@@ -130,7 +127,6 @@ func (c *HTTPTaskClient) SaveTaskResult(taskID string, result *models.TaskResult
 		result.RunnerAddress = deviceID
 	}
 
-	// Validate required fields
 	if result.CreatorDeviceID == "" {
 		return fmt.Errorf("creator device ID is required")
 	}
@@ -145,7 +141,6 @@ func (c *HTTPTaskClient) SaveTaskResult(taskID string, result *models.TaskResult
 		return fmt.Errorf("failed to create request: %w", err)
 	}
 
-	// Add device ID header
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("X-Device-ID", deviceID)
 
@@ -156,7 +151,6 @@ func (c *HTTPTaskClient) SaveTaskResult(taskID string, result *models.TaskResult
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		// Try to read error message from response
 		var errResp struct {
 			Error string `json:"error"`
 		}

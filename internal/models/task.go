@@ -20,7 +20,6 @@ const (
 )
 
 const (
-	TaskTypeFile    TaskType = "file"
 	TaskTypeDocker  TaskType = "docker"
 	TaskTypeCommand TaskType = "command"
 )
@@ -42,10 +41,6 @@ func (c *TaskConfig) Validate(taskType TaskType) error {
 		if len(c.Command) == 0 {
 			return errors.New("command is required for Command tasks")
 		}
-	case TaskTypeFile:
-		if c.FileURL == "" {
-			return errors.New("file_url is required for File tasks")
-		}
 	default:
 		return fmt.Errorf("unsupported task type: %s", taskType)
 	}
@@ -66,7 +61,7 @@ type Task struct {
 	Status          TaskStatus         `json:"status" gorm:"type:varchar(50)"`
 	Config          json.RawMessage    `json:"config" gorm:"type:jsonb"`
 	Environment     *EnvironmentConfig `json:"environment" gorm:"type:jsonb"`
-	Reward          float64            `json:"reward" gorm:"type:decimal(20,8)"`
+	Reward          *float64           `json:"reward,omitempty" gorm:"type:decimal(20,8)"`
 	CreatorID       uuid.UUID          `json:"creator_id" gorm:"type:uuid;not null"`
 	CreatorAddress  string             `json:"creator_address" gorm:"type:varchar(42)"`
 	CreatorDeviceID string             `json:"creator_device_id" gorm:"type:varchar(255)"`
@@ -94,10 +89,6 @@ func (t *Task) Validate() error {
 
 	if t.Type == "" {
 		return errors.New("task type is required")
-	}
-
-	if t.Reward <= 0 {
-		return errors.New("reward must be greater than zero")
 	}
 
 	var config TaskConfig

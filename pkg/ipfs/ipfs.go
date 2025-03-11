@@ -15,7 +15,19 @@ import (
 
 const component = "ipfs"
 
-// Service represents the IPFS service
+// Client defines the interface for IPFS operations
+type Client interface {
+	// Upload methods
+	UploadFile(filePath string) (string, error)
+	UploadData(data []byte) (string, error)
+
+	// Retrieve methods
+	RetrieveFile(cid, outputPath string) error
+	RetrieveData(cid string) ([]byte, error)
+	RetrieveToWriter(cid string, writer io.Writer) error
+}
+
+// Service represents the IPFS service implementation
 type Service struct {
 	shell *shell.Shell
 }

@@ -1,6 +1,7 @@
 package test
 
 import (
+	"context"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -10,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/google/uuid"
@@ -18,9 +20,11 @@ import (
 	"github.com/stretchr/testify/mock"
 	"github.com/theblitlabs/parity-protocol/internal/config"
 	"github.com/theblitlabs/parity-protocol/internal/models"
+	"github.com/theblitlabs/parity-protocol/pkg/database"
 	"github.com/theblitlabs/parity-protocol/pkg/keystore"
 	"github.com/theblitlabs/parity-protocol/pkg/logger"
 	"github.com/theblitlabs/parity-protocol/pkg/stakewallet"
+	"gorm.io/gorm"
 )
 
 // Common test configuration
@@ -70,18 +74,67 @@ func DisableLogging() {
 	logger.Init(cfg)
 }
 
+// Float64Ptr returns a pointer to a float64 value
+func Float64Ptr(v float64) *float64 {
+	f := float64(v)
+	return &f
+}
+
+func SetupTestDB() (*gorm.DB, error) {
+	ctx := context.Background()
+	db, err := database.Connect(ctx, "postgres://postgres:postgres@localhost:5432/test?sslmode=disable")
+	if err != nil {
+		return nil, fmt.Errorf("failed to connect to test database: %w", err)
+	}
+
+	// Clear existing data
+	if err := db.Exec("TRUNCATE tasks, task_results CASCADE").Error; err != nil {
+		return nil, fmt.Errorf("failed to truncate tables: %w", err)
+	}
+
+	return db, nil
+}
+
 func CreateTestTask() *models.Task {
-	task := &models.Task{
+	return &models.Task{
 		ID:              uuid.New(),
 		Title:           "Test Task",
-		Description:     "Test Description",
-		Type:            models.TaskTypeFile,
-		Config:          []byte(`{"file_url": "https://example.com/test.zip"}`),
+		Type:            models.TaskTypeDocker,
 		Status:          models.TaskStatusPending,
-		Reward:          100,
-		CreatorDeviceID: "device123",
+		CreatorID:       uuid.New(),
+		CreatorDeviceID: "test-creator-device-id",
+		Config:          json.RawMessage(`{"command": ["echo", "hello"]}`),
+		Environment:     &models.EnvironmentConfig{Type: "docker"},
+		CreatedAt:       time.Now(),
+		UpdatedAt:       time.Now(),
 	}
-	return task
+}
+
+func CreateTestTaskResult(taskID uuid.UUID) *models.TaskResult {
+	return &models.TaskResult{
+		ID:        uuid.New(),
+		TaskID:    taskID,
+		ExitCode:  0,
+		Output:    "test output",
+		CreatedAt: time.Now(),
+	}
+}
+
+func LoadTestData(filename string) ([]byte, error) {
+	path := filepath.Join("testdata", filename)
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read test data file: %w", err)
+	}
+	return data, nil
+}
+
+func LoadTestConfig(filename string) (json.RawMessage, error) {
+	data, err := LoadTestData(filename)
+	if err != nil {
+		return nil, err
+	}
+	return json.RawMessage(data), nil
 }
 
 func CreateTestServer(t *testing.T, handler func(*websocket.Conn)) *httptest.Server {
@@ -106,16 +159,6 @@ func CreateTestServer(t *testing.T, handler func(*websocket.Conn)) *httptest.Ser
 	}))
 
 	return server
-}
-
-func CreateTestResult() *models.TaskResult {
-	return &models.TaskResult{
-		TaskID:         uuid.New(),
-		DeviceID:       "device123",
-		CreatorAddress: "0x9876543210987654321098765432109876543210",
-		Output:         "test output",
-		Reward:         1.5,
-	}
 }
 
 func CreateTestStakeInfo(exists bool) stakewallet.StakeInfo {
@@ -184,5 +227,23 @@ func SetupTestKeystore(t *testing.T) func() {
 		if err := os.Setenv("HOME", originalHomeDir); err != nil {
 			fmt.Printf("Failed to restore HOME environment variable: %v\n", err)
 		}
+	}
+}
+
+func CreateTestResult() *models.TaskResult {
+	return &models.TaskResult{
+		ID:              uuid.New(),
+		TaskID:          uuid.New(),
+		DeviceID:        "test-device-id",
+		DeviceIDHash:    "test-device-hash",
+		RunnerAddress:   "0x2345678901234567890123456789012345678901",
+		CreatorAddress:  "0x1234567890123456789012345678901234567890",
+		CreatorDeviceID: "test-creator-device-id",
+		SolverDeviceID:  "test-solver-device-id",
+		ExitCode:        0,
+		Output:          "test output",
+		Error:           "",
+		CreatedAt:       time.Now(),
+		Reward:          1.5,
 	}
 }

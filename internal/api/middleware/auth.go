@@ -14,28 +14,24 @@ const UserIDKey contextKey = "user_id"
 
 func Auth(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// Get the Authorization header
 		authHeader := r.Header.Get("Authorization")
 		if authHeader == "" {
 			http.Error(w, "Authorization header required", http.StatusUnauthorized)
 			return
 		}
 
-		// Check if the header starts with "Bearer "
-		bearerToken := strings.Split(authHeader, " ")
-		if len(bearerToken) != 2 || strings.ToLower(bearerToken[0]) != "bearer" {
+		parts := strings.Split(authHeader, " ")
+		if len(parts) != 2 || !strings.EqualFold(parts[0], "bearer") {
 			http.Error(w, "Invalid authorization format", http.StatusUnauthorized)
 			return
 		}
 
-		// Verify the JWT token
-		claims, err := wallet.VerifyToken(bearerToken[1])
+		claims, err := wallet.VerifyToken(parts[1])
 		if err != nil {
-			http.Error(w, "Invalid token: "+err.Error(), http.StatusUnauthorized)
+			http.Error(w, "Invalid token", http.StatusUnauthorized)
 			return
 		}
 
-		// Updated context value setting with custom key type
 		ctx := context.WithValue(r.Context(), UserIDKey, claims.Address)
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})

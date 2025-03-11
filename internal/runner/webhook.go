@@ -399,7 +399,7 @@ func (w *WebhookClient) handleWebhook(resp http.ResponseWriter, req *http.Reques
 					log.Error().Err(err).
 						Str("id", taskID).
 						Str("type", string(task.Type)).
-						Float64("reward", task.Reward).
+						Float64("reward", *task.Reward).
 						Msg("Task processing failed")
 					// Don't mark failed tasks as completed
 				} else {

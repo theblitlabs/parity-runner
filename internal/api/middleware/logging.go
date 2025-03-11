@@ -14,35 +14,25 @@ import (
 func Logging(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
+		requestID := uuid.New().String()
 
-		// Create a logger with request context
 		log := logger.Get().With().
-			Str("request_id", uuid.New().String()).
+			Str("request_id", requestID).
 			Str("method", r.Method).
 			Str("path", r.URL.Path).
-			Str("query", r.URL.RawQuery).
 			Str("remote_addr", r.RemoteAddr).
 			Logger()
 
-		// Log the request
-		log.Info().Msg("Request started")
-
-		// Create response wrapper to capture status code
 		ww := &responseWriter{w: w, status: http.StatusOK}
-
-		// Call the next handler
 		next.ServeHTTP(ww, r)
 
-		// Log the response
-		duration := time.Since(start)
 		log.Info().
 			Int("status", ww.status).
-			Dur("duration", duration).
+			Dur("duration", time.Since(start)).
 			Msg("Request completed")
 	})
 }
 
-// responseWriter is a wrapper for http.ResponseWriter that captures the status code
 type responseWriter struct {
 	w      http.ResponseWriter
 	status int
@@ -61,7 +51,6 @@ func (rw *responseWriter) WriteHeader(statusCode int) {
 	rw.w.WriteHeader(statusCode)
 }
 
-// Hijack implements the http.Hijacker interface to allow WebSocket upgrades
 func (rw *responseWriter) Hijack() (net.Conn, *bufio.ReadWriter, error) {
 	if hijacker, ok := rw.w.(http.Hijacker); ok {
 		return hijacker.Hijack()

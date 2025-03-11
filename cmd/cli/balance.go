@@ -18,19 +18,16 @@ import (
 func RunBalance() {
 	log := logger.Get().With().Str("component", "balance").Logger()
 
-	// Load config
 	cfg, err := config.LoadConfig("config/config.yaml")
 	if err != nil {
 		log.Fatal().Err(err).Msg("Failed to load config")
 	}
 
-	// Get private key from keystore
 	privateKey, err := keystore.GetPrivateKey()
 	if err != nil {
 		log.Fatal().Err(err).Msg("No private key found - please authenticate first using 'parity auth'")
 	}
 
-	// Create Ethereum client with keystore private key
 	client, err := wallet.NewClientWithKey(
 		cfg.Ethereum.RPC,
 		big.NewInt(cfg.Ethereum.ChainID),
@@ -43,7 +40,6 @@ func RunBalance() {
 	tokenAddr := common.HexToAddress(cfg.Ethereum.TokenAddress)
 	stakeWalletAddr := common.HexToAddress(cfg.Ethereum.StakeWalletAddress)
 
-	// Check token balance
 	balance, err := client.GetERC20Balance(tokenAddr, client.Address())
 	if err != nil {
 		log.Fatal().Err(err).Msg("Failed to check token balance")
@@ -55,19 +51,16 @@ func RunBalance() {
 		Str("token_address", tokenAddr.Hex()).
 		Msg("Token balance")
 
-	// Create stake wallet
 	stakeWallet, err := stakewallet.NewStakeWallet(stakeWalletAddr, client)
 	if err != nil {
 		log.Fatal().Err(err).Msg("Failed to create stake wallet")
 	}
 
-	// Get device ID
 	deviceID, err := device.VerifyDeviceID()
 	if err != nil {
 		log.Fatal().Err(err).Msg("Failed to get device ID")
 	}
 
-	// Check stake info
 	stakeInfo, err := stakeWallet.GetStakeInfo(&bind.CallOpts{}, deviceID)
 	if err != nil {
 		log.Fatal().Err(err).Msg("Failed to get stake info")

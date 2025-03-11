@@ -18,16 +18,14 @@ type TaskHandler interface {
 }
 
 type DefaultTaskHandler struct {
-	executor     TaskExecutor
-	taskClient   TaskClient
-	rewardClient RewardClient
+	executor   TaskExecutor
+	taskClient TaskClient
 }
 
-func NewTaskHandler(executor TaskExecutor, taskClient TaskClient, rewardClient RewardClient) *DefaultTaskHandler {
+func NewTaskHandler(executor TaskExecutor, taskClient TaskClient) *DefaultTaskHandler {
 	return &DefaultTaskHandler{
-		executor:     executor,
-		taskClient:   taskClient,
-		rewardClient: rewardClient,
+		executor:   executor,
+		taskClient: taskClient,
 	}
 }
 
@@ -47,7 +45,6 @@ func (h *DefaultTaskHandler) HandleTask(task *models.Task) error {
 	}
 
 	log.Info().
-		Float64("reward", task.Reward).
 		Str("title", task.Title).
 		Msg("Starting task execution")
 
@@ -119,7 +116,9 @@ func (h *DefaultTaskHandler) HandleTask(task *models.Task) error {
 	result.CreatorDeviceID = task.CreatorDeviceID
 	result.CreatorAddress = task.CreatorAddress
 	result.RunnerAddress = deviceID
-	result.Reward = task.Reward
+	if task.Reward != nil {
+		result.Reward = *task.Reward
+	}
 
 	// Log fields at debug level
 	log.Debug().
@@ -127,6 +126,7 @@ func (h *DefaultTaskHandler) HandleTask(task *models.Task) error {
 		Str("creator_address", result.CreatorAddress).
 		Str("solver_device_id", result.SolverDeviceID).
 		Str("device_id", result.DeviceID).
+		Float64("reward", result.Reward).
 		Msg("Task result fields")
 
 	// Validate result fields
@@ -147,16 +147,8 @@ func (h *DefaultTaskHandler) HandleTask(task *models.Task) error {
 		return fmt.Errorf("failed to complete task: %w", err)
 	}
 
-	// Distribute rewards if task was successful
-	if result.ExitCode == 0 {
-		if err := h.rewardClient.DistributeRewards(result); err != nil {
-			log.Error().Err(err).Msg("Failed to distribute rewards")
-			// Don't fail the task if reward distribution fails
-		}
-	}
-
 	log.Info().
-		Float64("reward", task.Reward).
+		Float64("reward", result.Reward).
 		Int64("execution_time_ms", result.ExecutionTime/1e6).
 		Bool("success", result.ExitCode == 0).
 		Msg("Task completed")

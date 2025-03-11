@@ -2,6 +2,7 @@ package runner
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -20,9 +21,8 @@ func TestTaskHandler(t *testing.T) {
 		test.SetupTestLogger()
 		mockExecutor := &test.MockDockerExecutor{}
 		mockTaskClient := &test.MockTaskClient{}
-		mockRewardClient := &test.MockRewardClient{}
 
-		handler := runner.NewTaskHandler(mockExecutor, mockTaskClient, mockRewardClient)
+		handler := runner.NewTaskHandler(mockExecutor, mockTaskClient)
 
 		task := test.CreateTestTask()
 		result := test.CreateTestResult()
@@ -32,7 +32,6 @@ func TestTaskHandler(t *testing.T) {
 		mockExecutor.On("ExecuteTask", mock.Anything, task).Return(result, nil)
 		mockTaskClient.On("SaveTaskResult", task.ID.String(), result).Return(nil)
 		mockTaskClient.On("CompleteTask", task.ID.String()).Return(nil)
-		mockRewardClient.On("DistributeRewards", result).Return(nil)
 
 		// Execute test
 		err := handler.HandleTask(task)
@@ -41,20 +40,18 @@ func TestTaskHandler(t *testing.T) {
 		// Verify all expectations were met
 		mockTaskClient.AssertExpectations(t)
 		mockExecutor.AssertExpectations(t)
-		mockRewardClient.AssertExpectations(t)
 	})
 
 	t.Run("handle_task_start_error", func(t *testing.T) {
 		test.SetupTestLogger()
 		mockExecutor := &test.MockDockerExecutor{}
 		mockTaskClient := &test.MockTaskClient{}
-		mockRewardClient := &test.MockRewardClient{}
 
-		handler := runner.NewTaskHandler(mockExecutor, mockTaskClient, mockRewardClient)
+		handler := runner.NewTaskHandler(mockExecutor, mockTaskClient)
 		task := test.CreateTestTask()
 
 		// Set up expectations - StartTask fails
-		mockTaskClient.On("StartTask", task.ID.String()).Return(assert.AnError)
+		mockTaskClient.On("StartTask", task.ID.String()).Return(fmt.Errorf("task start error"))
 
 		// Execute test
 		err := handler.HandleTask(task)
@@ -64,16 +61,14 @@ func TestTaskHandler(t *testing.T) {
 		// Verify expectations
 		mockTaskClient.AssertExpectations(t)
 		mockExecutor.AssertNotCalled(t, "ExecuteTask")
-		mockRewardClient.AssertNotCalled(t, "DistributeRewards")
 	})
 
 	t.Run("handle_task_invalid_status", func(t *testing.T) {
 		test.SetupTestLogger()
 		mockExecutor := &test.MockDockerExecutor{}
 		mockTaskClient := &test.MockTaskClient{}
-		mockRewardClient := &test.MockRewardClient{}
 
-		handler := runner.NewTaskHandler(mockExecutor, mockTaskClient, mockRewardClient)
+		handler := runner.NewTaskHandler(mockExecutor, mockTaskClient)
 		task := test.CreateTestTask()
 		task.Status = models.TaskStatusCompleted
 
@@ -84,16 +79,14 @@ func TestTaskHandler(t *testing.T) {
 		// Verify no interactions
 		mockTaskClient.AssertNotCalled(t, "StartTask")
 		mockExecutor.AssertNotCalled(t, "ExecuteTask")
-		mockRewardClient.AssertNotCalled(t, "DistributeRewards")
 	})
 
 	t.Run("handle_task_invalid_config", func(t *testing.T) {
 		test.SetupTestLogger()
 		mockExecutor := &test.MockDockerExecutor{}
 		mockTaskClient := &test.MockTaskClient{}
-		mockRewardClient := &test.MockRewardClient{}
 
-		handler := runner.NewTaskHandler(mockExecutor, mockTaskClient, mockRewardClient)
+		handler := runner.NewTaskHandler(mockExecutor, mockTaskClient)
 		task := test.CreateTestTask()
 		task.CreatorDeviceID = "" // Invalid configuration
 
@@ -105,21 +98,19 @@ func TestTaskHandler(t *testing.T) {
 		// Verify no interactions
 		mockTaskClient.AssertNotCalled(t, "StartTask")
 		mockExecutor.AssertNotCalled(t, "ExecuteTask")
-		mockRewardClient.AssertNotCalled(t, "DistributeRewards")
 	})
 
 	t.Run("handle_task_execution_error", func(t *testing.T) {
 		test.SetupTestLogger()
 		mockExecutor := &test.MockDockerExecutor{}
 		mockTaskClient := &test.MockTaskClient{}
-		mockRewardClient := &test.MockRewardClient{}
 
-		handler := runner.NewTaskHandler(mockExecutor, mockTaskClient, mockRewardClient)
+		handler := runner.NewTaskHandler(mockExecutor, mockTaskClient)
 		task := test.CreateTestTask()
 
 		// Set up expectations
 		mockTaskClient.On("StartTask", task.ID.String()).Return(nil)
-		mockExecutor.On("ExecuteTask", mock.Anything, task).Return(nil, assert.AnError)
+		mockExecutor.On("ExecuteTask", mock.Anything, task).Return(nil, fmt.Errorf("execution error"))
 
 		// Execute test
 		err := handler.HandleTask(task)
@@ -129,7 +120,6 @@ func TestTaskHandler(t *testing.T) {
 		// Verify expectations
 		mockTaskClient.AssertExpectations(t)
 		mockExecutor.AssertExpectations(t)
-		mockRewardClient.AssertNotCalled(t, "DistributeRewards")
 	})
 }
 

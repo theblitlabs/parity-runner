@@ -83,15 +83,14 @@ func TestCreateTaskHandler(t *testing.T) {
 	router := mux.NewRouter()
 	router.HandleFunc("/api/tasks", handler.CreateTask).Methods("POST")
 
-	validConfig := map[string]interface{}{
-		"command": []string{"echo", "hello"},
-		"resources": map[string]interface{}{
-			"memory":     "512m",
-			"cpu_shares": 1024,
-			"timeout":    "1h",
+	validConfig := models.TaskConfig{
+		Command: []string{"echo", "hello"},
+		Resources: models.ResourceConfig{
+			Memory:    "512m",
+			CPUShares: 1024,
+			Timeout:   "1h",
 		},
 	}
-
 	validConfigJSON, err := json.Marshal(validConfig)
 	assert.NoError(t, err)
 
@@ -111,18 +110,19 @@ func TestCreateTaskHandler(t *testing.T) {
 		expectedError  string
 	}{
 		{
-			name: "valid file task",
+			name: "valid docker task with file operation",
 			payload: map[string]interface{}{
-				"title":       "Test File Task",
+				"title":       "Test Docker Task With File",
 				"description": "Test Description",
-				"type":        models.TaskTypeFile,
+				"type":        models.TaskTypeDocker,
 				"config":      json.RawMessage(validConfigJSON),
 				"reward":      100.0,
+				"environment": validDockerEnv,
 			},
 			deviceID: "device123",
 			setupMock: func(task *models.Task) {
 				mockService.On("CreateTask", mock.Anything, mock.MatchedBy(func(t *models.Task) bool {
-					return t.Title == "Test File Task" && t.Type == models.TaskTypeFile
+					return t.Title == "Test Docker Task With File" && t.Type == models.TaskTypeDocker
 				})).Return(nil)
 			},
 			expectedStatus: http.StatusCreated,
@@ -135,7 +135,6 @@ func TestCreateTaskHandler(t *testing.T) {
 				"type":        models.TaskTypeDocker,
 				"config":      json.RawMessage(validConfigJSON),
 				"environment": validDockerEnv,
-				"reward":      100.0,
 			},
 			deviceID: "device123",
 			setupMock: func(task *models.Task) {
@@ -150,9 +149,9 @@ func TestCreateTaskHandler(t *testing.T) {
 			payload: map[string]interface{}{
 				"title":       "Test Task",
 				"description": "Test Description",
-				"type":        models.TaskTypeFile,
+				"type":        models.TaskTypeDocker,
 				"config":      json.RawMessage(validConfigJSON),
-				"reward":      100.0,
+				"environment": validDockerEnv,
 			},
 			deviceID:       "",
 			setupMock:      func(task *models.Task) {},
@@ -166,7 +165,6 @@ func TestCreateTaskHandler(t *testing.T) {
 				"description": "Test Description",
 				"type":        "invalid_type",
 				"config":      json.RawMessage(validConfigJSON),
-				"reward":      100.0,
 			},
 			deviceID:       "device123",
 			setupMock:      func(task *models.Task) {},
@@ -180,7 +178,6 @@ func TestCreateTaskHandler(t *testing.T) {
 				"description": "Test Description",
 				"type":        models.TaskTypeDocker,
 				"config":      json.RawMessage(validConfigJSON),
-				"reward":      100.0,
 			},
 			deviceID:       "device123",
 			setupMock:      func(task *models.Task) {},
@@ -192,9 +189,9 @@ func TestCreateTaskHandler(t *testing.T) {
 			payload: map[string]interface{}{
 				"title":       "Test Task",
 				"description": "Test Description",
-				"type":        models.TaskTypeFile,
+				"type":        models.TaskTypeDocker,
 				"config":      json.RawMessage(validConfigJSON),
-				"reward":      100.0,
+				"environment": validDockerEnv,
 			},
 			deviceID: "device123",
 			setupMock: func(task *models.Task) {

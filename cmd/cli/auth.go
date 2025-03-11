@@ -42,7 +42,6 @@ func RunAuth() {
 	}
 }
 
-// ExecuteAuth handles the authentication process with the provided private key
 func ExecuteAuth(privateKey string, configPath string) error {
 	log := log.With().Str("component", "auth").Logger()
 
@@ -55,26 +54,21 @@ func ExecuteAuth(privateKey string, configPath string) error {
 		return fmt.Errorf("failed to load config: %w", err)
 	}
 
-	// Validate and normalize private key format
 	privateKey = strings.TrimPrefix(privateKey, "0x")
 
-	// Check format first
 	if _, err := crypto.HexToECDSA(privateKey); err != nil {
 		return fmt.Errorf("invalid private key format: %w", err)
 	}
 
-	// Then check length
 	if len(privateKey) != 64 {
 		return fmt.Errorf("invalid private key - must be 64 hex characters without 0x prefix")
 	}
 
-	// 1. First create the keystore directory
 	keystoreDir := filepath.Join(os.Getenv("HOME"), ".parity")
 	if err := os.MkdirAll(keystoreDir, 0700); err != nil {
 		return fmt.Errorf("failed to create keystore directory: %w", err)
 	}
 
-	// 2. Save private key to keystore first
 	keystorePath := filepath.Join(keystoreDir, "keystore.json")
 	keystore := KeyStore{
 		PrivateKey: privateKey,
@@ -88,7 +82,6 @@ func ExecuteAuth(privateKey string, configPath string) error {
 		return fmt.Errorf("failed to save keystore: %w", err)
 	}
 
-	// 3. Then validate by creating client
 	client, err := wallet.NewClientWithKey(
 		cfg.Ethereum.RPC,
 		big.NewInt(cfg.Ethereum.ChainID),
