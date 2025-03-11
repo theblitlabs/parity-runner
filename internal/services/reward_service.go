@@ -22,6 +22,9 @@ func NewRewardCalculator() RewardCalculatorService {
 	}
 }
 
+// AWS 0.0000100000188 GB-Hours
+// GCP 0.00002361111111 GB-Hours
+
 func (rc *RewardCalculator) CalculateReward(metrics metrics.ResourceMetrics) float64 {
 	cpuCost := metrics.CPUSeconds * rc.cpuCostPerSecond
 	memoryCost := metrics.MemoryGBHours * rc.memoryCostPerGBHour
