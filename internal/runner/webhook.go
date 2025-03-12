@@ -21,18 +21,17 @@ type WebhookMessage struct {
 }
 
 type WebhookClient struct {
-	serverURL  string
-	webhookURL string
-	webhookID  string
-	handler    TaskHandler
-	server     *http.Server
-	runnerID   string
-	deviceID   string
-	stopChan   chan struct{}
-	mu         sync.Mutex
-	started    bool
-	serverPort int
-	// Track completed tasks with timestamps to enable cleanup
+	serverURL          string
+	webhookURL         string
+	webhookID          string
+	handler            TaskHandler
+	server             *http.Server
+	runnerID           string
+	deviceID           string
+	stopChan           chan struct{}
+	mu                 sync.Mutex
+	started            bool
+	serverPort         int
 	completedTasks     map[string]time.Time
 	lastCleanupTime    time.Time
 	completedTasksLock sync.RWMutex
