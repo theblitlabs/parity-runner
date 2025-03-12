@@ -29,7 +29,12 @@ func NewClient(rpcURL string, chainID int64) (*Client, error) {
 	}
 
 	// Load private key from keystore
-	privateKey, err := keystore.LoadPrivateKey()
+	ks, err := keystore.NewKeystore(keystore.Config{})
+	if err != nil {
+		return nil, fmt.Errorf("failed to create keystore: %w", err)
+	}
+
+	privateKey, err := ks.LoadPrivateKey()
 
 	if err != nil {
 		return nil, fmt.Errorf("failed to load private key: %w", err)
