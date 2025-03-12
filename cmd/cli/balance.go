@@ -5,12 +5,13 @@ import (
 
 	"github.com/ethereum/go-ethereum/accounts/abi/bind"
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/crypto"
 
 	"github.com/theblitlabs/deviceid"
 	"github.com/theblitlabs/gologger"
+	"github.com/theblitlabs/keystore"
 	"github.com/theblitlabs/parity-protocol/internal/config"
 	"github.com/theblitlabs/parity-protocol/internal/utils"
-	"github.com/theblitlabs/parity-protocol/pkg/keystore"
 	"github.com/theblitlabs/parity-protocol/pkg/stakewallet"
 	"github.com/theblitlabs/parity-protocol/pkg/wallet"
 )
@@ -23,7 +24,12 @@ func RunBalance() {
 		log.Fatal().Err(err).Msg("Failed to load config")
 	}
 
-	privateKey, err := keystore.GetPrivateKey()
+	ks, err := keystore.NewKeystore(keystore.Config{})
+	if err != nil {
+		log.Fatal().Err(err).Msg("Failed to create keystore")
+	}
+
+	privateKey, err := ks.LoadPrivateKey()
 	if err != nil {
 		log.Fatal().Err(err).Msg("No private key found - please authenticate first using 'parity auth'")
 	}
@@ -31,7 +37,7 @@ func RunBalance() {
 	client, err := wallet.NewClientWithKey(
 		cfg.Ethereum.RPC,
 		big.NewInt(cfg.Ethereum.ChainID),
-		privateKey,
+		common.Bytes2Hex(crypto.FromECDSA(privateKey)),
 	)
 	if err != nil {
 		log.Fatal().Err(err).Msg("Failed to create Ethereum client")

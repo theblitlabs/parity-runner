@@ -8,6 +8,8 @@ replace github.com/theblitlabs/gologger => ./pkg/gologger
 
 replace github.com/theblitlabs/deviceid => ./pkg/deviceid
 
+replace github.com/theblitlabs/keystore => ./pkg/keystore
+
 require (
 	github.com/docker/docker v20.10.17+incompatible
 	github.com/ethereum/go-ethereum v1.14.12
@@ -19,6 +21,7 @@ require (
 	github.com/spf13/viper v1.18.2
 	github.com/theblitlabs/deviceid v0.0.0-00010101000000-000000000000
 	github.com/theblitlabs/gologger v0.0.0-00010101000000-000000000000
+	github.com/theblitlabs/keystore v0.0.0-00010101000000-000000000000
 	gorm.io/gorm v1.25.12
 )
 

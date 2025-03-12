@@ -19,9 +19,9 @@ import (
 
 	"github.com/theblitlabs/deviceid"
 	"github.com/theblitlabs/gologger"
+	"github.com/theblitlabs/keystore"
 	"github.com/theblitlabs/parity-protocol/internal/config"
 	"github.com/theblitlabs/parity-protocol/internal/execution/sandbox"
-	"github.com/theblitlabs/parity-protocol/pkg/keystore"
 )
 
 type Service struct {
@@ -60,7 +60,13 @@ func NewService(cfg *config.Config) (*Service, error) {
 
 	time.Sleep(5 * time.Second)
 
-	if _, err := keystore.GetPrivateKey(); err != nil {
+	ks, err := keystore.NewKeystore(keystore.Config{})
+	if err != nil {
+		log.Error().Err(err).Msg("Failed to create keystore")
+		return nil, fmt.Errorf("failed to create keystore: %w", err)
+	}
+
+	if _, err := ks.LoadPrivateKey(); err != nil {
 		log.Error().Err(err).Msg("No private key found - authentication required")
 		return nil, fmt.Errorf("no private key found - please authenticate first using 'parity auth': %w", err)
 	}

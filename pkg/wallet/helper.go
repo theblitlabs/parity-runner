@@ -5,8 +5,8 @@ import (
 	"os"
 
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/theblitlabs/keystore"
 	"github.com/theblitlabs/parity-protocol/internal/config"
-	"github.com/theblitlabs/parity-protocol/pkg/keystore"
 )
 
 // Define custom errors
@@ -26,17 +26,17 @@ func CheckWalletConnection(cfg *config.Config) error {
 		return fmt.Errorf("failed to create ethereum client: %w", err)
 	}
 
-	// Get keystore path first
-	keystorePath, err := keystore.GetKeystorePath()
+	// Create keystore instance
+	ks, err := keystore.NewKeystore(keystore.Config{})
 	if err != nil {
-		return fmt.Errorf("failed to get keystore path: %w", err)
+		return fmt.Errorf("failed to create keystore: %w", err)
 	}
 
 	// Load token from keystore
-	authToken, err := keystore.LoadToken()
+	authToken, err := ks.LoadToken()
 	if err != nil {
 		if os.IsNotExist(err) ||
-			err.Error() == fmt.Sprintf("no keystore found at %s - please authenticate first", keystorePath) {
+			err.Error() == fmt.Sprintf("no keystore found - please authenticate first") {
 			return ErrNoAuthToken
 		}
 		return fmt.Errorf("failed to load auth token: %w", err)
