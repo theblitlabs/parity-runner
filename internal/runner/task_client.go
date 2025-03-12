@@ -9,8 +9,8 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/theblitlabs/deviceid"
 	"github.com/theblitlabs/parity-protocol/internal/models"
-	"github.com/theblitlabs/parity-protocol/pkg/device"
 )
 
 type TaskClient interface {
@@ -97,7 +97,8 @@ func (c *HTTPTaskClient) SaveTaskResult(taskID string, result *models.TaskResult
 	baseURL := strings.TrimSuffix(c.baseURL, "/api")
 	url := fmt.Sprintf("%s/api/runners/tasks/%s/result", baseURL, taskID)
 
-	deviceID, err := device.VerifyDeviceID()
+	deviceIDManager := deviceid.NewManager(deviceid.Config{})
+	deviceID, err := deviceIDManager.VerifyDeviceID()
 	if err != nil {
 		return fmt.Errorf("failed to get device ID: %w", err)
 	}

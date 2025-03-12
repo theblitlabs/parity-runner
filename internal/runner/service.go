@@ -16,10 +16,11 @@ import (
 	"github.com/docker/docker/client"
 	"github.com/docker/go-connections/nat"
 	"github.com/google/uuid"
+
+	"github.com/theblitlabs/deviceid"
 	"github.com/theblitlabs/gologger"
 	"github.com/theblitlabs/parity-protocol/internal/config"
 	"github.com/theblitlabs/parity-protocol/internal/execution/sandbox"
-	"github.com/theblitlabs/parity-protocol/pkg/device"
 	"github.com/theblitlabs/parity-protocol/pkg/keystore"
 )
 
@@ -78,7 +79,8 @@ func NewService(cfg *config.Config) (*Service, error) {
 	taskClient := NewHTTPTaskClient(cfg.Runner.ServerURL)
 	taskHandler := NewTaskHandler(executor, taskClient)
 
-	deviceID, err := device.VerifyDeviceID()
+	deviceIDManager := deviceid.NewManager(deviceid.Config{})
+	deviceID, err := deviceIDManager.VerifyDeviceID()
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to get device ID")
 		return nil, fmt.Errorf("failed to get device ID: %w", err)
