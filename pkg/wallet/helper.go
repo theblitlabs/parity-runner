@@ -7,7 +7,6 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/theblitlabs/parity-protocol/internal/config"
 	"github.com/theblitlabs/parity-protocol/pkg/keystore"
-	"github.com/theblitlabs/parity-protocol/pkg/logger"
 )
 
 // Define custom errors
@@ -62,12 +61,5 @@ func CheckWalletConnection(cfg *config.Config) error {
 	if balance.Sign() <= 0 {
 		return fmt.Errorf("no tokens found in authenticated wallet %s", walletAddress.Hex())
 	}
-
-	log := logger.Get()
-	log.Info().
-		Str("wallet", walletAddress.Hex()).
-		Str("token_contract", tokenContract.Hex()).
-		Msg("Wallet authenticated successfully")
-
 	return nil
 }

@@ -11,8 +11,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/theblitlabs/gologger"
 	"github.com/theblitlabs/parity-protocol/internal/models"
-	"github.com/theblitlabs/parity-protocol/pkg/logger"
 )
 
 type WebhookMessage struct {
@@ -53,7 +53,7 @@ func NewWebhookClient(serverURL string, webhookURL string, serverPort int, handl
 
 // Register registers the webhook with the server
 func (w *WebhookClient) Register() error {
-	log := logger.WithComponent("webhook")
+	log := gologger.WithComponent("webhook")
 	log.Info().Str("server", w.serverURL).Str("webhook", w.webhookURL).Msg("Registering webhook")
 
 	// Prepare registration payload
@@ -131,7 +131,7 @@ func (w *WebhookClient) Register() error {
 
 // Unregister removes the webhook registration
 func (w *WebhookClient) Unregister() error {
-	log := logger.WithComponent("webhook")
+	log := gologger.WithComponent("webhook")
 	if w.webhookID == "" {
 		log.Warn().Msg("No webhook ID to unregister")
 		return nil
@@ -168,7 +168,7 @@ func (w *WebhookClient) Start() error {
 		return nil
 	}
 
-	log := logger.WithComponent("webhook")
+	log := gologger.WithComponent("webhook")
 
 	// Check if the webhook port is available
 	ln, err := net.Listen("tcp", fmt.Sprintf(":%d", w.serverPort))
@@ -251,7 +251,7 @@ func (w *WebhookClient) Stop() error {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 
-	log := logger.WithComponent("webhook")
+	log := gologger.WithComponent("webhook")
 	if !w.started {
 		log.Info().Msg("Webhook server not started, nothing to stop")
 		return nil
@@ -350,7 +350,7 @@ func (w *WebhookClient) markTaskCompleted(taskID string) {
 
 // handleWebhook processes incoming webhook notifications
 func (w *WebhookClient) handleWebhook(resp http.ResponseWriter, req *http.Request) {
-	log := logger.WithComponent("webhook")
+	log := gologger.WithComponent("webhook")
 
 	// Only allow POST requests
 	if req.Method != "POST" {

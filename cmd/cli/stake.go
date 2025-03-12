@@ -9,11 +9,11 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 
 	"github.com/spf13/cobra"
+	"github.com/theblitlabs/gologger"
 	"github.com/theblitlabs/parity-protocol/internal/config"
 	"github.com/theblitlabs/parity-protocol/internal/utils"
 	"github.com/theblitlabs/parity-protocol/pkg/device"
 	"github.com/theblitlabs/parity-protocol/pkg/keystore"
-	"github.com/theblitlabs/parity-protocol/pkg/logger"
 	"github.com/theblitlabs/parity-protocol/pkg/stakewallet"
 	"github.com/theblitlabs/parity-protocol/pkg/wallet"
 )
@@ -21,7 +21,7 @@ import (
 func RunStake() {
 	var amount float64
 
-	log := logger.WithComponent("stake")
+	log := gologger.WithComponent("stake")
 	log.Info().Msg("Starting staking process...")
 
 	cmd := &cobra.Command{
@@ -48,7 +48,7 @@ func RunStake() {
 }
 
 func executeStake(amount float64) {
-	log := logger.WithComponent("stake")
+	log := gologger.WithComponent("stake")
 
 	// Load configuration
 	cfg, err := config.LoadConfig("config/config.yaml")

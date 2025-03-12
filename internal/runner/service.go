@@ -16,11 +16,11 @@ import (
 	"github.com/docker/docker/client"
 	"github.com/docker/go-connections/nat"
 	"github.com/google/uuid"
+	"github.com/theblitlabs/gologger"
 	"github.com/theblitlabs/parity-protocol/internal/config"
 	"github.com/theblitlabs/parity-protocol/internal/execution/sandbox"
 	"github.com/theblitlabs/parity-protocol/pkg/device"
 	"github.com/theblitlabs/parity-protocol/pkg/keystore"
-	"github.com/theblitlabs/parity-protocol/pkg/logger"
 )
 
 type Service struct {
@@ -34,7 +34,7 @@ type Service struct {
 }
 
 func NewService(cfg *config.Config) (*Service, error) {
-	log := logger.WithComponent("runner")
+	log := gologger.WithComponent("runner")
 
 	dockerClient, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
 	if err != nil {
@@ -119,7 +119,7 @@ func NewService(cfg *config.Config) (*Service, error) {
 }
 
 func (s *Service) Start() error {
-	log := logger.WithComponent("runner")
+	log := gologger.WithComponent("runner")
 
 	if err := s.webhookClient.Start(); err != nil {
 		log.Warn().Err(err).Msg("Webhook client failed to start properly. The runner will operate in offline mode")
@@ -129,7 +129,7 @@ func (s *Service) Start() error {
 }
 
 func (s *Service) Stop(ctx context.Context) error {
-	log := logger.WithComponent("runner")
+	log := gologger.WithComponent("runner")
 	var shutdownErrors []error
 
 	if deadline, ok := ctx.Deadline(); ok {
@@ -218,7 +218,7 @@ func (s *Service) Stop(ctx context.Context) error {
 }
 
 func (s *Service) startIPFSContainer() error {
-	log := logger.WithComponent("runner")
+	log := gologger.WithComponent("runner")
 	ctx := context.Background()
 
 	containers, err := s.dockerClient.ContainerList(ctx, types.ContainerListOptions{All: true})
@@ -446,7 +446,7 @@ func (s *Service) checkIPFSHealth(ctx context.Context) error {
 }
 
 func checkDockerAvailability(cli *client.Client) error {
-	log := logger.WithComponent("docker")
+	log := gologger.WithComponent("docker")
 
 	version, err := cli.ServerVersion(context.Background())
 	if err != nil {

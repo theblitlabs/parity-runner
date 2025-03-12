@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"github.com/ethereum/go-ethereum/crypto"
-	"github.com/theblitlabs/parity-protocol/pkg/logger"
 )
 
 type Keystore struct {
@@ -50,12 +49,6 @@ func SaveToken(token string) error {
 		CreatedAt: time.Now().Unix(),
 	}
 
-	log := logger.Get()
-	log.Info().
-		Str("path", keystorePath).
-		Str("token_preview", token[:min(len(token), 10)]+"...").
-		Msg("Saving token to keystore")
-
 	data, err := json.MarshalIndent(keystore, "", "  ")
 	if err != nil {
 		return fmt.Errorf("failed to marshal keystore: %w", err)
@@ -83,11 +76,6 @@ func LoadToken() (string, error) {
 		return "", err
 	}
 
-	log := logger.Get()
-	log.Info().
-		Str("path", keystorePath).
-		Msg("Loading token from keystore")
-
 	data, err := os.ReadFile(keystorePath)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -108,14 +96,6 @@ func LoadToken() (string, error) {
 	if keystore.AuthToken == "" {
 		return "", fmt.Errorf("invalid token found in keystore")
 	}
-
-	tokenAge := time.Now().Unix() - keystore.CreatedAt
-	log.Info().
-		Str("length", fmt.Sprintf("%d", len(keystore.AuthToken))).
-		Str("token_preview", keystore.AuthToken[:10]+"...").
-		Str("age_seconds", fmt.Sprintf("%d", tokenAge)).
-		Msg("Token loaded successfully")
-
 	return keystore.AuthToken, nil
 }
 
@@ -176,11 +156,4 @@ func GetPrivateKey() (string, error) {
 	}
 
 	return ks.PrivateKey, nil
-}
-
-func min(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
 }

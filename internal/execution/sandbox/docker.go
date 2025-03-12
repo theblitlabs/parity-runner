@@ -14,9 +14,9 @@ import (
 	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/client"
+	"github.com/theblitlabs/gologger"
 	"github.com/theblitlabs/parity-protocol/internal/models"
 	"github.com/theblitlabs/parity-protocol/pkg/ipfs"
-	"github.com/theblitlabs/parity-protocol/pkg/logger"
 	"github.com/theblitlabs/parity-protocol/pkg/metrics"
 )
 
@@ -38,7 +38,7 @@ func NewDockerExecutor(config *ExecutorConfig) (*DockerExecutor, error) {
 }
 
 func NewDockerExecutorWithClient(config *ExecutorConfig, ipfsClient ipfs.Client) (*DockerExecutor, error) {
-	log := logger.WithComponent("docker")
+	log := gologger.WithComponent("docker")
 
 	cli, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
 	if err != nil {
@@ -146,7 +146,7 @@ func parseCPULimit(limit string) int64 {
 }
 
 func (e *DockerExecutor) ExecuteTask(ctx context.Context, task *models.Task) (*models.TaskResult, error) {
-	log := logger.WithComponent("docker")
+	log := gologger.WithComponent("docker")
 	startTime := time.Now()
 	result := models.NewTaskResult()
 	result.TaskID = task.ID

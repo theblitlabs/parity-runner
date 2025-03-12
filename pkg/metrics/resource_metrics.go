@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"math"
 	"os"
 	"os/exec"
 	"runtime"
@@ -16,7 +15,6 @@ import (
 
 	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/client"
-	"github.com/theblitlabs/parity-protocol/pkg/logger"
 )
 
 type ResourceMetrics struct {
@@ -147,7 +145,7 @@ func (rc *ResourceCollector) Start(ctx context.Context) error {
 	return nil
 }
 
-func (rc *ResourceCollector) collectMetrics(ctx context.Context, statsReader io.ReadCloser) {
+func (rc *ResourceCollector) collectMetrics(ctx context.Context, statsReader io.ReadCloser) error {
 	defer statsReader.Close()
 
 	decoder := json.NewDecoder(statsReader)
@@ -156,17 +154,13 @@ func (rc *ResourceCollector) collectMetrics(ctx context.Context, statsReader io.
 	for {
 		select {
 		case <-ctx.Done():
-			return
+			return nil
 		default:
 			if err := decoder.Decode(&stats); err != nil {
 				if err != io.EOF {
-					log := logger.WithComponent("resource_collector")
-					log.Error().
-						Err(err).
-						Str("container_id", rc.containerID).
-						Msg("Failed to decode container stats")
+					return err
 				}
-				return
+				return nil
 			}
 
 			currentTime := time.Now()
@@ -225,22 +219,6 @@ func (rc *ResourceCollector) collectMetrics(ctx context.Context, statsReader io.
 				networkBytes += netStats.RxBytes + netStats.TxBytes
 			}
 			rc.metrics.NetworkDataGB = float64(networkBytes) / (1024 * 1024 * 1024)
-
-			// Log periodic resource usage updates
-			if timeDelta >= 5.0 { // Log every 5 seconds
-				log := logger.WithComponent("resource_collector")
-				log.Info().
-					Str("container_id", rc.containerID).
-					Float64("cpu_percent", math.Round(cpuPercent*100)/100).
-					Float64("memory_gb", math.Round(memoryBytes/(1024*1024*1024)*100)/100).
-					Float64("storage_gb", math.Round(rc.metrics.StorageGB*100)/100).
-					Float64("network_gb", math.Round(rc.metrics.NetworkDataGB*100)/100).
-					Float64("cpu_seconds", math.Round(rc.metrics.CPUSeconds*100)/100).
-					Uint64("estimated_cycles", rc.metrics.EstimatedCycles).
-					Float64("memory_gb_hours", math.Round(rc.metrics.MemoryGBHours*1000)/1000).
-					Str("elapsed_time", time.Since(rc.startTime).Round(time.Second).String()).
-					Msg("Resource usage stats")
-			}
 		}
 	}
 }

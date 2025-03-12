@@ -6,17 +6,17 @@ import (
 	"github.com/ethereum/go-ethereum/accounts/abi/bind"
 	"github.com/ethereum/go-ethereum/common"
 
+	"github.com/theblitlabs/gologger"
 	"github.com/theblitlabs/parity-protocol/internal/config"
 	"github.com/theblitlabs/parity-protocol/internal/utils"
 	"github.com/theblitlabs/parity-protocol/pkg/device"
 	"github.com/theblitlabs/parity-protocol/pkg/keystore"
-	"github.com/theblitlabs/parity-protocol/pkg/logger"
 	"github.com/theblitlabs/parity-protocol/pkg/stakewallet"
 	"github.com/theblitlabs/parity-protocol/pkg/wallet"
 )
 
 func RunBalance() {
-	log := logger.Get().With().Str("component", "balance").Logger()
+	log := gologger.Get().With().Str("component", "balance").Logger()
 
 	cfg, err := config.LoadConfig("config/config.yaml")
 	if err != nil {
