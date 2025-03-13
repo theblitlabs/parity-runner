@@ -71,15 +71,13 @@ type Task struct {
 	CompletedAt     *time.Time         `json:"completed_at" gorm:"type:timestamp"`
 }
 
-// NewTask creates a new Task with a generated UUID and nonce
 func NewTask() *Task {
-	t := &Task{
+	return &Task{
 		ID:        uuid.New(),
 		Status:    TaskStatusPending,
 		CreatedAt: time.Now(),
 		UpdatedAt: time.Now(),
 	}
-	return t
 }
 
 // Validate performs basic validation on the task
