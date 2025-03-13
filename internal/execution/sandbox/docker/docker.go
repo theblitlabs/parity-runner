@@ -200,7 +200,7 @@ func (e *DockerExecutor) ExecuteTask(ctx context.Context, task *models.Task) (*m
 	resp, err := e.client.ContainerCreate(ctx,
 		&container.Config{
 			Image:      image,
-			Cmd:        config.Command,
+			Cmd:        []string{"sh", "-c", fmt.Sprintf("echo \"NONCE=%s\" && %s", task.Nonce, strings.Join(config.Command, " "))},
 			Env:        envVars,
 			WorkingDir: workdir,
 		},
