@@ -200,7 +200,7 @@ func (e *DockerExecutor) ExecuteTask(ctx context.Context, task *models.Task) (*m
 	resp, err := e.client.ContainerCreate(ctx,
 		&container.Config{
 			Image:      image,
-			Cmd:        []string{"sh", "-c", fmt.Sprintf("echo \"NONCE=%s\" && %s", task.Nonce, strings.Join(config.Command, " "))},
+			Cmd:        config.Command,
 			Env:        envVars,
 			WorkingDir: workdir,
 		},
@@ -317,6 +317,8 @@ func (e *DockerExecutor) ExecuteTask(ctx context.Context, task *models.Task) (*m
 	result.MemoryGBHours = resourceMetrics.MemoryGBHours
 	result.StorageGB = resourceMetrics.StorageGB
 	result.NetworkDataGB = resourceMetrics.NetworkDataGB
+
+	result.Output = fmt.Sprintf("NONCE: %s\n%s", task.Nonce, result.Output)
 
 	elapsedTime := time.Since(startTime)
 	log.Info().
