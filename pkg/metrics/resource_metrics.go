@@ -15,6 +15,7 @@ import (
 
 	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/client"
+	"github.com/theblitlabs/gologger"
 )
 
 type ResourceMetrics struct {
@@ -35,6 +36,8 @@ type ResourceCollector struct {
 	lastSystemUsage uint64
 	totalWrites     uint64
 	lastWriteBytes  uint64
+	errChan         chan error
+	cancel          context.CancelFunc
 }
 
 var cpuBaseFrequencyGHz float64
@@ -121,27 +124,69 @@ func parseWindowsCPUFrequency() float64 {
 }
 
 func NewResourceCollector(containerID string) (*ResourceCollector, error) {
-	cli, err := client.NewClientWithOpts(client.FromEnv)
+	dockerClient, err := client.NewClientWithOpts(client.FromEnv)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create Docker client: %w", err)
+		return nil, fmt.Errorf("failed to create docker client: %w", err)
 	}
 
 	now := time.Now()
 	return &ResourceCollector{
-		dockerClient: cli,
+		dockerClient: dockerClient,
 		containerID:  containerID,
 		startTime:    now,
 		lastStats:    now,
+		errChan:      make(chan error, 1),
 	}, nil
 }
 
 func (rc *ResourceCollector) Start(ctx context.Context) error {
-	stats, err := rc.dockerClient.ContainerStats(ctx, rc.containerID, true)
+	log := gologger.Get().With().Str("component", "resource_metrics").Logger()
+	// Create a new context with cancel for metrics collection
+	metricsCtx, cancel := context.WithCancel(ctx)
+	rc.cancel = cancel
+
+	stats, err := rc.dockerClient.ContainerStats(metricsCtx, rc.containerID, true)
 	if err != nil {
+		rc.cancel()
 		return fmt.Errorf("failed to get container stats: %w", err)
 	}
 
-	go rc.collectMetrics(ctx, stats.Body)
+	// Start a goroutine to monitor for errors
+	go func() {
+		select {
+		case err := <-rc.errChan:
+			if err != nil {
+				log.Error().
+					Err(err).
+					Str("container_id", rc.containerID).
+					Msg("Error collecting metrics")
+			}
+		case <-metricsCtx.Done():
+			if err := metricsCtx.Err(); err != nil && err != context.Canceled {
+				log.Info().
+					Err(err).
+					Str("container_id", rc.containerID).
+					Msg("Metrics collection stopped")
+			}
+			return
+		}
+	}()
+
+	// Start metrics collection
+	go func() {
+		if err := rc.collectMetrics(metricsCtx, stats.Body); err != nil && err != context.Canceled {
+			// Only send error if it's not due to context cancellation
+			select {
+			case rc.errChan <- err:
+			case <-metricsCtx.Done():
+				// Context is done, don't send error
+			default:
+				// Channel is full
+				log.Error().Err(err).Msg("Failed to send metrics error to channel")
+			}
+		}
+	}()
+
 	return nil
 }
 
@@ -229,5 +274,30 @@ func (rc *ResourceCollector) GetMetrics() ResourceMetrics {
 }
 
 func (rc *ResourceCollector) Stop() {
-	rc.dockerClient.Close()
+	log := gologger.Get().With().Str("component", "resource_metrics").Logger()
+
+	// Log final metrics before cleanup
+	log.Info().
+		Str("container_id", rc.containerID).
+		Float64("cpu_seconds", rc.metrics.CPUSeconds).
+		Uint64("estimated_cycles", rc.metrics.EstimatedCycles).
+		Float64("memory_gb_hours", rc.metrics.MemoryGBHours).
+		Float64("storage_gb", rc.metrics.StorageGB).
+		Float64("network_gb", rc.metrics.NetworkDataGB).
+		Msg("Final metrics collection stats")
+
+	// Cancel context first to stop all goroutines
+	if rc.cancel != nil {
+		rc.cancel()
+	}
+
+	// Close Docker client
+	if rc.dockerClient != nil {
+		rc.dockerClient.Close()
+	}
+
+	// Close error channel last, after all goroutines are stopped
+	if rc.errChan != nil {
+		close(rc.errChan)
+	}
 }
