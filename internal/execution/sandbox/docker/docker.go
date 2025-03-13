@@ -135,6 +135,8 @@ func (e *DockerExecutor) ExecuteTask(ctx context.Context, task *models.Task) (*m
 	result := models.NewTaskResult()
 	result.TaskID = task.ID
 
+	log.Info().Str("id", task.ID.String()).Str("nonce", task.Nonce).Msg("Executing task")
+
 	var config models.TaskConfig
 	if err := json.Unmarshal(task.Config, &config); err != nil {
 		log.Error().Err(err).Str("id", task.ID.String()).Msg("Invalid config")
