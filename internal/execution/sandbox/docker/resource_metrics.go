@@ -1,4 +1,4 @@
-package metrics
+package docker
 
 import (
 	"bytes"

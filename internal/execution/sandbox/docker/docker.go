@@ -1,4 +1,4 @@
-package sandbox
+package docker
 
 import (
 	"bytes"
@@ -16,7 +16,6 @@ import (
 	"github.com/docker/docker/client"
 	"github.com/theblitlabs/gologger"
 	"github.com/theblitlabs/parity-runner/internal/models"
-	"github.com/theblitlabs/parity-runner/pkg/metrics"
 )
 
 type DockerExecutor struct {
@@ -242,7 +241,7 @@ func (e *DockerExecutor) ExecuteTask(ctx context.Context, task *models.Task) (*m
 		Str("container_id", containerID).
 		Msg("Container started successfully")
 
-	collector, err := metrics.NewResourceCollector(containerID)
+	collector, err := NewResourceCollector(containerID)
 	if err != nil {
 		log.Error().
 			Err(err).

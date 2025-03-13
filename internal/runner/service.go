@@ -14,7 +14,7 @@ import (
 	"github.com/theblitlabs/gologger"
 	"github.com/theblitlabs/keystore"
 	"github.com/theblitlabs/parity-runner/internal/config"
-	"github.com/theblitlabs/parity-runner/internal/execution/sandbox"
+	"github.com/theblitlabs/parity-runner/internal/execution/sandbox/docker"
 )
 
 type Service struct {
@@ -22,7 +22,7 @@ type Service struct {
 	webhookClient  *WebhookClient
 	taskHandler    TaskHandler
 	taskClient     TaskClient
-	dockerExecutor *sandbox.DockerExecutor
+	dockerExecutor *docker.DockerExecutor
 	dockerClient   *client.Client
 	ipfsContainer  string
 }
@@ -57,7 +57,7 @@ func NewService(cfg *config.Config) (*Service, error) {
 		return nil, fmt.Errorf("no private key found - please authenticate first using 'parity auth': %w", err)
 	}
 
-	executor, err := sandbox.NewDockerExecutor(&sandbox.ExecutorConfig{
+	executor, err := docker.NewDockerExecutor(&docker.ExecutorConfig{
 		MemoryLimit: cfg.Runner.Docker.MemoryLimit,
 		CPULimit:    cfg.Runner.Docker.CPULimit,
 		Timeout:     cfg.Runner.Docker.Timeout,
