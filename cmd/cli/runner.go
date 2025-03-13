@@ -11,8 +11,8 @@ import (
 	"time"
 
 	"github.com/theblitlabs/gologger"
-	"github.com/theblitlabs/parity-protocol/internal/config"
-	"github.com/theblitlabs/parity-protocol/internal/runner"
+	"github.com/theblitlabs/parity-runner/internal/config"
+	"github.com/theblitlabs/parity-runner/internal/runner"
 )
 
 func checkPortAvailable(port int) error {

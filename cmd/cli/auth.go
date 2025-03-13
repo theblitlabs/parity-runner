@@ -1,23 +1,24 @@
 package cli
 
 import (
-	"encoding/json"
 	"fmt"
-	"math/big"
 	"os"
 	"path/filepath"
 	"strings"
 
+	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/rs/zerolog/log"
 	"github.com/spf13/cobra"
-	"github.com/theblitlabs/parity-protocol/internal/config"
-	"github.com/theblitlabs/parity-protocol/pkg/wallet"
+	paritywallet "github.com/theblitlabs/go-parity-wallet"
+	"github.com/theblitlabs/keystore"
+	"github.com/theblitlabs/parity-runner/internal/config"
 )
 
-type KeyStore struct {
-	PrivateKey string `json:"private_key"`
-}
+const (
+	KeystoreDirName  = ".parity"
+	KeystoreFileName = "keystore.json"
+)
 
 func RunAuth() {
 	var privateKey string
@@ -56,36 +57,38 @@ func ExecuteAuth(privateKey string, configPath string) error {
 
 	privateKey = strings.TrimPrefix(privateKey, "0x")
 
-	if _, err := crypto.HexToECDSA(privateKey); err != nil {
-		return fmt.Errorf("invalid private key format: %w", err)
-	}
-
 	if len(privateKey) != 64 {
 		return fmt.Errorf("invalid private key - must be 64 hex characters without 0x prefix")
 	}
 
-	keystoreDir := filepath.Join(os.Getenv("HOME"), ".parity")
-	if err := os.MkdirAll(keystoreDir, 0700); err != nil {
-		return fmt.Errorf("failed to create keystore directory: %w", err)
-	}
-
-	keystorePath := filepath.Join(keystoreDir, "keystore.json")
-	keystore := KeyStore{
-		PrivateKey: privateKey,
-	}
-	keystoreData, err := json.MarshalIndent(keystore, "", "  ")
+	_, err = crypto.HexToECDSA(privateKey)
 	if err != nil {
-		return fmt.Errorf("failed to marshal keystore data: %w", err)
+		return fmt.Errorf("invalid private key format: %w", err)
 	}
 
-	if err := os.WriteFile(keystorePath, keystoreData, 0600); err != nil {
-		return fmt.Errorf("failed to save keystore: %w", err)
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		return fmt.Errorf("failed to get home directory: %w", err)
 	}
 
-	client, err := wallet.NewClientWithKey(
+	ks, err := keystore.NewKeystore(keystore.Config{
+		DirPath:  filepath.Join(homeDir, KeystoreDirName),
+		FileName: KeystoreFileName,
+	})
+	if err != nil {
+		return fmt.Errorf("failed to create keystore: %w", err)
+	}
+
+	if err := ks.SavePrivateKey(privateKey); err != nil {
+		return fmt.Errorf("failed to save private key: %w", err)
+	}
+
+	tokenAddress := common.HexToAddress(cfg.Ethereum.TokenAddress)
+	client, err := paritywallet.NewClientWithKey(
 		cfg.Ethereum.RPC,
-		big.NewInt(cfg.Ethereum.ChainID),
+		cfg.Ethereum.ChainID,
 		privateKey,
+		tokenAddress,
 	)
 	if err != nil {
 		return fmt.Errorf("invalid private key: %w", err)
@@ -93,7 +96,7 @@ func ExecuteAuth(privateKey string, configPath string) error {
 
 	log.Info().
 		Str("address", client.Address().Hex()).
-		Str("keystore", keystorePath).
+		Str("keystore", fmt.Sprintf("%s/%s", KeystoreDirName, KeystoreFileName)).
 		Msg("Wallet authenticated successfully")
 
 	return nil

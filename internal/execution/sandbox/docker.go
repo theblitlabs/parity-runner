@@ -15,9 +15,9 @@ import (
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/client"
 	"github.com/theblitlabs/gologger"
-	"github.com/theblitlabs/parity-protocol/internal/models"
-	"github.com/theblitlabs/parity-protocol/pkg/ipfs"
-	"github.com/theblitlabs/parity-protocol/pkg/metrics"
+	"github.com/theblitlabs/parity-runner/internal/models"
+	"github.com/theblitlabs/parity-runner/pkg/ipfs"
+	"github.com/theblitlabs/parity-runner/pkg/metrics"
 )
 
 type DockerExecutor struct {

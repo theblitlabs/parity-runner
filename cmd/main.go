@@ -8,7 +8,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/theblitlabs/gologger"
-	"github.com/theblitlabs/parity-protocol/cmd/cli"
+	"github.com/theblitlabs/parity-runner/cmd/cli"
 )
 
 var logMode string

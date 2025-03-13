@@ -10,8 +10,8 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/theblitlabs/parity-protocol/internal/config"
-	ipfsapi "github.com/theblitlabs/parity-protocol/pkg/ipfs"
+	"github.com/theblitlabs/parity-runner/internal/config"
+	ipfsapi "github.com/theblitlabs/parity-runner/pkg/ipfs"
 )
 
 // Client implements the ipfs.Client interface using HTTP API

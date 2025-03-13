@@ -10,7 +10,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/theblitlabs/deviceid"
-	"github.com/theblitlabs/parity-protocol/internal/models"
+	"github.com/theblitlabs/parity-runner/internal/models"
 )
 
 type TaskClient interface {

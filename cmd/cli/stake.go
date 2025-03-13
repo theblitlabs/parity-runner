@@ -11,18 +11,18 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/theblitlabs/deviceid"
+	paritywallet "github.com/theblitlabs/go-parity-wallet"
+	stakeclient "github.com/theblitlabs/go-stake-client"
 	"github.com/theblitlabs/gologger"
 	"github.com/theblitlabs/keystore"
-	"github.com/theblitlabs/parity-protocol/internal/config"
-	"github.com/theblitlabs/parity-protocol/internal/utils"
-	"github.com/theblitlabs/parity-protocol/pkg/stakewallet"
-	"github.com/theblitlabs/parity-protocol/pkg/wallet"
+	"github.com/theblitlabs/parity-runner/internal/config"
+	"github.com/theblitlabs/parity-runner/internal/utils"
 )
 
 func RunStake() {
 	var amount float64
 
-	log := gologger.WithComponent("stake")
+	log := gologger.Get().With().Str("component", "stake").Logger()
 	log.Info().Msg("Starting staking process...")
 
 	cmd := &cobra.Command{
@@ -49,7 +49,7 @@ func RunStake() {
 }
 
 func executeStake(amount float64) {
-	log := gologger.WithComponent("stake")
+	log := gologger.Get().With().Str("component", "stake").Logger()
 
 	// Load configuration
 	cfg, err := config.LoadConfig("config/config.yaml")
@@ -78,10 +78,11 @@ func executeStake(amount float64) {
 	}
 
 	// Create Ethereum client
-	client, err := wallet.NewClientWithKey(
+	client, err := paritywallet.NewClientWithKey(
 		cfg.Ethereum.RPC,
-		big.NewInt(cfg.Ethereum.ChainID),
+		cfg.Ethereum.ChainID,
 		common.Bytes2Hex(crypto.FromECDSA(privateKey)),
+		crypto.PubkeyToAddress(privateKey.PublicKey),
 	)
 	if err != nil {
 		log.Fatal().
@@ -111,7 +112,17 @@ func executeStake(amount float64) {
 	stakeWalletAddr := common.HexToAddress(cfg.Ethereum.StakeWalletAddress)
 
 	// Check token balance
-	balance, err := client.GetERC20Balance(tokenAddr, client.Address())
+	token, err := paritywallet.NewParityToken(tokenAddr, client)
+	if err != nil {
+		log.Fatal().
+			Err(err).
+			Str("token_address", tokenAddr.Hex()).
+			Str("wallet", client.Address().Hex()).
+			Msg("Failed to create token contract - please try again")
+		return
+	}
+
+	balance, err := token.BalanceOf(&bind.CallOpts{}, client.Address())
 	if err != nil {
 		log.Fatal().
 			Err(err).
@@ -136,7 +147,7 @@ func executeStake(amount float64) {
 		Msg("Current token balance verified")
 
 	// Check allowance
-	allowance, err := client.GetAllowance(tokenAddr, client.Address(), stakeWalletAddr)
+	allowance, err := token.Allowance(&bind.CallOpts{}, client.Address(), stakeWalletAddr)
 	if err != nil {
 		log.Fatal().
 			Err(err).
@@ -160,7 +171,7 @@ func executeStake(amount float64) {
 			return
 		}
 
-		tx, err := client.ApproveToken(txOpts, tokenAddr, stakeWalletAddr, amountToStake)
+		tx, err := token.Approve(txOpts, stakeWalletAddr, amountToStake)
 		if err != nil {
 			log.Fatal().
 				Err(err).
@@ -200,21 +211,12 @@ func executeStake(amount float64) {
 	}
 
 	// Create stake wallet contract instance
-	stakeWallet, err := stakewallet.NewStakeWallet(stakeWalletAddr, client)
+	stakeWallet, err := stakeclient.NewStakeWallet(client, tokenAddr, stakeWalletAddr)
 	if err != nil {
 		log.Fatal().
 			Err(err).
 			Str("stake_wallet", stakeWalletAddr.Hex()).
 			Msg("Failed to connect to stake contract - please try again")
-		return
-	}
-
-	// Prepare staking transaction
-	txOpts, err := client.GetTransactOpts()
-	if err != nil {
-		log.Fatal().
-			Err(err).
-			Msg("Failed to prepare staking transaction - please try again")
 		return
 	}
 
@@ -224,7 +226,7 @@ func executeStake(amount float64) {
 		Msg("Submitting stake transaction...")
 
 	// Execute stake transaction
-	tx, err := stakeWallet.Stake(txOpts, amountToStake, deviceID, client.Address())
+	tx, err := stakeWallet.Stake(amountToStake, deviceID)
 	if err != nil {
 		log.Fatal().
 			Err(err).

@@ -1,4 +1,4 @@
-module github.com/theblitlabs/parity-protocol
+module github.com/theblitlabs/parity-runner
 
 go 1.23.0
 
@@ -10,16 +10,21 @@ replace github.com/theblitlabs/deviceid => ./pkg/deviceid
 
 replace github.com/theblitlabs/keystore => ./pkg/keystore
 
+replace github.com/theblitlabs/go-stake-client => ./pkg/go-stake-client
+
+replace github.com/theblitlabs/go-parity-wallet => ./pkg/go-parity-wallet
+
 require (
 	github.com/docker/docker v20.10.17+incompatible
 	github.com/ethereum/go-ethereum v1.14.12
-	github.com/golang-jwt/jwt v3.2.2+incompatible
 	github.com/google/uuid v1.6.0
 	github.com/ipfs/go-ipfs-api v0.7.0
 	github.com/rs/zerolog v1.32.0
 	github.com/spf13/cobra v1.5.0
 	github.com/spf13/viper v1.18.2
 	github.com/theblitlabs/deviceid v0.0.0-00010101000000-000000000000
+	github.com/theblitlabs/go-parity-wallet v0.0.0-00010101000000-000000000000
+	github.com/theblitlabs/go-stake-client v0.0.0-00010101000000-000000000000
 	github.com/theblitlabs/gologger v0.0.0-00010101000000-000000000000
 	github.com/theblitlabs/keystore v0.0.0-00010101000000-000000000000
 	gorm.io/gorm v1.25.12
@@ -29,6 +34,7 @@ require (
 	github.com/benbjohnson/clock v1.3.0 // indirect
 	github.com/blang/semver/v4 v4.0.0 // indirect
 	github.com/crackcomm/go-gitignore v0.0.0-20170627025303-887ab5e44cc3 // indirect
+	github.com/golang-jwt/jwt v3.2.2+incompatible // indirect
 	github.com/gorilla/websocket v1.5.3 // indirect
 	github.com/ipfs/boxo v0.12.0 // indirect
 	github.com/ipfs/go-cid v0.4.1 // indirect

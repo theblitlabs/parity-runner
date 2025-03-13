@@ -20,8 +20,8 @@ import (
 	"github.com/theblitlabs/deviceid"
 	"github.com/theblitlabs/gologger"
 	"github.com/theblitlabs/keystore"
-	"github.com/theblitlabs/parity-protocol/internal/config"
-	"github.com/theblitlabs/parity-protocol/internal/execution/sandbox"
+	"github.com/theblitlabs/parity-runner/internal/config"
+	"github.com/theblitlabs/parity-runner/internal/execution/sandbox"
 )
 
 type Service struct {
