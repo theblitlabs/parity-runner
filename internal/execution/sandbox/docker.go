@@ -14,31 +14,28 @@ import (
 	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/client"
-	"github.com/theblitlabs/parity-protocol/internal/models"
-	"github.com/theblitlabs/parity-protocol/pkg/ipfs"
-	"github.com/theblitlabs/parity-protocol/pkg/logger"
-	"github.com/theblitlabs/parity-protocol/pkg/metrics"
+	"github.com/theblitlabs/gologger"
+	"github.com/theblitlabs/parity-runner/internal/models"
+	"github.com/theblitlabs/parity-runner/pkg/metrics"
 )
 
 type DockerExecutor struct {
-	client     *client.Client
-	config     *ExecutorConfig
-	ipfsClient ipfs.Client
+	client *client.Client
+	config *ExecutorConfig
 }
 
 type ExecutorConfig struct {
-	MemoryLimit  string        `mapstructure:"memory_limit"`
-	CPULimit     string        `mapstructure:"cpu_limit"`
-	Timeout      time.Duration `mapstructure:"timeout"`
-	IPFSEndpoint string        `mapstructure:"ipfs_endpoint"`
+	MemoryLimit string        `mapstructure:"memory_limit"`
+	CPULimit    string        `mapstructure:"cpu_limit"`
+	Timeout     time.Duration `mapstructure:"timeout"`
 }
 
 func NewDockerExecutor(config *ExecutorConfig) (*DockerExecutor, error) {
-	return NewDockerExecutorWithClient(config, nil)
+	return NewDockerExecutorWithClient(config)
 }
 
-func NewDockerExecutorWithClient(config *ExecutorConfig, ipfsClient ipfs.Client) (*DockerExecutor, error) {
-	log := logger.WithComponent("docker")
+func NewDockerExecutorWithClient(config *ExecutorConfig) (*DockerExecutor, error) {
+	log := gologger.WithComponent("docker")
 
 	cli, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
 	if err != nil {
@@ -46,27 +43,15 @@ func NewDockerExecutorWithClient(config *ExecutorConfig, ipfsClient ipfs.Client)
 		return nil, fmt.Errorf("docker client creation failed: %w", err)
 	}
 
-	if ipfsClient == nil {
-		ipfsClient, err = ipfs.New(ipfs.Config{
-			APIEndpoint: config.IPFSEndpoint,
-		})
-		if err != nil {
-			log.Error().Err(err).Str("endpoint", config.IPFSEndpoint).Msg("Failed to create IPFS client")
-			return nil, fmt.Errorf("ipfs client creation failed: %w", err)
-		}
-	}
-
 	log.Debug().
 		Str("mem", config.MemoryLimit).
 		Str("cpu", config.CPULimit).
 		Dur("timeout", config.Timeout).
-		Str("ipfs", config.IPFSEndpoint).
 		Msg("Executor initialized")
 
 	return &DockerExecutor{
-		client:     cli,
-		config:     config,
-		ipfsClient: ipfsClient,
+		client: cli,
+		config: config,
 	}, nil
 }
 
@@ -146,7 +131,7 @@ func parseCPULimit(limit string) int64 {
 }
 
 func (e *DockerExecutor) ExecuteTask(ctx context.Context, task *models.Task) (*models.TaskResult, error) {
-	log := logger.WithComponent("docker")
+	log := gologger.WithComponent("docker")
 	startTime := time.Now()
 	result := models.NewTaskResult()
 	result.TaskID = task.ID
@@ -324,29 +309,6 @@ func (e *DockerExecutor) ExecuteTask(ctx context.Context, task *models.Task) (*m
 
 	cleanedLogs := cleanOutput(logs)
 	result.Output = cleanedLogs
-
-	logCID, err := e.ipfsClient.UploadData([]byte(cleanedLogs))
-	if err != nil {
-		log.Warn().Err(err).
-			Str("id", task.ID.String()).
-			Msg("IPFS upload failed")
-	} else {
-		log.Debug().
-			Str("id", task.ID.String()).
-			Str("cid", logCID).
-			Int("size", len(cleanedLogs)).
-			Msg("Logs uploaded to IPFS")
-
-		if result.Metadata == nil {
-			metadata := map[string]interface{}{
-				"logs_cid": logCID,
-			}
-			if err := result.SetMetadata(metadata); err != nil {
-				log.Warn().Err(err).Str("id", task.ID.String()).Msg("Failed to set metadata")
-			}
-		}
-		result.IPFSCID = logCID
-	}
 
 	resourceMetrics := collector.GetMetrics()
 	result.CPUSeconds = resourceMetrics.CPUSeconds

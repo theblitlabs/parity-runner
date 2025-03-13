@@ -9,8 +9,8 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/rs/zerolog/log"
-	"github.com/theblitlabs/parity-protocol/internal/models"
-	"github.com/theblitlabs/parity-protocol/pkg/device"
+	"github.com/theblitlabs/deviceid"
+	"github.com/theblitlabs/parity-runner/internal/models"
 )
 
 type TaskHandler interface {
@@ -88,7 +88,8 @@ func (h *DefaultTaskHandler) HandleTask(task *models.Task) error {
 	}
 
 	// Get device ID
-	deviceID, err := device.VerifyDeviceID()
+	deviceIDManager := deviceid.NewManager(deviceid.Config{})
+	deviceID, err := deviceIDManager.VerifyDeviceID()
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to get device ID")
 		return fmt.Errorf("failed to get device ID: %w", err)

@@ -6,7 +6,7 @@ import (
 	"net/http"
 
 	"github.com/google/uuid"
-	"github.com/theblitlabs/parity-protocol/internal/models"
+	"github.com/theblitlabs/parity-runner/internal/models"
 )
 
 // GetAvailableTasks gets available tasks from the server

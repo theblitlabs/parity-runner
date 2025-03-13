@@ -6,7 +6,7 @@ GOTEST=$(GOCMD) test
 GOGET=$(GOCMD) get
 GOMOD=$(GOCMD) mod
 GOFMT=$(GOCMD) fmt
-BINARY_NAME=parity
+BINARY_NAME=parity-runner
 MAIN_PATH=cmd/main.go
 AIR_VERSION=v1.49.0
 GOPATH=$(shell go env GOPATH)
@@ -43,7 +43,7 @@ setup-coverage: ## Create coverage directory
 	@mkdir -p $(COVERAGE_DIR)
 
 run:  ## Run the application
-	$(GOCMD) run $(MAIN_PATH) --help
+	$(GOCMD) run $(MAIN_PATH)
 
 server:  ## Start the parity server
 	$(GOCMD) run $(MAIN_PATH) server
@@ -70,6 +70,7 @@ clean: ## Clean build files
 	rm -rf tmp/
 
 deps: ## Download dependencies
+	git submodule update --init --recursive
 	$(GOMOD) download
 	$(GOMOD) tidy
 

@@ -10,9 +10,9 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/theblitlabs/parity-protocol/internal/config"
-	"github.com/theblitlabs/parity-protocol/internal/runner"
-	"github.com/theblitlabs/parity-protocol/pkg/logger"
+	"github.com/theblitlabs/gologger"
+	"github.com/theblitlabs/parity-runner/internal/config"
+	"github.com/theblitlabs/parity-runner/internal/runner"
 )
 
 func checkPortAvailable(port int) error {
@@ -47,7 +47,7 @@ func checkServerConnectivity(serverURL string) error {
 }
 
 func RunRunner() {
-	log := logger.Get().With().Str("component", "cli").Logger()
+	log := gologger.Get().With().Str("component", "cli").Logger()
 
 	cfg, err := config.LoadConfig("config/config.yaml")
 	if err != nil {

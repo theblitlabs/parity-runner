@@ -1,0 +1,17 @@
+[submodule "pkg/gologger"]
+	path = pkg/gologger
+	url = https://github.com/theblitlabs/gologger.git
+
+[submodule "pkg/deviceid"]
+	path = pkg/deviceid
+	url = https://github.com/theblitlabs/deviceid.git
+
+[submodule "pkg/keystore"]
+	path = pkg/keystore
+	url = https://github.com/theblitlabs/keystore.git
+[submodule "pkg/go-parity-wallet"]
+	path = pkg/go-parity-wallet
+	url = https://github.com/theblitlabs/go-parity-wallet
+[submodule "pkg/go-stake-client"]
+	path = pkg/go-stake-client
+	url = https://github.com/theblitlabs/go-stake-client

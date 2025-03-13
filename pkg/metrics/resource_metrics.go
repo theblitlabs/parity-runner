@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"math"
 	"os"
 	"os/exec"
 	"runtime"
@@ -16,7 +15,7 @@ import (
 
 	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/client"
-	"github.com/theblitlabs/parity-protocol/pkg/logger"
+	"github.com/theblitlabs/gologger"
 )
 
 type ResourceMetrics struct {
@@ -37,6 +36,8 @@ type ResourceCollector struct {
 	lastSystemUsage uint64
 	totalWrites     uint64
 	lastWriteBytes  uint64
+	errChan         chan error
+	cancel          context.CancelFunc
 }
 
 var cpuBaseFrequencyGHz float64
@@ -123,31 +124,73 @@ func parseWindowsCPUFrequency() float64 {
 }
 
 func NewResourceCollector(containerID string) (*ResourceCollector, error) {
-	cli, err := client.NewClientWithOpts(client.FromEnv)
+	dockerClient, err := client.NewClientWithOpts(client.FromEnv)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create Docker client: %w", err)
+		return nil, fmt.Errorf("failed to create docker client: %w", err)
 	}
 
 	now := time.Now()
 	return &ResourceCollector{
-		dockerClient: cli,
+		dockerClient: dockerClient,
 		containerID:  containerID,
 		startTime:    now,
 		lastStats:    now,
+		errChan:      make(chan error, 1),
 	}, nil
 }
 
 func (rc *ResourceCollector) Start(ctx context.Context) error {
-	stats, err := rc.dockerClient.ContainerStats(ctx, rc.containerID, true)
+	log := gologger.Get().With().Str("component", "resource_metrics").Logger()
+	// Create a new context with cancel for metrics collection
+	metricsCtx, cancel := context.WithCancel(ctx)
+	rc.cancel = cancel
+
+	stats, err := rc.dockerClient.ContainerStats(metricsCtx, rc.containerID, true)
 	if err != nil {
+		rc.cancel()
 		return fmt.Errorf("failed to get container stats: %w", err)
 	}
 
-	go rc.collectMetrics(ctx, stats.Body)
+	// Start a goroutine to monitor for errors
+	go func() {
+		select {
+		case err := <-rc.errChan:
+			if err != nil {
+				log.Error().
+					Err(err).
+					Str("container_id", rc.containerID).
+					Msg("Error collecting metrics")
+			}
+		case <-metricsCtx.Done():
+			if err := metricsCtx.Err(); err != nil && err != context.Canceled {
+				log.Info().
+					Err(err).
+					Str("container_id", rc.containerID).
+					Msg("Metrics collection stopped")
+			}
+			return
+		}
+	}()
+
+	// Start metrics collection
+	go func() {
+		if err := rc.collectMetrics(metricsCtx, stats.Body); err != nil && err != context.Canceled {
+			// Only send error if it's not due to context cancellation
+			select {
+			case rc.errChan <- err:
+			case <-metricsCtx.Done():
+				// Context is done, don't send error
+			default:
+				// Channel is full
+				log.Error().Err(err).Msg("Failed to send metrics error to channel")
+			}
+		}
+	}()
+
 	return nil
 }
 
-func (rc *ResourceCollector) collectMetrics(ctx context.Context, statsReader io.ReadCloser) {
+func (rc *ResourceCollector) collectMetrics(ctx context.Context, statsReader io.ReadCloser) error {
 	defer statsReader.Close()
 
 	decoder := json.NewDecoder(statsReader)
@@ -156,17 +199,13 @@ func (rc *ResourceCollector) collectMetrics(ctx context.Context, statsReader io.
 	for {
 		select {
 		case <-ctx.Done():
-			return
+			return nil
 		default:
 			if err := decoder.Decode(&stats); err != nil {
 				if err != io.EOF {
-					log := logger.WithComponent("resource_collector")
-					log.Error().
-						Err(err).
-						Str("container_id", rc.containerID).
-						Msg("Failed to decode container stats")
+					return err
 				}
-				return
+				return nil
 			}
 
 			currentTime := time.Now()
@@ -225,22 +264,6 @@ func (rc *ResourceCollector) collectMetrics(ctx context.Context, statsReader io.
 				networkBytes += netStats.RxBytes + netStats.TxBytes
 			}
 			rc.metrics.NetworkDataGB = float64(networkBytes) / (1024 * 1024 * 1024)
-
-			// Log periodic resource usage updates
-			if timeDelta >= 5.0 { // Log every 5 seconds
-				log := logger.WithComponent("resource_collector")
-				log.Info().
-					Str("container_id", rc.containerID).
-					Float64("cpu_percent", math.Round(cpuPercent*100)/100).
-					Float64("memory_gb", math.Round(memoryBytes/(1024*1024*1024)*100)/100).
-					Float64("storage_gb", math.Round(rc.metrics.StorageGB*100)/100).
-					Float64("network_gb", math.Round(rc.metrics.NetworkDataGB*100)/100).
-					Float64("cpu_seconds", math.Round(rc.metrics.CPUSeconds*100)/100).
-					Uint64("estimated_cycles", rc.metrics.EstimatedCycles).
-					Float64("memory_gb_hours", math.Round(rc.metrics.MemoryGBHours*1000)/1000).
-					Str("elapsed_time", time.Since(rc.startTime).Round(time.Second).String()).
-					Msg("Resource usage stats")
-			}
 		}
 	}
 }
@@ -251,5 +274,30 @@ func (rc *ResourceCollector) GetMetrics() ResourceMetrics {
 }
 
 func (rc *ResourceCollector) Stop() {
-	rc.dockerClient.Close()
+	log := gologger.Get().With().Str("component", "resource_metrics").Logger()
+
+	// Log final metrics before cleanup
+	log.Info().
+		Str("container_id", rc.containerID).
+		Float64("cpu_seconds", rc.metrics.CPUSeconds).
+		Uint64("estimated_cycles", rc.metrics.EstimatedCycles).
+		Float64("memory_gb_hours", rc.metrics.MemoryGBHours).
+		Float64("storage_gb", rc.metrics.StorageGB).
+		Float64("network_gb", rc.metrics.NetworkDataGB).
+		Msg("Final metrics collection stats")
+
+	// Cancel context first to stop all goroutines
+	if rc.cancel != nil {
+		rc.cancel()
+	}
+
+	// Close Docker client
+	if rc.dockerClient != nil {
+		rc.dockerClient.Close()
+	}
+
+	// Close error channel last, after all goroutines are stopped
+	if rc.errChan != nil {
+		close(rc.errChan)
+	}
 }

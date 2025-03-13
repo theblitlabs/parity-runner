@@ -2,8 +2,6 @@ package runner
 
 import (
 	"bytes"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -11,8 +9,8 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/theblitlabs/parity-protocol/internal/models"
-	"github.com/theblitlabs/parity-protocol/pkg/device"
+	"github.com/theblitlabs/deviceid"
+	"github.com/theblitlabs/parity-runner/internal/models"
 )
 
 type TaskClient interface {
@@ -99,36 +97,21 @@ func (c *HTTPTaskClient) SaveTaskResult(taskID string, result *models.TaskResult
 	baseURL := strings.TrimSuffix(c.baseURL, "/api")
 	url := fmt.Sprintf("%s/api/runners/tasks/%s/result", baseURL, taskID)
 
-	deviceID, err := device.VerifyDeviceID()
+	deviceIDManager := deviceid.NewManager(deviceid.Config{})
+	deviceID, err := deviceIDManager.VerifyDeviceID()
 	if err != nil {
 		return fmt.Errorf("failed to get device ID: %w", err)
 	}
 
-	if result.ID == uuid.Nil {
-		result.ID = uuid.New()
-	}
+	// Only set the essential runner-related fields
 	if result.TaskID == uuid.Nil {
 		result.TaskID = uuid.MustParse(taskID)
 	}
 	if result.CreatedAt.IsZero() {
 		result.CreatedAt = time.Now()
 	}
-	if result.DeviceID == "" {
-		result.DeviceID = deviceID
-	}
-	if result.SolverDeviceID == "" {
-		result.SolverDeviceID = deviceID
-	}
-	if result.DeviceIDHash == "" {
-		hash := sha256.Sum256([]byte(deviceID))
-		result.DeviceIDHash = hex.EncodeToString(hash[:])
-	}
 	if result.RunnerAddress == "" {
 		result.RunnerAddress = deviceID
-	}
-
-	if result.CreatorDeviceID == "" {
-		return fmt.Errorf("creator device ID is required")
 	}
 
 	body, err := json.Marshal(result)
