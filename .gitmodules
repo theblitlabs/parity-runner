@@ -15,3 +15,6 @@
 [submodule "pkg/go-stake-client"]
 	path = pkg/go-stake-client
 	url = https://github.com/theblitlabs/go-stake-client
+[submodule "pkg/go-wallet-sdk"]
+	path = pkg/go-wallet-sdk
+	url = https://github.com/theblitlabs/go-wallet-sdk
