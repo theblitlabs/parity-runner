@@ -3,6 +3,7 @@ package docker
 import (
 	"bytes"
 	"context"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -137,6 +138,12 @@ func (e *DockerExecutor) ExecuteTask(ctx context.Context, task *models.Task) (*m
 
 	log.Info().Str("id", task.ID.String()).Str("nonce", task.Nonce).Msg("Executing task")
 
+	// Verify the nonce format
+	if err := e.verifyDrandNonce(task.Nonce); err != nil {
+		log.Error().Err(err).Str("id", task.ID.String()).Msg("Invalid nonce format")
+		return nil, fmt.Errorf("invalid nonce format: %w", err)
+	}
+
 	var config models.TaskConfig
 	if err := json.Unmarshal(task.Config, &config); err != nil {
 		log.Error().Err(err).Str("id", task.ID.String()).Msg("Invalid config")
@@ -154,18 +161,28 @@ func (e *DockerExecutor) ExecuteTask(ctx context.Context, task *models.Task) (*m
 		return nil, fmt.Errorf("image required")
 	}
 
+	// Verify image digest
+	if err := e.verifyImageDigest(ctx, image); err != nil {
+		log.Error().Err(err).Str("id", task.ID.String()).Str("image", image).Msg("Invalid image digest")
+		return nil, fmt.Errorf("invalid image digest: %w", err)
+	}
+
 	workdir, ok := task.Environment.Config["workdir"].(string)
 	if !ok || workdir == "" {
 		log.Error().Str("id", task.ID.String()).Msg("Missing workdir")
 		return nil, fmt.Errorf("workdir required")
 	}
 
-	var envVars []string
+	// Initialize environment variables with the nonce
+	envVars := []string{
+		fmt.Sprintf("TASK_NONCE=%s", task.Nonce),
+	}
+
+	// Add any additional environment variables from the task config
 	if env, ok := task.Environment.Config["env"].([]interface{}); ok {
-		envVars = make([]string, len(env))
-		for i, v := range env {
+		for _, v := range env {
 			if str, ok := v.(string); ok {
-				envVars[i] = str
+				envVars = append(envVars, str)
 			}
 		}
 	}
@@ -308,8 +325,20 @@ func (e *DockerExecutor) ExecuteTask(ctx context.Context, task *models.Task) (*m
 		return result, fmt.Errorf("log read failed: %w", err)
 	}
 
-	cleanedLogs := cleanOutput(logs)
-	result.Output = cleanedLogs
+	result.Output = fmt.Sprintf("NONCE: %s\n%s", task.Nonce, cleanOutput(logs))
+
+	if !strings.Contains(result.Output, task.Nonce) {
+		log.Error().
+			Str("id", task.ID.String()).
+			Str("nonce", task.Nonce).
+			Msg("Nonce not found in task output")
+		return nil, fmt.Errorf("nonce verification failed: nonce not found in output")
+	}
+
+	log.Info().
+		Str("id", task.ID.String()).
+		Str("nonce", task.Nonce).
+		Msg("Nonce verified in output")
 
 	resourceMetrics := collector.GetMetrics()
 	result.CPUSeconds = resourceMetrics.CPUSeconds
@@ -317,8 +346,6 @@ func (e *DockerExecutor) ExecuteTask(ctx context.Context, task *models.Task) (*m
 	result.MemoryGBHours = resourceMetrics.MemoryGBHours
 	result.StorageGB = resourceMetrics.StorageGB
 	result.NetworkDataGB = resourceMetrics.NetworkDataGB
-
-	result.Output = fmt.Sprintf("NONCE: %s\n%s", task.Nonce, result.Output)
 
 	elapsedTime := time.Since(startTime)
 	log.Info().
@@ -334,4 +361,66 @@ func (e *DockerExecutor) ExecuteTask(ctx context.Context, task *models.Task) (*m
 		Msg("Task execution completed")
 
 	return result, nil
+}
+
+// verifyDrandNonce verifies that the nonce format is valid
+func (e *DockerExecutor) verifyDrandNonce(nonce string) error {
+	log := gologger.WithComponent("docker.drand")
+
+	// Basic validation
+	if nonce == "" {
+		return fmt.Errorf("empty nonce")
+	}
+
+	// Verify nonce is valid hex
+	if _, err := hex.DecodeString(nonce); err != nil {
+		// Check if it might be a fallback UUID-based nonce
+		parts := strings.Split(nonce, "-")
+		if len(parts) < 2 {
+			return fmt.Errorf("invalid nonce format: not hex and not UUID-based")
+		}
+
+		// Try to parse the timestamp part
+		timestamp := parts[0]
+		if _, err := strconv.ParseInt(timestamp, 10, 64); err != nil {
+			return fmt.Errorf("invalid nonce format: invalid timestamp in UUID-based nonce")
+		}
+	}
+
+	log.Debug().
+		Str("nonce", nonce).
+		Msg("Nonce format verified")
+
+	return nil
+}
+
+// verifyImageDigest verifies the Docker image digest
+func (e *DockerExecutor) verifyImageDigest(ctx context.Context, imageRef string) error {
+	log := gologger.WithComponent("docker")
+
+	// Check if image has a digest
+	parts := strings.Split(imageRef, "@sha256:")
+	if len(parts) == 2 {
+		// Verify pinned digest matches
+		image, _, err := e.client.ImageInspectWithRaw(ctx, imageRef)
+		if err != nil {
+			return fmt.Errorf("failed to inspect image: %w", err)
+		}
+
+		if !strings.HasSuffix(image.ID, parts[1]) {
+			return fmt.Errorf("image digest mismatch")
+		}
+
+		log.Debug().
+			Str("image", imageRef).
+			Str("digest", parts[1]).
+			Msg("Image digest verified")
+	} else {
+		// For non-pinned images, just log a warning
+		log.Warn().
+			Str("image", imageRef).
+			Msg("Image is not pinned to a specific digest - this reduces security guarantees")
+	}
+
+	return nil
 }

@@ -8,8 +8,8 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/rs/zerolog/log"
 	"github.com/theblitlabs/deviceid"
+	"github.com/theblitlabs/gologger"
 	"github.com/theblitlabs/parity-runner/internal/models"
 )
 
@@ -30,11 +30,7 @@ func NewTaskHandler(executor TaskExecutor, taskClient TaskClient) *DefaultTaskHa
 }
 
 func (h *DefaultTaskHandler) HandleTask(task *models.Task) error {
-	log := log.With().
-		Str("component", "task_handler").
-		Str("task", task.ID.String()).
-		Str("type", string(task.Type)).
-		Logger()
+	log := gologger.WithComponent("task_handler")
 
 	// Skip if task is not in pending state
 	if task.Status != models.TaskStatusPending {
