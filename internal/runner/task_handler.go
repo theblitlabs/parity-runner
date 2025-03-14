@@ -8,8 +8,8 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/rs/zerolog/log"
 	"github.com/theblitlabs/deviceid"
+	"github.com/theblitlabs/gologger"
 	"github.com/theblitlabs/parity-runner/internal/models"
 )
 
@@ -30,11 +30,7 @@ func NewTaskHandler(executor TaskExecutor, taskClient TaskClient) *DefaultTaskHa
 }
 
 func (h *DefaultTaskHandler) HandleTask(task *models.Task) error {
-	log := log.With().
-		Str("component", "task_handler").
-		Str("task", task.ID.String()).
-		Str("type", string(task.Type)).
-		Logger()
+	log := gologger.WithComponent("task_handler")
 
 	// Skip if task is not in pending state
 	if task.Status != models.TaskStatusPending {
@@ -46,6 +42,7 @@ func (h *DefaultTaskHandler) HandleTask(task *models.Task) error {
 
 	log.Info().
 		Str("title", task.Title).
+		Str("nonce", task.Nonce).
 		Msg("Starting task execution")
 
 	// Log task details at debug level
@@ -110,39 +107,24 @@ func (h *DefaultTaskHandler) HandleTask(task *models.Task) error {
 		result.CreatedAt = time.Now()
 	}
 
-	// Set all required fields
 	result.DeviceID = deviceID
 	result.DeviceIDHash = deviceIDHash
 	result.SolverDeviceID = deviceID
 	result.CreatorDeviceID = task.CreatorDeviceID
 	result.CreatorAddress = task.CreatorAddress
 	result.RunnerAddress = deviceID
-	if task.Reward != nil {
-		result.Reward = *task.Reward
-	}
+	result.Reward = task.Reward
 
-	// Log fields at debug level
-	log.Debug().
-		Str("creator_device_id", result.CreatorDeviceID).
-		Str("creator_address", result.CreatorAddress).
-		Str("solver_device_id", result.SolverDeviceID).
-		Str("device_id", result.DeviceID).
-		Float64("reward", result.Reward).
-		Msg("Task result fields")
-
-	// Validate result fields
 	if result.CreatorDeviceID == "" {
 		log.Error().Msg("Creator device ID is empty after setting from task")
 		return fmt.Errorf("creator device ID is missing from task")
 	}
 
-	// Save result
 	if err := h.taskClient.SaveTaskResult(task.ID.String(), result); err != nil {
 		log.Error().Err(err).Msg("Failed to save task result")
 		return fmt.Errorf("failed to save task result: %w", err)
 	}
 
-	// Complete task
 	if err := h.taskClient.CompleteTask(task.ID.String()); err != nil {
 		log.Error().Err(err).Msg("Failed to complete task")
 		return fmt.Errorf("failed to complete task: %w", err)
