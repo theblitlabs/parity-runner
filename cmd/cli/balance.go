@@ -8,6 +8,9 @@ import (
 	walletsdk "github.com/theblitlabs/go-wallet-sdk"
 	"github.com/theblitlabs/parity-runner/internal/config"
 
+	"os"
+	"path/filepath"
+
 	"github.com/theblitlabs/deviceid"
 	"github.com/theblitlabs/gologger"
 	"github.com/theblitlabs/keystore"
@@ -21,7 +24,15 @@ func RunBalance() {
 		log.Fatal().Err(err).Msg("Failed to load config")
 	}
 
-	ks, err := keystore.NewKeystore(keystore.Config{})
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		log.Fatal().Err(err).Msg("Failed to get user home directory")
+	}
+
+	ks, err := keystore.NewKeystore(keystore.Config{
+		DirPath:  filepath.Join(homeDir, ".parity"),
+		FileName: "keystore.json",
+	})
 	if err != nil {
 		log.Fatal().Err(err).Msg("Failed to create keystore")
 	}

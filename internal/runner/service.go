@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"path/filepath"
 	"time"
 
 	"github.com/docker/docker/api/types"
@@ -46,7 +47,16 @@ func NewService(cfg *config.Config) (*Service, error) {
 		dockerClient: dockerClient,
 	}
 
-	ks, err := keystore.NewKeystore(keystore.Config{})
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		log.Error().Err(err).Msg("Failed to get user home directory")
+		return nil, fmt.Errorf("failed to get user home directory: %w", err)
+	}
+
+	ks, err := keystore.NewKeystore(keystore.Config{
+		DirPath:  filepath.Join(homeDir, ".parity"),
+		FileName: "keystore.json",
+	})
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to create keystore")
 		return nil, fmt.Errorf("failed to create keystore: %w", err)

@@ -3,6 +3,8 @@ package cli
 import (
 	"context"
 	"math/big"
+	"os"
+	"path/filepath"
 	"time"
 
 	"github.com/ethereum/go-ethereum/accounts/abi/bind"
@@ -60,7 +62,18 @@ func executeStake(amount float64) {
 	}
 
 	// Get private key from keystore
-	ks, err := keystore.NewKeystore(keystore.Config{})
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		log.Fatal().
+			Err(err).
+			Msg("Failed to get user home directory")
+		return
+	}
+
+	ks, err := keystore.NewKeystore(keystore.Config{
+		DirPath:  filepath.Join(homeDir, ".parity"),
+		FileName: "keystore.json",
+	})
 	if err != nil {
 		log.Fatal().
 			Err(err).
