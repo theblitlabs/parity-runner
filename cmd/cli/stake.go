@@ -11,8 +11,7 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/theblitlabs/deviceid"
-	paritywallet "github.com/theblitlabs/go-parity-wallet"
-	stakeclient "github.com/theblitlabs/go-stake-client"
+	walletsdk "github.com/theblitlabs/go-wallet-sdk"
 	"github.com/theblitlabs/gologger"
 	"github.com/theblitlabs/keystore"
 	"github.com/theblitlabs/parity-runner/internal/config"
@@ -78,12 +77,11 @@ func executeStake(amount float64) {
 	}
 
 	// Create Ethereum client
-	client, err := paritywallet.NewClientWithKey(
-		cfg.Ethereum.RPC,
-		cfg.Ethereum.ChainID,
-		common.Bytes2Hex(crypto.FromECDSA(privateKey)),
-		crypto.PubkeyToAddress(privateKey.PublicKey),
-	)
+	client, err := walletsdk.NewClient(walletsdk.ClientConfig{
+		RPCURL:     cfg.Ethereum.RPC,
+		ChainID:    cfg.Ethereum.ChainID,
+		PrivateKey: common.Bytes2Hex(crypto.FromECDSA(privateKey)),
+	})
 	if err != nil {
 		log.Fatal().
 			Err(err).
@@ -112,7 +110,7 @@ func executeStake(amount float64) {
 	stakeWalletAddr := common.HexToAddress(cfg.Ethereum.StakeWalletAddress)
 
 	// Check token balance
-	token, err := paritywallet.NewParityToken(tokenAddr, client)
+	token, err := walletsdk.NewParityToken(tokenAddr, client)
 	if err != nil {
 		log.Fatal().
 			Err(err).
@@ -211,7 +209,7 @@ func executeStake(amount float64) {
 	}
 
 	// Create stake wallet contract instance
-	stakeWallet, err := stakeclient.NewStakeWallet(client, tokenAddr, stakeWalletAddr)
+	stakeWallet, err := walletsdk.NewStakeWallet(client, tokenAddr, stakeWalletAddr)
 	if err != nil {
 		log.Fatal().
 			Err(err).

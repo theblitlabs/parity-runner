@@ -5,11 +5,10 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/crypto"
 
-	paritywallet "github.com/theblitlabs/go-parity-wallet"
+	walletsdk "github.com/theblitlabs/go-wallet-sdk"
 	"github.com/theblitlabs/parity-runner/internal/config"
 
 	"github.com/theblitlabs/deviceid"
-	stakeclient "github.com/theblitlabs/go-stake-client"
 	"github.com/theblitlabs/gologger"
 	"github.com/theblitlabs/keystore"
 )
@@ -32,12 +31,11 @@ func RunBalance() {
 		log.Fatal().Err(err).Msg("No private key found - please authenticate first using 'parity auth'")
 	}
 
-	client, err := paritywallet.NewClientWithKey(
-		cfg.Ethereum.RPC,
-		cfg.Ethereum.ChainID,
-		common.Bytes2Hex(crypto.FromECDSA(privateKey)),
-		crypto.PubkeyToAddress(privateKey.PublicKey),
-	)
+	client, err := walletsdk.NewClient(walletsdk.ClientConfig{
+		RPCURL:     cfg.Ethereum.RPC,
+		ChainID:    cfg.Ethereum.ChainID,
+		PrivateKey: common.Bytes2Hex(crypto.FromECDSA(privateKey)),
+	})
 	if err != nil {
 		log.Fatal().Err(err).Msg("Failed to create Ethereum client")
 	}
@@ -45,7 +43,7 @@ func RunBalance() {
 	tokenAddr := common.HexToAddress(cfg.Ethereum.TokenAddress)
 	stakeWalletAddr := common.HexToAddress(cfg.Ethereum.StakeWalletAddress)
 
-	token, err := paritywallet.NewParityToken(tokenAddr, client)
+	token, err := walletsdk.NewParityToken(tokenAddr, client)
 	if err != nil {
 		log.Fatal().Err(err).Msg("Failed to create token contract")
 	}
@@ -61,7 +59,7 @@ func RunBalance() {
 		Str("token_address", tokenAddr.Hex()).
 		Msg("Token balance")
 
-	stakeWallet, err := stakeclient.NewStakeWallet(client, tokenAddr, stakeWalletAddr)
+	stakeWallet, err := walletsdk.NewStakeWallet(client, tokenAddr, stakeWalletAddr)
 	if err != nil {
 		log.Fatal().Err(err).Msg("Failed to create stake wallet")
 	}
