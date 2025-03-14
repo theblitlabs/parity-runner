@@ -6,21 +6,17 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"io"
-	"math"
+	"os/exec"
+	"runtime"
 	"strconv"
 	"strings"
 	"time"
 
-	"github.com/docker/docker/api/types"
-	"github.com/docker/docker/api/types/container"
-	"github.com/docker/docker/client"
 	"github.com/theblitlabs/gologger"
 	"github.com/theblitlabs/parity-runner/internal/models"
 )
 
 type DockerExecutor struct {
-	client *client.Client
 	config *ExecutorConfig
 }
 
@@ -30,17 +26,17 @@ type ExecutorConfig struct {
 	Timeout     time.Duration `mapstructure:"timeout"`
 }
 
-func NewDockerExecutor(config *ExecutorConfig) (*DockerExecutor, error) {
-	return NewDockerExecutorWithClient(config)
+func execCommand(ctx context.Context, name string, args ...string) ([]byte, error) {
+	cmd := exec.CommandContext(ctx, name, args...)
+	return cmd.CombinedOutput()
 }
 
-func NewDockerExecutorWithClient(config *ExecutorConfig) (*DockerExecutor, error) {
+func NewDockerExecutor(config *ExecutorConfig) (*DockerExecutor, error) {
 	log := gologger.WithComponent("docker")
 
-	cli, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
-	if err != nil {
-		log.Error().Err(err).Msg("Failed to create client")
-		return nil, fmt.Errorf("docker client creation failed: %w", err)
+	if _, err := execCommand(context.Background(), "docker", "version"); err != nil {
+		log.Error().Err(err).Msg("Docker not available")
+		return nil, fmt.Errorf("docker not available: %w", err)
 	}
 
 	log.Debug().
@@ -50,84 +46,20 @@ func NewDockerExecutorWithClient(config *ExecutorConfig) (*DockerExecutor, error
 		Msg("Executor initialized")
 
 	return &DockerExecutor{
-		client: cli,
 		config: config,
 	}, nil
 }
 
 func cleanOutput(output []byte) string {
-	// Remove Docker's output header bytes (first 8 bytes of each line)
-	var cleaned []byte
-	for len(output) > 0 {
-		// Find next line
-		i := bytes.IndexByte(output, '\n')
-		if i == -1 {
-			i = len(output)
-		}
-
-		// Process line
-		line := output[:i]
-		if len(line) > 8 { // Docker prefixes each line with 8 bytes
-			line = line[8:]
-		}
-		cleaned = append(cleaned, line...)
-
-		if i < len(output) {
-			cleaned = append(cleaned, '\n')
-			output = output[i+1:]
-		} else {
-			break
-		}
-	}
-
-	// Remove any remaining control characters
-	cleaned = bytes.Map(func(r rune) rune {
-		if r < 32 && r != '\n' && r != '\t' { // Keep newlines and tabs
+	// Remove any control characters except newlines and tabs
+	cleaned := bytes.Map(func(r rune) rune {
+		if r < 32 && r != '\n' && r != '\t' {
 			return -1
 		}
 		return r
-	}, cleaned)
+	}, output)
 
 	return strings.TrimSpace(string(cleaned))
-}
-
-// parseMemoryLimit converts a memory limit string (e.g., "1g", "512m") to bytes
-func parseMemoryLimit(limit string) int64 {
-	if limit == "" {
-		return 0
-	}
-
-	var value int64
-	var unit string
-	if _, err := fmt.Sscanf(limit, "%d%s", &value, &unit); err != nil {
-		return 0
-	}
-
-	switch strings.ToLower(unit) {
-	case "g", "gb":
-		return value * 1024 * 1024 * 1024
-	case "m", "mb":
-		return value * 1024 * 1024
-	case "k", "kb":
-		return value * 1024
-	default:
-		return value
-	}
-}
-
-// parseCPULimit converts a CPU limit string (e.g., "1", "0.5") to nano CPUs
-func parseCPULimit(limit string) int64 {
-	if limit == "" {
-		return 0
-	}
-
-	cpu, err := strconv.ParseFloat(limit, 64)
-	if err != nil {
-		return 0
-	}
-
-	// Convert to nano CPUs (1 CPU = 1000000000 nano CPUs)
-	return int64(cpu * 1000000000)
 }
 
 func (e *DockerExecutor) ExecuteTask(ctx context.Context, task *models.Task) (*models.TaskResult, error) {
@@ -138,7 +70,6 @@ func (e *DockerExecutor) ExecuteTask(ctx context.Context, task *models.Task) (*m
 
 	log.Info().Str("id", task.ID.String()).Str("nonce", task.Nonce).Msg("Executing task")
 
-	// Verify the nonce format
 	if err := e.verifyDrandNonce(task.Nonce); err != nil {
 		log.Error().Err(err).Str("id", task.ID.String()).Msg("Invalid nonce format")
 		return nil, fmt.Errorf("invalid nonce format: %w", err)
@@ -161,7 +92,6 @@ func (e *DockerExecutor) ExecuteTask(ctx context.Context, task *models.Task) (*m
 		return nil, fmt.Errorf("image required")
 	}
 
-	// Verify image digest
 	if err := e.verifyImageDigest(ctx, image); err != nil {
 		log.Error().Err(err).Str("id", task.ID.String()).Str("image", image).Msg("Invalid image digest")
 		return nil, fmt.Errorf("invalid image digest: %w", err)
@@ -173,12 +103,10 @@ func (e *DockerExecutor) ExecuteTask(ctx context.Context, task *models.Task) (*m
 		return nil, fmt.Errorf("workdir required")
 	}
 
-	// Initialize environment variables with the nonce
 	envVars := []string{
 		fmt.Sprintf("TASK_NONCE=%s", task.Nonce),
 	}
 
-	// Add any additional environment variables from the task config
 	if env, ok := task.Environment.Config["env"].([]interface{}); ok {
 		for _, v := range env {
 			if str, ok := v.(string); ok {
@@ -192,160 +120,181 @@ func (e *DockerExecutor) ExecuteTask(ctx context.Context, task *models.Task) (*m
 
 	log.Info().Str("id", task.ID.String()).Str("image", image).Msg("Pulling image")
 
-	reader, err := e.client.ImagePull(ctx, image, types.ImagePullOptions{})
-	if err != nil {
+	if _, err := execCommand(ctx, "docker", "pull", image); err != nil {
 		log.Error().Err(err).Str("id", task.ID.String()).Str("image", image).Msg("Pull failed")
 		return nil, fmt.Errorf("image pull failed: %w", err)
 	}
-	defer reader.Close()
 
-	decoder := json.NewDecoder(reader)
-	for {
-		var pullStatus map[string]interface{}
-		if err := decoder.Decode(&pullStatus); err != nil {
-			if err == io.EOF {
-				break
-			}
-			log.Error().Err(err).Str("id", task.ID.String()).Msg("Pull status decode failed")
-			return nil, fmt.Errorf("pull status decode failed: %w", err)
-		}
-		if status, ok := pullStatus["status"].(string); ok {
-			log.Debug().Str("id", task.ID.String()).Str("status", status).Msg("Pull progress")
-		}
+	// Prepare container create command
+	createArgs := []string{
+		"create",
+		"--memory", e.config.MemoryLimit,
+		"--cpus", e.config.CPULimit,
+		"--workdir", workdir,
 	}
 
-	resp, err := e.client.ContainerCreate(ctx,
-		&container.Config{
-			Image:      image,
-			Cmd:        config.Command,
-			Env:        envVars,
-			WorkingDir: workdir,
-		},
-		&container.HostConfig{
-			Resources: container.Resources{
-				Memory:   parseMemoryLimit(e.config.MemoryLimit),
-				NanoCPUs: parseCPULimit(e.config.CPULimit),
-			},
-		}, nil, nil, "")
+	for _, env := range envVars {
+		createArgs = append(createArgs, "-e", env)
+	}
+
+	createArgs = append(createArgs, image)
+	createArgs = append(createArgs, config.Command...)
+
+	output, err := execCommand(ctx, "docker", createArgs...)
 	if err != nil {
-		log.Error().Err(err).
-			Str("id", task.ID.String()).
-			Str("image", image).
-			Msg("Container creation failed")
+		log.Error().Err(err).Str("id", task.ID.String()).Msg("Container creation failed")
 		return nil, fmt.Errorf("container creation failed: %w", err)
 	}
-	containerID := resp.ID
 
-	log.Debug().
-		Str("id", task.ID.String()).
-		Str("container", containerID).
-		Msg("Container created")
+	containerID := strings.TrimSpace(string(output))
+	log.Debug().Str("id", task.ID.String()).Str("container", containerID).Msg("Container created")
 
 	defer func() {
-		if err := e.client.ContainerRemove(ctx, containerID, types.ContainerRemoveOptions{Force: true}); err != nil {
+		if _, err := execCommand(context.Background(), "docker", "rm", "-f", containerID); err != nil {
 			log.Debug().Err(err).Str("container", containerID).Msg("Container removal failed")
 		}
 	}()
 
-	if err := e.client.ContainerStart(ctx, containerID, types.ContainerStartOptions{}); err != nil {
-		log.Error().Err(err).
-			Str("id", task.ID.String()).
-			Str("container", containerID).
-			Msg("Container start failed")
+	// Start container
+	if _, err := execCommand(ctx, "docker", "start", containerID); err != nil {
+		log.Error().Err(err).Str("id", task.ID.String()).Str("container", containerID).Msg("Container start failed")
 		return nil, fmt.Errorf("container start failed: %w", err)
 	}
 
-	log.Debug().
-		Str("task_id", task.ID.String()).
-		Str("container_id", containerID).
-		Msg("Container started successfully")
-
+	// Initialize resource collector
 	collector, err := NewResourceCollector(containerID)
 	if err != nil {
-		log.Error().
-			Err(err).
-			Str("task_id", task.ID.String()).
-			Str("container_id", containerID).
-			Msg("Failed to create resource collector")
-		return nil, fmt.Errorf("resource collector creation failed: %w", err)
-	}
-
-	if err := collector.Start(ctx); err != nil {
-		log.Error().
-			Err(err).
-			Str("task_id", task.ID.String()).
-			Str("container_id", containerID).
-			Msg("Failed to start resource collector")
-		return nil, fmt.Errorf("resource collector start failed: %w", err)
-	}
-	defer collector.Stop()
-
-	statusCh, errCh := e.client.ContainerWait(ctx, containerID, container.WaitConditionNotRunning)
-	select {
-	case err := <-errCh:
-		if err != nil {
-			log.Error().Err(err).
-				Str("id", task.ID.String()).
-				Str("container", containerID).
-				Msg("Container wait failed")
-			result.Error = err.Error()
-			result.ExitCode = -1
-			return result, fmt.Errorf("container wait failed: %w", err)
+		log.Error().Err(err).Str("id", task.ID.String()).Msg("Failed to initialize resource collector")
+		// Continue execution even if collector fails - we'll fall back to basic stats
+	} else {
+		if err := collector.Start(ctx); err != nil {
+			log.Error().Err(err).Str("id", task.ID.String()).Msg("Failed to start resource collector")
 		}
-	case status := <-statusCh:
-		result.ExitCode = int(status.StatusCode)
-		log.Debug().
-			Str("id", task.ID.String()).
-			Str("container", containerID).
-			Int("exit", result.ExitCode).
-			Msg("Container exited")
+		defer collector.Stop()
 	}
 
-	out, err := e.client.ContainerLogs(ctx, containerID, types.ContainerLogsOptions{
-		ShowStdout: true,
-		ShowStderr: true,
-	})
+	waitOutput, err := execCommand(ctx, "docker", "wait", containerID)
 	if err != nil {
-		log.Error().Err(err).
-			Str("id", task.ID.String()).
-			Str("container", containerID).
-			Msg("Log fetch failed")
+		log.Error().Err(err).Str("id", task.ID.String()).Str("container", containerID).Msg("Container wait failed")
+		result.Error = err.Error()
+		result.ExitCode = -1
+		return result, fmt.Errorf("container wait failed: %w", err)
+	}
+
+	exitCode, err := strconv.Atoi(strings.TrimSpace(string(waitOutput)))
+	if err != nil {
+		log.Error().Err(err).Str("id", task.ID.String()).Msg("Failed to parse exit code")
+		result.ExitCode = -1
+	} else {
+		result.ExitCode = exitCode
+	}
+
+	logs, err := execCommand(ctx, "docker", "logs", containerID)
+	if err != nil {
+		log.Error().Err(err).Str("id", task.ID.String()).Str("container", containerID).Msg("Log fetch failed")
 		result.Error = err.Error()
 		return result, fmt.Errorf("log fetch failed: %w", err)
-	}
-	defer out.Close()
-
-	logs, err := io.ReadAll(out)
-	if err != nil {
-		log.Error().Err(err).
-			Str("id", task.ID.String()).
-			Str("container", containerID).
-			Msg("Log read failed")
-		result.Error = err.Error()
-		return result, fmt.Errorf("log read failed: %w", err)
 	}
 
 	result.Output = fmt.Sprintf("NONCE: %s\n%s", task.Nonce, cleanOutput(logs))
 
 	if !strings.Contains(result.Output, task.Nonce) {
-		log.Error().
-			Str("id", task.ID.String()).
-			Str("nonce", task.Nonce).
-			Msg("Nonce not found in task output")
+		log.Error().Str("id", task.ID.String()).Str("nonce", task.Nonce).Msg("Nonce not found in task output")
 		return nil, fmt.Errorf("nonce verification failed: nonce not found in output")
 	}
 
-	log.Info().
-		Str("id", task.ID.String()).
-		Str("nonce", task.Nonce).
-		Msg("Nonce verified in output")
+	log.Info().Str("id", task.ID.String()).Str("nonce", task.Nonce).Msg("Nonce verified in output")
 
-	resourceMetrics := collector.GetMetrics()
-	result.CPUSeconds = resourceMetrics.CPUSeconds
-	result.EstimatedCycles = resourceMetrics.EstimatedCycles
-	result.MemoryGBHours = resourceMetrics.MemoryGBHours
-	result.StorageGB = resourceMetrics.StorageGB
-	result.NetworkDataGB = resourceMetrics.NetworkDataGB
+	// Get metrics from collector if available
+	if collector != nil {
+		metrics := collector.GetMetrics()
+		result.CPUSeconds = metrics.CPUSeconds
+		result.EstimatedCycles = metrics.EstimatedCycles
+		result.MemoryGBHours = metrics.MemoryGBHours
+		result.StorageGB = metrics.StorageGB
+		result.NetworkDataGB = metrics.NetworkDataGB
+	} else {
+		// Fall back to one-time stats if collector failed
+		statsOutput, err := execCommand(ctx, "docker", "stats", "--no-stream", "--format",
+			`{"cpu":"{{.CPUPerc}}", "memory":"{{.MemUsage}}", "netIO":"{{.NetIO}}", "blockIO":"{{.BlockIO}}"}`,
+			containerID)
+		if err == nil {
+			var stats struct {
+				CPU     string `json:"cpu"`
+				Memory  string `json:"memory"`
+				NetIO   string `json:"netIO"`
+				BlockIO string `json:"blockIO"`
+			}
+
+			if err := json.Unmarshal([]byte(statsOutput), &stats); err == nil {
+				// Parse CPU percentage (format: "0.00%")
+				cpuStr := strings.TrimSuffix(stats.CPU, "%")
+				if cpu, err := strconv.ParseFloat(cpuStr, 64); err == nil {
+					result.CPUSeconds = cpu / 100.0 * float64(time.Since(startTime).Seconds())
+				}
+
+				// Parse memory usage (format: "100MiB / 1GiB")
+				memParts := strings.Split(stats.Memory, " / ")
+				if len(memParts) >= 1 {
+					usedMem := memParts[0]
+					memValue := strings.TrimRight(usedMem, "BKMGTib")
+					unit := strings.TrimLeft(usedMem, "0123456789.")
+					if mem, err := strconv.ParseFloat(memValue, 64); err == nil {
+						// Convert to GB based on unit
+						var memGB float64
+						switch strings.ToUpper(strings.TrimSuffix(unit, "i")) {
+						case "B":
+							memGB = mem / (1024 * 1024 * 1024)
+						case "KB":
+							memGB = mem / (1024 * 1024)
+						case "MB":
+							memGB = mem / 1024
+						case "GB":
+							memGB = mem
+						case "TB":
+							memGB = mem * 1024
+						}
+						result.MemoryGBHours = memGB * (float64(time.Since(startTime).Hours()))
+					}
+				}
+
+				// Parse network I/O (format: "100MB / 200MB")
+				netParts := strings.Split(stats.NetIO, " / ")
+				if len(netParts) == 2 {
+					inBytes, _ := parseSize(netParts[0])
+					outBytes, _ := parseSize(netParts[1])
+					result.NetworkDataGB = float64(inBytes+outBytes) / (1024 * 1024 * 1024)
+				}
+
+				// Parse block I/O (format: "100MB / 200MB")
+				blockParts := strings.Split(stats.BlockIO, " / ")
+				if len(blockParts) == 2 {
+					readBytes, _ := parseSize(blockParts[0])
+					writeBytes, _ := parseSize(blockParts[1])
+					result.StorageGB = float64(readBytes+writeBytes) / (1024 * 1024 * 1024)
+				}
+
+				log.Debug().
+					Str("container_id", containerID).
+					Str("raw_cpu", stats.CPU).
+					Str("raw_memory", stats.Memory).
+					Str("raw_netio", stats.NetIO).
+					Str("raw_blockio", stats.BlockIO).
+					Float64("parsed_cpu_seconds", result.CPUSeconds).
+					Float64("parsed_memory_gb_hours", result.MemoryGBHours).
+					Float64("parsed_network_gb", result.NetworkDataGB).
+					Float64("parsed_storage_gb", result.StorageGB).
+					Msg("Resource metrics parsed")
+
+				cpuFreq := getSystemCPUFrequency()
+				result.EstimatedCycles = uint64(result.CPUSeconds * cpuFreq * 1e9)
+			} else {
+				log.Error().Err(err).Str("stats_output", string(statsOutput)).Msg("Failed to parse Docker stats JSON")
+			}
+		} else {
+			log.Error().Err(err).Msg("Failed to get Docker stats")
+		}
+	}
 
 	elapsedTime := time.Since(startTime)
 	log.Info().
@@ -353,21 +302,188 @@ func (e *DockerExecutor) ExecuteTask(ctx context.Context, task *models.Task) (*m
 		Str("container_id", containerID).
 		Int("exit_code", result.ExitCode).
 		Str("duration", elapsedTime.Round(time.Millisecond).String()).
-		Float64("cpu_seconds", math.Round(result.CPUSeconds*100)/100).
-		Uint64("estimated_cycles", result.EstimatedCycles).
-		Float64("memory_gb_hours", math.Round(result.MemoryGBHours*1000)/1000).
-		Float64("storage_gb", math.Round(result.StorageGB*100)/100).
-		Float64("network_gb", math.Round(result.NetworkDataGB*100)/100).
+		Float64("cpu_seconds", result.CPUSeconds).
+		Float64("memory_gb_hours", result.MemoryGBHours).
+		Float64("storage_gb", result.StorageGB).
+		Float64("network_gb", result.NetworkDataGB).
 		Msg("Task execution completed")
 
 	return result, nil
 }
 
-// verifyDrandNonce verifies that the nonce format is valid
+func parseSize(size string) (int64, error) {
+	size = strings.TrimSpace(size)
+	if size == "" {
+		return 0, nil
+	}
+
+	var value float64
+	var unit string
+	if _, err := fmt.Sscanf(size, "%f%s", &value, &unit); err != nil {
+		return 0, err
+	}
+
+	unit = strings.ToUpper(strings.TrimSuffix(unit, "iB"))
+	unit = strings.TrimSuffix(unit, "I")
+
+	var multiplier int64
+	switch unit {
+	case "B":
+		multiplier = 1
+	case "K", "KB":
+		multiplier = 1024
+	case "M", "MB":
+		multiplier = 1024 * 1024
+	case "G", "GB":
+		multiplier = 1024 * 1024 * 1024
+	case "T", "TB":
+		multiplier = 1024 * 1024 * 1024 * 1024
+	default:
+		return 0, fmt.Errorf("unknown unit: %s", unit)
+	}
+
+	return int64(value * float64(multiplier)), nil
+}
+
+func getSystemCPUFrequency() float64 {
+	switch runtime.GOOS {
+	case "darwin":
+		return getMacCPUFrequency()
+	case "linux":
+		return getLinuxCPUFrequency()
+	case "windows":
+		return getWindowsCPUFrequency()
+	default:
+		return 2.0 // Conservative default for unknown OS
+	}
+}
+
+func getMacCPUFrequency() float64 {
+	out, err := execCommand(context.Background(), "sysctl", "-n", "hw.cpufrequency")
+	if err == nil {
+		if freq, err := strconv.ParseFloat(strings.TrimSpace(string(out)), 64); err == nil {
+			return freq / 1e9 // Convert Hz to GHz
+		}
+	}
+
+	// If that fails, try getting it from CPU brand string
+	out, err = execCommand(context.Background(), "sysctl", "-n", "machdep.cpu.brand_string")
+	if err == nil {
+		if strings.Contains(string(out), "Apple") {
+			return 3.0
+		}
+		// For Intel Macs
+		if strings.Contains(string(out), "@") {
+			parts := strings.Split(string(out), "@")
+			if len(parts) > 1 {
+				freqStr := strings.TrimSpace(parts[1])
+				freqStr = strings.TrimSuffix(freqStr, "GHz")
+				if freq, err := strconv.ParseFloat(strings.TrimSpace(freqStr), 64); err == nil {
+					return freq
+				}
+			}
+		}
+	}
+
+	return 2.0
+}
+
+func getLinuxCPUFrequency() float64 {
+	out, err := execCommand(context.Background(), "cat", "/sys/devices/system/cpu/cpu0/cpufreq/cpuinfo_max_freq")
+	if err == nil {
+		if freq, err := strconv.ParseFloat(strings.TrimSpace(string(out)), 64); err == nil {
+			return freq / 1e6 // Convert kHz to GHz
+		}
+	}
+
+	out, err = execCommand(context.Background(), "lscpu")
+	if err == nil {
+		lines := strings.Split(string(out), "\n")
+		for _, line := range lines {
+			if strings.Contains(strings.ToLower(line), "mhz") {
+				fields := strings.Fields(line)
+				if len(fields) >= 2 {
+					if freq, err := strconv.ParseFloat(fields[len(fields)-1], 64); err == nil {
+						return freq / 1000
+					}
+				}
+			}
+		}
+	}
+
+	out, err = execCommand(context.Background(), "cat", "/proc/cpuinfo")
+	if err == nil {
+		lines := strings.Split(string(out), "\n")
+		for _, line := range lines {
+			if strings.Contains(line, "model name") || strings.Contains(line, "cpu MHz") {
+				if strings.Contains(line, "@") {
+					parts := strings.Split(line, "@")
+					if len(parts) > 1 {
+						freqStr := strings.TrimSpace(parts[1])
+						freqStr = strings.TrimSuffix(freqStr, "GHz")
+						if freq, err := strconv.ParseFloat(strings.TrimSpace(freqStr), 64); err == nil {
+							return freq
+						}
+					}
+				}
+				if strings.Contains(line, "cpu MHz") {
+					parts := strings.Split(line, ":")
+					if len(parts) > 1 {
+						if freq, err := strconv.ParseFloat(strings.TrimSpace(parts[1]), 64); err == nil {
+							return freq / 1000
+						}
+					}
+				}
+			}
+		}
+	}
+
+	return 2.0 // Conservative default
+}
+
+func getWindowsCPUFrequency() float64 {
+	out, err := execCommand(context.Background(), "powershell", "-Command",
+		"Get-WmiObject Win32_Processor | Select-Object MaxClockSpeed | Format-Table -HideTableHeaders")
+	if err == nil {
+		freqStr := strings.TrimSpace(string(out))
+		if freq, err := strconv.ParseFloat(freqStr, 64); err == nil {
+			return freq / 1000
+		}
+	}
+
+	// Try using wmic as fallback
+	out, err = execCommand(context.Background(), "wmic", "cpu", "get", "maxclockspeed")
+	if err == nil {
+		lines := strings.Split(string(out), "\n")
+		if len(lines) >= 2 {
+			freqStr := strings.TrimSpace(lines[1])
+			if freq, err := strconv.ParseFloat(freqStr, 64); err == nil {
+				return freq / 1000 // Convert MHz to GHz
+			}
+		}
+	}
+
+	// Try getting it from CPU name as last resort
+	out, err = execCommand(context.Background(), "wmic", "cpu", "get", "name")
+	if err == nil {
+		if strings.Contains(string(out), "@") {
+			parts := strings.Split(string(out), "@")
+			if len(parts) > 1 {
+				freqStr := strings.TrimSpace(parts[1])
+				freqStr = strings.TrimSuffix(freqStr, "GHz")
+				if freq, err := strconv.ParseFloat(strings.TrimSpace(freqStr), 64); err == nil {
+					return freq
+				}
+			}
+		}
+	}
+
+	return 2.0 // Conservative default
+}
+
 func (e *DockerExecutor) verifyDrandNonce(nonce string) error {
 	log := gologger.WithComponent("docker.drand")
 
-	// Basic validation
 	if nonce == "" {
 		return fmt.Errorf("empty nonce")
 	}
@@ -380,7 +496,6 @@ func (e *DockerExecutor) verifyDrandNonce(nonce string) error {
 			return fmt.Errorf("invalid nonce format: not hex and not UUID-based")
 		}
 
-		// Try to parse the timestamp part
 		timestamp := parts[0]
 		if _, err := strconv.ParseInt(timestamp, 10, 64); err != nil {
 			return fmt.Errorf("invalid nonce format: invalid timestamp in UUID-based nonce")
@@ -394,20 +509,19 @@ func (e *DockerExecutor) verifyDrandNonce(nonce string) error {
 	return nil
 }
 
-// verifyImageDigest verifies the Docker image digest
 func (e *DockerExecutor) verifyImageDigest(ctx context.Context, imageRef string) error {
 	log := gologger.WithComponent("docker")
 
-	// Check if image has a digest
 	parts := strings.Split(imageRef, "@sha256:")
 	if len(parts) == 2 {
-		// Verify pinned digest matches
-		image, _, err := e.client.ImageInspectWithRaw(ctx, imageRef)
+		// Get image ID using docker inspect
+		output, err := execCommand(ctx, "docker", "inspect", "--format", "{{.Id}}", imageRef)
 		if err != nil {
 			return fmt.Errorf("failed to inspect image: %w", err)
 		}
 
-		if !strings.HasSuffix(image.ID, parts[1]) {
+		imageID := strings.TrimSpace(string(output))
+		if !strings.HasSuffix(imageID, parts[1]) {
 			return fmt.Errorf("image digest mismatch")
 		}
 
@@ -416,7 +530,6 @@ func (e *DockerExecutor) verifyImageDigest(ctx context.Context, imageRef string)
 			Str("digest", parts[1]).
 			Msg("Image digest verified")
 	} else {
-		// For non-pinned images, just log a warning
 		log.Warn().
 			Str("image", imageRef).
 			Msg("Image is not pinned to a specific digest - this reduces security guarantees")
