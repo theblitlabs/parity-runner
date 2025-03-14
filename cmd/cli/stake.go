@@ -209,7 +209,7 @@ func executeStake(amount float64) {
 	}
 
 	// Create stake wallet contract instance
-	stakeWallet, err := walletsdk.NewStakeWallet(client, tokenAddr, stakeWalletAddr)
+	stakeWallet, err := walletsdk.NewStakeWallet(client, stakeWalletAddr, tokenAddr)
 	if err != nil {
 		log.Fatal().
 			Err(err).
