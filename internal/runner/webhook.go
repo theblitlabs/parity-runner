@@ -59,7 +59,6 @@ func (w *WebhookClient) Register() error {
 	// Prepare registration payload
 	regPayload := map[string]string{
 		"url":       w.webhookURL,
-		"runner_id": w.runnerID,
 		"device_id": w.deviceID,
 	}
 
@@ -137,7 +136,7 @@ func (w *WebhookClient) Unregister() error {
 		return nil
 	}
 
-	reqURL := fmt.Sprintf("%s/runners/webhooks/%s", w.serverURL, w.webhookID)
+	reqURL := fmt.Sprintf("%s/runners/webhooks/%s", w.serverURL, w.deviceID)
 	req, err := http.NewRequest("DELETE", reqURL, nil)
 	if err != nil {
 		return fmt.Errorf("failed to create webhook unregister request: %w", err)
