@@ -6,6 +6,9 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
+	"net/http"
+	"os"
 	"os/exec"
 	"runtime"
 	"strconv"
@@ -86,21 +89,59 @@ func (e *DockerExecutor) ExecuteTask(ctx context.Context, task *models.Task) (*m
 		return nil, fmt.Errorf("command required")
 	}
 
-	image, ok := task.Environment.Config["image"].(string)
-	if !ok || image == "" {
-		log.Error().Str("id", task.ID.String()).Msg("Missing image")
-		return nil, fmt.Errorf("image required")
+	image := config.ImageName
+	if image == "" {
+		log.Error().Str("id", task.ID.String()).Msg("Missing image name")
+		return nil, fmt.Errorf("image name required")
 	}
 
-	if err := e.verifyImageDigest(ctx, image); err != nil {
-		log.Error().Err(err).Str("id", task.ID.String()).Str("image", image).Msg("Invalid image digest")
-		return nil, fmt.Errorf("invalid image digest: %w", err)
+	// If we have a Docker image URL, download and load it
+	if config.DockerImageURL != "" {
+		log.Info().Str("id", task.ID.String()).Str("url", config.DockerImageURL).Msg("Downloading Docker image")
+
+		// Download image from S3
+		resp, err := http.Get(config.DockerImageURL)
+		if err != nil {
+			log.Error().Err(err).Str("id", task.ID.String()).Msg("Failed to download Docker image")
+			return nil, fmt.Errorf("failed to download Docker image: %w", err)
+		}
+		defer resp.Body.Close()
+
+		// Create temporary file
+		tmpFile, err := os.CreateTemp("", "docker-image-*.tar")
+		if err != nil {
+			log.Error().Err(err).Str("id", task.ID.String()).Msg("Failed to create temporary file")
+			return nil, fmt.Errorf("failed to create temporary file: %w", err)
+		}
+		defer os.Remove(tmpFile.Name())
+		defer tmpFile.Close()
+
+		// Copy image to temporary file
+		if _, err := io.Copy(tmpFile, resp.Body); err != nil {
+			log.Error().Err(err).Str("id", task.ID.String()).Msg("Failed to save Docker image")
+			return nil, fmt.Errorf("failed to save Docker image: %w", err)
+		}
+
+		// Load the Docker image
+		log.Info().Str("id", task.ID.String()).Str("image", image).Msg("Loading Docker image")
+		if _, err := execCommand(ctx, "docker", "load", "-i", tmpFile.Name()); err != nil {
+			log.Error().Err(err).Str("id", task.ID.String()).Msg("Failed to load Docker image")
+			return nil, fmt.Errorf("failed to load Docker image: %w", err)
+		}
+	} else {
+		// Fall back to pulling from registry
+		log.Info().Str("id", task.ID.String()).Str("image", image).Msg("Pulling image from registry")
+		if _, err := execCommand(ctx, "docker", "pull", image); err != nil {
+			log.Error().Err(err).Str("id", task.ID.String()).Str("image", image).Msg("Pull failed")
+			return nil, fmt.Errorf("image pull failed: %w", err)
+		}
 	}
 
 	workdir, ok := task.Environment.Config["workdir"].(string)
 	if !ok || workdir == "" {
-		log.Error().Str("id", task.ID.String()).Msg("Missing workdir")
-		return nil, fmt.Errorf("workdir required")
+		// Use root directory as default workdir
+		workdir = "/"
+		log.Debug().Str("id", task.ID.String()).Msg("Using default workdir '/'")
 	}
 
 	envVars := []string{
@@ -119,11 +160,6 @@ func (e *DockerExecutor) ExecuteTask(ctx context.Context, task *models.Task) (*m
 	defer cancel()
 
 	log.Info().Str("id", task.ID.String()).Str("image", image).Msg("Pulling image")
-
-	if _, err := execCommand(ctx, "docker", "pull", image); err != nil {
-		log.Error().Err(err).Str("id", task.ID.String()).Str("image", image).Msg("Pull failed")
-		return nil, fmt.Errorf("image pull failed: %w", err)
-	}
 
 	// Prepare container create command
 	createArgs := []string{
