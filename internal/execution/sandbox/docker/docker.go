@@ -113,7 +113,11 @@ func (e *DockerExecutor) ExecuteTask(ctx context.Context, task *models.Task) (*m
 			log.Error().Err(err).Str("id", task.ID.String()).Msg("Failed to create temporary file")
 			return nil, fmt.Errorf("failed to create temporary file: %w", err)
 		}
-		defer os.Remove(tmpFile.Name())
+		defer func() {
+			if err := os.Remove(tmpFile.Name()); err != nil {
+				log.Debug().Err(err).Str("file", tmpFile.Name()).Msg("Failed to remove temporary file")
+			}
+		}()
 		defer tmpFile.Close()
 
 		// Copy image to temporary file
@@ -541,35 +545,6 @@ func (e *DockerExecutor) verifyDrandNonce(nonce string) error {
 	log.Debug().
 		Str("nonce", nonce).
 		Msg("Nonce format verified")
-
-	return nil
-}
-
-func (e *DockerExecutor) verifyImageDigest(ctx context.Context, imageRef string) error {
-	log := gologger.WithComponent("docker")
-
-	parts := strings.Split(imageRef, "@sha256:")
-	if len(parts) == 2 {
-		// Get image ID using docker inspect
-		output, err := execCommand(ctx, "docker", "inspect", "--format", "{{.Id}}", imageRef)
-		if err != nil {
-			return fmt.Errorf("failed to inspect image: %w", err)
-		}
-
-		imageID := strings.TrimSpace(string(output))
-		if !strings.HasSuffix(imageID, parts[1]) {
-			return fmt.Errorf("image digest mismatch")
-		}
-
-		log.Debug().
-			Str("image", imageRef).
-			Str("digest", parts[1]).
-			Msg("Image digest verified")
-	} else {
-		log.Warn().
-			Str("image", imageRef).
-			Msg("Image is not pinned to a specific digest - this reduces security guarantees")
-	}
 
 	return nil
 }
