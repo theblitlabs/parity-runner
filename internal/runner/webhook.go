@@ -28,6 +28,7 @@ type WebhookClient struct {
 	server             *http.Server
 	runnerID           string
 	deviceID           string
+	walletAddress      string
 	stopChan           chan struct{}
 	mu                 sync.Mutex
 	started            bool
@@ -38,13 +39,14 @@ type WebhookClient struct {
 }
 
 // NewWebhookClient creates a new webhook client
-func NewWebhookClient(serverURL string, webhookURL string, serverPort int, handler TaskHandler, runnerID, deviceID string) *WebhookClient {
+func NewWebhookClient(serverURL string, webhookURL string, serverPort int, handler TaskHandler, runnerID, deviceID, walletAddress string) *WebhookClient {
 	return &WebhookClient{
 		serverURL:      serverURL,
 		webhookURL:     webhookURL,
 		handler:        handler,
 		runnerID:       runnerID,
 		deviceID:       deviceID,
+		walletAddress:  walletAddress,
 		stopChan:       make(chan struct{}),
 		serverPort:     serverPort,
 		completedTasks: make(map[string]time.Time),
@@ -58,8 +60,9 @@ func (w *WebhookClient) Register() error {
 
 	// Prepare registration payload
 	regPayload := map[string]string{
-		"url":       w.webhookURL,
-		"device_id": w.deviceID,
+		"url":            w.webhookURL,
+		"device_id":      w.deviceID,
+		"wallet_address": w.walletAddress,
 	}
 
 	payloadBytes, err := json.Marshal(regPayload)

@@ -16,6 +16,7 @@ import (
 	"github.com/theblitlabs/keystore"
 	"github.com/theblitlabs/parity-runner/internal/config"
 	"github.com/theblitlabs/parity-runner/internal/execution/sandbox/docker"
+	"github.com/theblitlabs/parity-runner/internal/utils"
 )
 
 type Service struct {
@@ -99,6 +100,13 @@ func NewService(cfg *config.Config) (*Service, error) {
 	}
 
 	webhookURL := fmt.Sprintf("http://%s:%d/webhook", hostname, webhookPort)
+
+	walletAddress, err := utils.GetWalletAddress()
+	if err != nil {
+		log.Error().Err(err).Msg("Failed to get wallet address")
+		return nil, fmt.Errorf("failed to get wallet address: %w", err)
+	}
+
 	webhookClient := NewWebhookClient(
 		cfg.Runner.ServerURL,
 		webhookURL,
@@ -106,6 +114,7 @@ func NewService(cfg *config.Config) (*Service, error) {
 		taskHandler,
 		runnerID,
 		deviceID,
+		walletAddress,
 	)
 
 	svc.webhookClient = webhookClient
