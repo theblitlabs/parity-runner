@@ -141,7 +141,6 @@ func NewResourceCollector(containerID string) (*ResourceCollector, error) {
 
 func (rc *ResourceCollector) Start(ctx context.Context) error {
 	log := gologger.Get().With().Str("component", "resource_metrics").Logger()
-	// Create a new context with cancel for metrics collection
 	metricsCtx, cancel := context.WithCancel(ctx)
 	rc.cancel = cancel
 
@@ -151,7 +150,6 @@ func (rc *ResourceCollector) Start(ctx context.Context) error {
 		return fmt.Errorf("failed to get container stats: %w", err)
 	}
 
-	// Start a goroutine to monitor for errors
 	go func() {
 		select {
 		case err := <-rc.errChan:
@@ -274,18 +272,6 @@ func (rc *ResourceCollector) GetMetrics() ResourceMetrics {
 }
 
 func (rc *ResourceCollector) Stop() {
-	log := gologger.Get().With().Str("component", "resource_metrics").Logger()
-
-	// Log final metrics before cleanup
-	log.Info().
-		Str("container_id", rc.containerID).
-		Float64("cpu_seconds", rc.metrics.CPUSeconds).
-		Uint64("estimated_cycles", rc.metrics.EstimatedCycles).
-		Float64("memory_gb_hours", rc.metrics.MemoryGBHours).
-		Float64("storage_gb", rc.metrics.StorageGB).
-		Float64("network_gb", rc.metrics.NetworkDataGB).
-		Msg("Final metrics collection stats")
-
 	// Cancel context first to stop all goroutines
 	if rc.cancel != nil {
 		rc.cancel()
