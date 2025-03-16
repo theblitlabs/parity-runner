@@ -25,10 +25,12 @@ const (
 )
 
 type TaskConfig struct {
-	FileURL   string            `json:"file_url,omitempty"`
-	Command   []string          `json:"command,omitempty"`
-	Env       map[string]string `json:"env,omitempty"`
-	Resources ResourceConfig    `json:"resources,omitempty"`
+	FileURL        string            `json:"file_url,omitempty"`
+	Command        []string          `json:"command,omitempty"`
+	Env            map[string]string `json:"env,omitempty"`
+	Resources      ResourceConfig    `json:"resources,omitempty"`
+	DockerImageURL string            `json:"docker_image_url,omitempty"`
+	ImageName      string            `json:"image_name,omitempty"`
 }
 
 func (c *TaskConfig) Validate(taskType TaskType) error {
@@ -36,6 +38,9 @@ func (c *TaskConfig) Validate(taskType TaskType) error {
 	case TaskTypeDocker:
 		if len(c.Command) == 0 {
 			return errors.New("command is required for Docker tasks")
+		}
+		if c.ImageName == "" {
+			return errors.New("image name is required for Docker tasks")
 		}
 	case TaskTypeCommand:
 		if len(c.Command) == 0 {
