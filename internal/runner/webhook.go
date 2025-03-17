@@ -36,311 +36,146 @@ type WebhookClient struct {
 	completedTasks     map[string]time.Time
 	lastCleanupTime    time.Time
 	completedTasksLock sync.RWMutex
-	heartbeatInterval  time.Duration
-	heartbeatTicker    *time.Ticker
-	heartbeatStopChan  chan struct{}
-	startTime          time.Time
+	heartbeat          *HeartbeatService
 }
 
-// NewWebhookClient creates a new webhook client
 func NewWebhookClient(serverURL string, webhookURL string, serverPort int, handler TaskHandler, runnerID, deviceID, walletAddress string) *WebhookClient {
-	return &WebhookClient{
-		serverURL:         serverURL,
-		webhookURL:        webhookURL,
-		handler:           handler,
-		runnerID:          runnerID,
-		deviceID:          deviceID,
-		walletAddress:     walletAddress,
-		stopChan:          make(chan struct{}),
-		serverPort:        serverPort,
-		completedTasks:    make(map[string]time.Time),
-		lastCleanupTime:   time.Now(),
-		heartbeatInterval: 30 * time.Second,
-		heartbeatStopChan: make(chan struct{}),
-		startTime:         time.Now(),
+	client := &WebhookClient{
+		serverURL:       serverURL,
+		webhookURL:      webhookURL,
+		handler:         handler,
+		runnerID:        runnerID,
+		deviceID:        deviceID,
+		walletAddress:   walletAddress,
+		stopChan:        make(chan struct{}),
+		serverPort:      serverPort,
+		completedTasks:  make(map[string]time.Time),
+		lastCleanupTime: time.Now(),
 	}
+
+	// Create heartbeat service
+	heartbeatConfig := HeartbeatConfig{
+		ServerURL:     serverURL,
+		DeviceID:      deviceID,
+		WalletAddress: walletAddress,
+		BaseInterval:  30 * time.Second,
+		MaxBackoff:    1 * time.Minute,
+		BaseBackoff:   5 * time.Second,
+		MaxRetries:    3,
+	}
+
+	client.heartbeat = NewHeartbeatService(heartbeatConfig, handler, &defaultMetricsProvider{})
+	return client
 }
 
-// SetHeartbeatInterval sets the interval at which heartbeats are sent
 func (w *WebhookClient) SetHeartbeatInterval(interval time.Duration) {
-	w.mu.Lock()
-	defer w.mu.Unlock()
-	w.heartbeatInterval = interval
-	if w.heartbeatTicker != nil {
-		w.heartbeatTicker.Reset(interval)
+	if w.heartbeat != nil {
+		w.heartbeat.SetInterval(interval)
 	}
 }
 
-// StartHeartbeat starts sending periodic heartbeats to the server
-func (w *WebhookClient) StartHeartbeat() {
+func (w *WebhookClient) Start() error {
 	w.mu.Lock()
-	if w.heartbeatTicker != nil {
+	if w.started {
 		w.mu.Unlock()
-		return
+		return nil
 	}
-
-	w.heartbeatTicker = time.NewTicker(w.heartbeatInterval)
+	w.started = true
 	w.mu.Unlock()
 
 	log := gologger.WithComponent("webhook")
-	log.Info().
-		Dur("interval", w.heartbeatInterval).
-		Str("device_id", w.deviceID).
-		Msg("Starting heartbeat service")
 
-	if err := w.sendHeartbeatWithRetry(); err != nil {
-		log.Error().Err(err).Msg("Failed to send initial heartbeat after retries")
-	} else {
-		log.Info().Msg("Initial heartbeat sent successfully")
+	// Check if the webhook port is available
+	ln, err := net.Listen("tcp", fmt.Sprintf(":%d", w.serverPort))
+	if err != nil {
+		return fmt.Errorf("webhook port %d is not available: %w", w.serverPort, err)
+	}
+	ln.Close()
+
+	// Register first, before starting the server
+	if err := w.Register(); err != nil {
+		log.Error().Err(err).Msg("Webhook registration failed")
+		log.Warn().Msg("Runner will operate in offline mode without webhook notifications")
+		// Don't return error - allow runner to operate in offline mode
 	}
 
+	mux := http.NewServeMux()
+	mux.HandleFunc("/webhook", w.handleWebhook)
+
+	w.server = &http.Server{
+		Addr:    fmt.Sprintf(":%d", w.serverPort),
+		Handler: mux,
+	}
+
+	// Start heartbeat service if registration was successful
+	if w.heartbeat != nil {
+		if err := w.heartbeat.Start(); err != nil {
+			log.Error().Err(err).Msg("Failed to start heartbeat service")
+		}
+	}
+
+	// Start server in a separate goroutine
 	go func() {
-		consecutiveFailures := 0
-		maxBackoff := 1 * time.Minute
-		baseBackoff := 5 * time.Second
-
-		for {
-			select {
-			case <-w.heartbeatTicker.C:
-				if err := w.sendHeartbeatWithRetry(); err != nil {
-					consecutiveFailures++
-					backoff := time.Duration(float64(baseBackoff) * float64(consecutiveFailures))
-					if backoff > maxBackoff {
-						backoff = maxBackoff
-					}
-					log.Warn().
-						Err(err).
-						Int("consecutive_failures", consecutiveFailures).
-						Dur("next_retry", backoff).
-						Msg("Heartbeat failed, will retry with backoff")
-
-					w.mu.Lock()
-					w.heartbeatTicker.Reset(backoff)
-					w.mu.Unlock()
-				} else {
-					consecutiveFailures = 0
-					w.mu.Lock()
-					w.heartbeatTicker.Reset(w.heartbeatInterval)
-					w.mu.Unlock()
-				}
-			case <-w.heartbeatStopChan:
-				log.Info().Msg("Stopping heartbeat service")
-				return
-			}
+		log.Info().Str("port", fmt.Sprintf("%d", w.serverPort)).Msg("Starting webhook server")
+		if err := w.server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			log.Error().Err(err).Msg("Webhook server error")
 		}
 	}()
+
+	return nil
 }
 
-// sendHeartbeatWithRetry attempts to send a heartbeat with retries
-func (w *WebhookClient) sendHeartbeatWithRetry() error {
-	maxRetries := 3
-	var lastErr error
-
-	for attempt := 1; attempt <= maxRetries; attempt++ {
-		if err := w.SendHeartbeat(); err != nil {
-			lastErr = err
-			if attempt < maxRetries {
-				backoff := time.Duration(attempt) * time.Second
-				time.Sleep(backoff)
-				continue
-			}
-		} else {
-			return nil
-		}
+// Stop stops the webhook server
+func (w *WebhookClient) Stop() error {
+	w.mu.Lock()
+	if !w.started {
+		w.mu.Unlock()
+		return nil
 	}
+	w.started = false
+	w.mu.Unlock()
 
-	return fmt.Errorf("failed after %d attempts: %w", maxRetries, lastErr)
-}
-
-// SendHeartbeat sends a heartbeat to the server
-func (w *WebhookClient) SendHeartbeat() error {
 	log := gologger.WithComponent("webhook")
+	log.Info().Msg("Stopping webhook client...")
 
-	type HeartbeatPayload struct {
-		DeviceID      string              `json:"device_id"`
-		WalletAddress string              `json:"wallet_address"`
-		Status        models.RunnerStatus `json:"status"`
-		Timestamp     int64               `json:"timestamp"`
-		Uptime        int64               `json:"uptime"`
-		Memory        int64               `json:"memory_usage"`
-		CPU           float64             `json:"cpu_usage"`
-	}
-
-	status := models.RunnerStatusOnline
-	if w.handler.IsProcessing() {
-		status = models.RunnerStatusBusy
-	}
-
-	memory, cpu := w.getSystemMetrics()
-
-	payload := HeartbeatPayload{
-		DeviceID:      w.deviceID,
-		WalletAddress: w.walletAddress,
-		Status:        status,
-		Timestamp:     time.Now().Unix(),
-		Uptime:        int64(time.Since(w.startTime).Seconds()),
-		Memory:        memory,
-		CPU:           cpu,
-	}
-
-	payloadBytes, err := json.Marshal(payload)
-	if err != nil {
-		return fmt.Errorf("failed to marshal heartbeat payload: %w", err)
-	}
-
-	message := WebhookMessage{
-		Type:    "heartbeat",
-		Payload: payloadBytes,
-	}
-
-	messageBytes, err := json.Marshal(message)
-	if err != nil {
-		return fmt.Errorf("failed to marshal heartbeat message: %w", err)
-	}
-
-	heartbeatURL := fmt.Sprintf("%s/api/runners/heartbeat", w.serverURL)
-	req, err := http.NewRequest("POST", heartbeatURL, bytes.NewBuffer(messageBytes))
-	if err != nil {
-		return fmt.Errorf("failed to create heartbeat request: %w", err)
-	}
-
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("User-Agent", "ParityRunner/1.0")
-
-	client := &http.Client{
-		Timeout: 5 * time.Second,
-		Transport: &http.Transport{
-			MaxIdleConns:       100,
-			IdleConnTimeout:    90 * time.Second,
-			DisableCompression: true,
-		},
-	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	// Create a context with timeout for the entire shutdown process
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	req = req.WithContext(ctx)
 
-	resp, err := client.Do(req)
-	if err != nil {
-		return fmt.Errorf("failed to send heartbeat request: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("heartbeat request failed with status %d: %s", resp.StatusCode, string(body))
+	// First stop the heartbeat service
+	if w.heartbeat != nil {
+		w.heartbeat.Stop()
+		log.Info().Msg("Heartbeat service stopped")
 	}
 
-	log.Debug().
-		Str("device_id", w.deviceID).
-		Str("status", string(status)).
-		Float64("cpu", cpu).
-		Int64("memory", memory).
-		Msg("Heartbeat sent successfully")
+	// Then unregister webhook
+	if err := w.UnregisterWithContext(ctx); err != nil {
+		log.Warn().Err(err).Msg("Failed to unregister webhook")
+	}
 
+	// Finally shutdown HTTP server
+	if w.server != nil {
+		if err := w.server.Shutdown(ctx); err != nil {
+			log.Error().Err(err).Msg("Server shutdown error")
+			return fmt.Errorf("server shutdown error: %w", err)
+		}
+		log.Info().Msg("Webhook server stopped")
+	}
+
+	log.Info().Msg("Webhook client stopped successfully")
 	return nil
 }
 
-// getSystemMetrics returns current memory usage in bytes and CPU usage percentage
-func (w *WebhookClient) getSystemMetrics() (int64, float64) {
-	// TODO: Implement actual system metrics collection
-	// For now return placeholder values
-	return 0, 0.0
-}
-
-// Register registers the webhook with the server
-func (w *WebhookClient) Register() error {
-	log := gologger.WithComponent("webhook")
-
-	// Build the full webhook URL that the server will call
-	localIP, err := getOutboundIP()
-	if err != nil {
-		return fmt.Errorf("failed to get outbound IP: %w", err)
-	}
-
-	w.webhookURL = fmt.Sprintf("http://%s:%d/webhook", localIP.String(), w.serverPort)
-	log.Debug().Str("webhook_url", w.webhookURL).Msg("Generated webhook URL")
-
-	type RegisterPayload struct {
-		DeviceID      string              `json:"device_id"`
-		WalletAddress string              `json:"wallet_address"`
-		Status        models.RunnerStatus `json:"status"`
-		Webhook       string              `json:"webhook"`
-	}
-
-	payload := RegisterPayload{
-		DeviceID:      w.deviceID,
-		WalletAddress: w.walletAddress,
-		Status:        models.RunnerStatusOnline,
-		Webhook:       w.webhookURL,
-	}
-
-	payloadBytes, err := json.Marshal(payload)
-	if err != nil {
-		return fmt.Errorf("failed to marshal register payload: %w", err)
-	}
-
-	// Add /api prefix to match server's router configuration
-	registerURL := fmt.Sprintf("%s/api/runners", w.serverURL)
-	log.Debug().
-		Str("device_id", w.deviceID).
-		Str("url", registerURL).
-		Msg("Sending runner registration request")
-
-	req, err := http.NewRequest("POST", registerURL, bytes.NewBuffer(payloadBytes))
-	if err != nil {
-		return fmt.Errorf("failed to create register request: %w", err)
-	}
-
-	req.Header.Set("Content-Type", "application/json")
-
-	client := &http.Client{
-		Timeout: 10 * time.Second,
-	}
-
-	resp, err := client.Do(req)
-	if err != nil {
-		return fmt.Errorf("failed to send register request: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
-		body, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("register request failed with status %d: %s", resp.StatusCode, string(body))
-	}
-
-	log.Info().
-		Str("device_id", w.deviceID).
-		Str("webhook_url", w.webhookURL).
-		Int("status_code", resp.StatusCode).
-		Msg("Runner registered successfully with server")
-
-	return nil
-}
-
-// getOutboundIP gets the preferred outbound IP of this machine
-func getOutboundIP() (net.IP, error) {
-	conn, err := net.Dial("udp", "8.8.8.8:80")
-	if err != nil {
-		return nil, err
-	}
-	defer conn.Close()
-
-	localAddr := conn.LocalAddr().(*net.UDPAddr)
-	return localAddr.IP, nil
-}
-
-// Unregister removes the webhook registration
-func (w *WebhookClient) Unregister() error {
+// UnregisterWithContext removes the webhook registration with context
+func (w *WebhookClient) UnregisterWithContext(ctx context.Context) error {
 	log := gologger.WithComponent("webhook")
 	if w.webhookID == "" {
 		log.Warn().Msg("No webhook ID to unregister")
 		return nil
 	}
 
-	// Add /api prefix to match server's router configuration
 	reqURL := fmt.Sprintf("%s/api/runners/webhooks/%s", w.serverURL, w.deviceID)
-	req, err := http.NewRequest("DELETE", reqURL, nil)
+	req, err := http.NewRequestWithContext(ctx, "DELETE", reqURL, nil)
 	if err != nil {
 		return fmt.Errorf("failed to create webhook unregister request: %w", err)
 	}
@@ -361,172 +196,10 @@ func (w *WebhookClient) Unregister() error {
 	return nil
 }
 
-// Start starts the webhook server
-func (w *WebhookClient) Start() error {
-	w.mu.Lock()
-	if w.started {
-		w.mu.Unlock()
-		return nil
-	}
-	w.started = true
-	w.mu.Unlock()
-
-	log := gologger.WithComponent("webhook")
-
-	// Check if the webhook port is available
-	ln, err := net.Listen("tcp", fmt.Sprintf(":%d", w.serverPort))
-	if err != nil {
-		return fmt.Errorf("webhook port %d is not available: %w", w.serverPort, err)
-	}
-	ln.Close()
-
-	mux := http.NewServeMux()
-	mux.HandleFunc("/webhook", w.handleWebhook)
-
-	w.server = &http.Server{
-		Addr:    fmt.Sprintf(":%d", w.serverPort),
-		Handler: mux,
-	}
-
-	startCh := make(chan struct{})
-	go func() {
-		close(startCh) // Signal that we've started the goroutine
-		log.Info().Str("port", fmt.Sprintf("%d", w.serverPort)).Msg("Starting webhook server")
-		if err := w.server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			log.Error().Err(err).Msg("Webhook server error")
-		}
-	}()
-
-	// Wait a bit to ensure server started
-	<-startCh
-	time.Sleep(100 * time.Millisecond)
-
-	// Register the webhook with context timeout
-	registerCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-
-	registerDone := make(chan error, 1)
-	go func() {
-		registerDone <- w.Register()
-	}()
-
-	// Wait for registration with timeout
-	select {
-	case err := <-registerDone:
-		if err != nil {
-			log.Error().Err(err).Msg("Webhook registration failed")
-			// Try to stop server but continue without failing the start operation
-			// This allows the runner to operate in "offline" mode
-			if stopErr := w.stopServer(); stopErr != nil {
-				log.Error().Err(stopErr).Msg("Failed to stop webhook server after registration failure")
-			}
-			// Return warning but don't fail completely - runner can still function without webhook
-			log.Warn().Msg("Runner will operate in offline mode without webhook notifications")
-			w.started = true
-			return nil
-		}
-	case <-registerCtx.Done():
-		log.Warn().Msg("Webhook registration timed out")
-		// Don't fail - allow runner to operate in offline mode
-		log.Warn().Msg("Runner will operate in offline mode without webhook notifications")
-		w.started = true
-		return nil
-	}
-
-	// Start heartbeat
-	w.StartHeartbeat()
-
-	return nil
-}
-
-// stopServer is a helper to just stop the HTTP server
-func (w *WebhookClient) stopServer() error {
-	if w.server == nil {
-		return nil
-	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-
-	return w.server.Shutdown(ctx)
-}
-
-// Stop stops the webhook server
-func (w *WebhookClient) Stop() error {
-	w.mu.Lock()
-	if !w.started {
-		w.mu.Unlock()
-		return nil
-	}
-	w.started = false
-	w.mu.Unlock()
-
-	// Stop heartbeat
-	w.StopHeartbeat()
-
-	log := gologger.WithComponent("webhook")
-	log.Info().Msg("Stopping webhook server...")
-
-	// Unregister the webhook with a short timeout
-	unregisterCtx, unregisterCancel := context.WithTimeout(context.Background(), 3*time.Second)
-	defer unregisterCancel()
-
-	unregisterDone := make(chan error, 1)
-	go func() {
-		unregisterDone <- w.Unregister()
-	}()
-
-	// Wait for unregistration with timeout
-	select {
-	case err := <-unregisterDone:
-		if err != nil {
-			log.Error().Err(err).Msg("Webhook unregistration failed")
-			// Continue with shutdown despite unregistration errors
-		} else {
-			log.Info().Msg("Webhook unregistered successfully")
-		}
-	case <-unregisterCtx.Done():
-		log.Warn().Msg("Webhook unregistration timed out, continuing with shutdown")
-	}
-
-	// Close the stop channel
-	close(w.stopChan)
-
-	// Shutdown the HTTP server
-	if w.server != nil {
-		// Create a robust shutdown context
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
-
-		shutdownDone := make(chan error, 1)
-		go func() {
-			shutdownDone <- w.server.Shutdown(ctx)
-		}()
-
-		// Wait for shutdown with timeout
-		select {
-		case err := <-shutdownDone:
-			if err != nil {
-				log.Error().Err(err).Msg("Webhook server shutdown error")
-				return fmt.Errorf("webhook server shutdown error: %w", err)
-			}
-			log.Info().Msg("Webhook server shut down gracefully")
-		case <-ctx.Done():
-			log.Warn().Msg("Webhook server shutdown timed out, forcing shutdown")
-			return fmt.Errorf("webhook server shutdown timed out")
-		}
-	}
-
-	log.Info().Msg("Webhook server stopped completely")
-	return nil
-}
-
-// cleanupCompletedTasks removes completed tasks older than 24 hours
 func (w *WebhookClient) cleanupCompletedTasks() {
 	w.completedTasksLock.Lock()
 	defer w.completedTasksLock.Unlock()
 
-	// Only cleanup once per hour
 	if time.Since(w.lastCleanupTime) < time.Hour {
 		return
 	}
@@ -540,7 +213,6 @@ func (w *WebhookClient) cleanupCompletedTasks() {
 	w.lastCleanupTime = time.Now()
 }
 
-// isTaskCompleted checks if a task has been completed
 func (w *WebhookClient) isTaskCompleted(taskID string) bool {
 	w.completedTasksLock.RLock()
 	defer w.completedTasksLock.RUnlock()
@@ -548,7 +220,6 @@ func (w *WebhookClient) isTaskCompleted(taskID string) bool {
 	return exists
 }
 
-// markTaskCompleted marks a task as completed
 func (w *WebhookClient) markTaskCompleted(taskID string) {
 	w.completedTasksLock.Lock()
 	defer w.completedTasksLock.Unlock()
@@ -666,15 +337,92 @@ func (w *WebhookClient) handleWebhook(resp http.ResponseWriter, req *http.Reques
 	}
 }
 
-// StopHeartbeat stops the heartbeat ticker
-func (w *WebhookClient) StopHeartbeat() {
-	w.mu.Lock()
-	defer w.mu.Unlock()
+// Register registers the webhook with the server
+func (w *WebhookClient) Register() error {
+	log := gologger.WithComponent("webhook")
 
-	if w.heartbeatTicker != nil {
-		w.heartbeatTicker.Stop()
-		w.heartbeatTicker = nil
-		close(w.heartbeatStopChan)
-		w.heartbeatStopChan = make(chan struct{})
+	// Build the full webhook URL that the server will call
+	localIP, err := getOutboundIP()
+	if err != nil {
+		return fmt.Errorf("failed to get outbound IP: %w", err)
 	}
+
+	w.webhookURL = fmt.Sprintf("http://%s:%d/webhook", localIP.String(), w.serverPort)
+	log.Debug().Str("webhook_url", w.webhookURL).Msg("Generated webhook URL")
+
+	type RegisterPayload struct {
+		DeviceID      string              `json:"device_id"`
+		WalletAddress string              `json:"wallet_address"`
+		Status        models.RunnerStatus `json:"status"`
+		Webhook       string              `json:"webhook"`
+	}
+
+	payload := RegisterPayload{
+		DeviceID:      w.deviceID,
+		WalletAddress: w.walletAddress,
+		Status:        models.RunnerStatusOnline,
+		Webhook:       w.webhookURL,
+	}
+
+	payloadBytes, err := json.Marshal(payload)
+	if err != nil {
+		return fmt.Errorf("failed to marshal register payload: %w", err)
+	}
+
+	// Add /api prefix to match server's router configuration
+	registerURL := fmt.Sprintf("%s/api/runners", w.serverURL)
+	log.Debug().
+		Str("device_id", w.deviceID).
+		Str("url", registerURL).
+		Msg("Sending runner registration request")
+
+	req, err := http.NewRequest("POST", registerURL, bytes.NewBuffer(payloadBytes))
+	if err != nil {
+		return fmt.Errorf("failed to create register request: %w", err)
+	}
+
+	req.Header.Set("Content-Type", "application/json")
+
+	client := &http.Client{
+		Timeout: 10 * time.Second,
+	}
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return fmt.Errorf("failed to send register request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
+		body, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("register request failed with status %d: %s", resp.StatusCode, string(body))
+	}
+
+	log.Info().
+		Str("device_id", w.deviceID).
+		Str("webhook_url", w.webhookURL).
+		Int("status_code", resp.StatusCode).
+		Msg("Runner registered successfully with server")
+
+	return nil
+}
+
+// getOutboundIP gets the preferred outbound IP of this machine
+func getOutboundIP() (net.IP, error) {
+	conn, err := net.Dial("udp", "8.8.8.8:80")
+	if err != nil {
+		return nil, err
+	}
+	defer conn.Close()
+
+	localAddr := conn.LocalAddr().(*net.UDPAddr)
+	return localAddr.IP, nil
+}
+
+// defaultMetricsProvider implements MetricsProvider interface
+type defaultMetricsProvider struct{}
+
+func (p *defaultMetricsProvider) GetSystemMetrics() (int64, float64) {
+	// TODO: Implement actual system metrics collection
+	return 0, 0.0
 }

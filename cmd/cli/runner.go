@@ -55,7 +55,6 @@ func RunRunner() {
 		log.Fatal().Err(err).Msg("failed to load config")
 	}
 
-	// Ensure server URL is reachable
 	if err := checkServerConnectivity(cfg.Runner.ServerURL); err != nil {
 		log.Fatal().Err(err).Str("server_url", cfg.Runner.ServerURL).Msg("Server connectivity check failed")
 	}
@@ -68,15 +67,6 @@ func RunRunner() {
 	signal.Notify(stopChan, os.Interrupt, syscall.SIGTERM, syscall.SIGINT)
 
 	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
-	go func() {
-		sig := <-stopChan
-		log.Info().
-			Str("signal", sig.String()).
-			Msg("Shutdown signal received, gracefully shutting down runner...")
-		cancel()
-	}()
 
 	runnerService, err := runner.NewService(cfg)
 	if err != nil {
@@ -103,16 +93,38 @@ func RunRunner() {
 
 	log.Info().Msg("Runner service started successfully")
 
-	<-ctx.Done()
+	select {
+	case sig := <-stopChan:
+		log.Info().
+			Str("signal", sig.String()).
+			Msg("Shutdown signal received, initiating graceful shutdown...")
 
-	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 15*time.Second)
-	defer shutdownCancel()
+		cancel()
 
-	if err := runnerService.Stop(shutdownCtx); err != nil {
-		log.Error().Err(err).Msg("Error during runner service shutdown")
+		shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer shutdownCancel()
+
+		shutdownChan := make(chan struct{})
+		go func() {
+			if err := runnerService.Stop(shutdownCtx); err != nil {
+				log.Error().Err(err).Msg("Error during runner service shutdown")
+			}
+			close(shutdownChan)
+		}()
+
+		select {
+		case <-shutdownChan:
+			log.Info().Msg("Runner service stopped successfully")
+		case <-shutdownCtx.Done():
+			log.Error().Msg("Shutdown timed out, forcing exit")
+		}
+
+		os.Exit(0)
+
+	case <-ctx.Done():
+		log.Info().Msg("Context cancelled, shutting down...")
+		os.Exit(0)
 	}
-
-	log.Info().Msg("Runner service stopped")
 }
 
 func generateDeviceID() (string, error) {

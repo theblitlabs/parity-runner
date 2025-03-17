@@ -27,6 +27,7 @@ type Service struct {
 	dockerClient      *client.Client
 	deviceID          string
 	heartbeatInterval time.Duration
+	heartbeatService  *HeartbeatService
 }
 
 func NewService(cfg *config.Config) (*Service, error) {
@@ -154,11 +155,8 @@ func (s *Service) Start() error {
 	log := gologger.WithComponent("runner")
 
 	if s.webhookClient != nil {
-		// Start heartbeat system
 		s.webhookClient.SetHeartbeatInterval(s.heartbeatInterval)
-		s.webhookClient.StartHeartbeat()
 
-		// Start webhook server
 		if err := s.webhookClient.Start(); err != nil {
 			log.Error().Err(err).Msg("Failed to start webhook server")
 			return err
@@ -172,24 +170,57 @@ func (s *Service) Start() error {
 	return nil
 }
 
-// Stop stops the runner service
 func (s *Service) Stop(ctx context.Context) error {
 	log := gologger.WithComponent("runner")
+	log.Info().Msg("Stopping runner service...")
 
-	if s.webhookClient != nil {
-		// Stop heartbeat system
-		s.webhookClient.StopHeartbeat()
+	// Create a channel to track completion
+	done := make(chan error, 1)
+	go func() {
+		var err error
 
-		// Stop webhook server
-		if err := s.webhookClient.Stop(); err != nil {
-			log.Error().Err(err).Msg("Failed to stop webhook server")
-			return err
+		// First stop the heartbeat service if it exists
+		if s.heartbeatService != nil {
+			s.heartbeatService.Stop()
+			log.Info().Msg("Heartbeat service stopped successfully")
 		}
 
-		log.Info().Msg("Webhook and heartbeat systems stopped")
-	}
+		// Then stop the webhook client
+		if s.webhookClient != nil {
+			if stopErr := s.webhookClient.Stop(); stopErr != nil {
+				log.Error().Err(stopErr).Msg("Failed to stop webhook client")
+				err = stopErr
+			} else {
+				log.Info().Msg("Webhook client stopped successfully")
+			}
+		}
 
-	return nil
+		// Finally close the docker client
+		if s.dockerClient != nil {
+			if closeErr := s.dockerClient.Close(); closeErr != nil {
+				log.Error().Err(closeErr).Msg("Failed to close Docker client")
+				if err == nil {
+					err = closeErr
+				}
+			} else {
+				log.Info().Msg("Docker client closed successfully")
+			}
+		}
+
+		done <- err
+	}()
+
+	// Wait for shutdown to complete or context to timeout
+	select {
+	case err := <-done:
+		if err != nil {
+			return fmt.Errorf("error during shutdown: %w", err)
+		}
+		log.Info().Msg("Runner service stopped successfully")
+		return nil
+	case <-ctx.Done():
+		return fmt.Errorf("shutdown timed out: %w", ctx.Err())
+	}
 }
 
 func checkDockerAvailability(cli *client.Client) error {
