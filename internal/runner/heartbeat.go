@@ -10,6 +10,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/go-co-op/gocron"
 	"github.com/theblitlabs/gologger"
 	"github.com/theblitlabs/parity-runner/internal/models"
 )
@@ -25,48 +26,43 @@ type HeartbeatConfig struct {
 	MaxRetries    int
 }
 
-// HeartbeatService manages periodic heartbeat signals to the server
 type HeartbeatService struct {
-	config          HeartbeatConfig
-	ticker          *time.Ticker
-	stopChan        chan struct{}
-	mu              sync.Mutex
-	started         bool
-	startTime       time.Time
-	statusProvider  StatusProvider
-	metricsProvider MetricsProvider
+	config              HeartbeatConfig
+	scheduler           *gocron.Scheduler
+	mu                  sync.Mutex
+	started             bool
+	startTime           time.Time
+	statusProvider      StatusProvider
+	metricsProvider     MetricsProvider
+	job                 *gocron.Job
+	consecutiveFailures int
 }
 
-// StatusProvider interface for getting runner status
 type StatusProvider interface {
 	IsProcessing() bool
 }
 
-// MetricsProvider interface for getting system metrics
 type MetricsProvider interface {
 	GetSystemMetrics() (memory int64, cpu float64)
 }
 
-// NewHeartbeatService creates a new heartbeat service
 func NewHeartbeatService(config HeartbeatConfig, statusProvider StatusProvider, metricsProvider MetricsProvider) *HeartbeatService {
 	return &HeartbeatService{
-		config:          config,
-		stopChan:        make(chan struct{}),
-		startTime:       time.Now(),
-		statusProvider:  statusProvider,
-		metricsProvider: metricsProvider,
+		config:              config,
+		scheduler:           gocron.NewScheduler(time.UTC),
+		startTime:           time.Now(),
+		statusProvider:      statusProvider,
+		metricsProvider:     metricsProvider,
+		consecutiveFailures: 0,
 	}
 }
 
-// Start begins the heartbeat service
 func (h *HeartbeatService) Start() error {
 	h.mu.Lock()
 	if h.started {
 		h.mu.Unlock()
 		return nil
 	}
-
-	h.ticker = time.NewTicker(h.config.BaseInterval)
 	h.started = true
 	h.mu.Unlock()
 
@@ -76,51 +72,69 @@ func (h *HeartbeatService) Start() error {
 		Str("device_id", h.config.DeviceID).
 		Msg("Starting heartbeat service")
 
-	// Send initial heartbeat
 	if err := h.sendHeartbeatWithRetry(); err != nil {
 		log.Error().Err(err).Msg("Failed to send initial heartbeat after retries")
 	} else {
 		log.Info().Msg("Initial heartbeat sent successfully")
 	}
 
-	// Start heartbeat loop in a single goroutine
-	go func() {
-		consecutiveFailures := 0
-		for {
-			select {
-			case <-h.ticker.C:
-				if err := h.sendHeartbeatWithRetry(); err != nil {
-					consecutiveFailures++
-					backoff := time.Duration(float64(h.config.BaseBackoff) * float64(consecutiveFailures))
-					if backoff > h.config.MaxBackoff {
-						backoff = h.config.MaxBackoff
-					}
-					log.Warn().
-						Err(err).
-						Int("consecutive_failures", consecutiveFailures).
-						Dur("next_retry", backoff).
-						Msg("Heartbeat failed, will retry with backoff")
+	job, err := h.scheduler.Every(h.config.BaseInterval).Do(h.heartbeatTask)
 
-					h.mu.Lock()
-					h.ticker.Reset(backoff)
-					h.mu.Unlock()
-				} else {
-					consecutiveFailures = 0
-					h.mu.Lock()
-					h.ticker.Reset(h.config.BaseInterval)
-					h.mu.Unlock()
-				}
-			case <-h.stopChan:
-				log.Info().Msg("Stopping heartbeat service")
-				return
-			}
-		}
-	}()
+	if err != nil {
+		return fmt.Errorf("failed to schedule heartbeat job: %w", err)
+	}
+
+	h.job = job
+	h.scheduler.StartAsync()
 
 	return nil
 }
 
-// sendHeartbeatWithRetry attempts to send a heartbeat with retries
+func (h *HeartbeatService) heartbeatTask() {
+	log := gologger.WithComponent("heartbeat")
+
+	if err := h.sendHeartbeatWithRetry(); err != nil {
+		h.mu.Lock()
+		h.consecutiveFailures++
+		backoff := time.Duration(float64(h.config.BaseBackoff) * float64(h.consecutiveFailures))
+		if backoff > h.config.MaxBackoff {
+			backoff = h.config.MaxBackoff
+		}
+		h.mu.Unlock()
+
+		log.Warn().
+			Err(err).
+			Int("consecutive_failures", h.consecutiveFailures).
+			Dur("next_retry", backoff).
+			Msg("Heartbeat failed, will retry with backoff")
+
+		h.mu.Lock()
+		if h.job != nil && backoff != h.config.BaseInterval {
+			h.scheduler.RemoveByReference(h.job)
+			h.job, _ = h.scheduler.Every(backoff).Do(h.heartbeatTask)
+		}
+		h.mu.Unlock()
+	} else {
+		h.mu.Lock()
+		h.consecutiveFailures = 0
+
+		if h.job != nil && len(h.scheduler.Jobs()) > 0 {
+			nextRun := h.scheduler.Jobs()[0].NextRun()
+			currentInterval := time.Until(nextRun)
+
+			baseIntervalFloat := float64(h.config.BaseInterval)
+			lowerBound := time.Duration(baseIntervalFloat * 0.9)
+			upperBound := time.Duration(baseIntervalFloat * 1.1)
+
+			if currentInterval < lowerBound || currentInterval > upperBound {
+				h.scheduler.RemoveByReference(h.job)
+				h.job, _ = h.scheduler.Every(h.config.BaseInterval).Do(h.heartbeatTask)
+			}
+		}
+		h.mu.Unlock()
+	}
+}
+
 func (h *HeartbeatService) sendHeartbeatWithRetry() error {
 	var lastErr error
 	for attempt := 1; attempt <= h.config.MaxRetries; attempt++ {
@@ -137,7 +151,6 @@ func (h *HeartbeatService) sendHeartbeatWithRetry() error {
 	return fmt.Errorf("failed after %d attempts: %w", h.config.MaxRetries, lastErr)
 }
 
-// sendHeartbeat sends a single heartbeat to the server
 func (h *HeartbeatService) sendHeartbeat() error {
 	log := gologger.WithComponent("heartbeat")
 
@@ -229,7 +242,6 @@ func (h *HeartbeatService) sendHeartbeat() error {
 	return nil
 }
 
-// Stop stops the heartbeat service
 func (h *HeartbeatService) Stop() {
 	h.mu.Lock()
 	if !h.started {
@@ -240,33 +252,21 @@ func (h *HeartbeatService) Stop() {
 	log := gologger.WithComponent("heartbeat")
 	log.Info().Msg("Stopping heartbeat service...")
 
-	// Signal stop to the heartbeat loop
-	close(h.stopChan)
+	h.scheduler.Stop()
 
-	// Stop and cleanup ticker
-	if h.ticker != nil {
-		h.ticker.Stop()
-		h.ticker = nil
-	}
-
-	// Reset state
 	h.started = false
-	h.stopChan = make(chan struct{})
 	h.mu.Unlock()
-
-	// Give a moment for the goroutine to exit
-	time.Sleep(100 * time.Millisecond)
 
 	log.Info().Msg("Heartbeat service stopped successfully")
 }
 
-// SetInterval updates the base interval for heartbeats
 func (h *HeartbeatService) SetInterval(interval time.Duration) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 
 	h.config.BaseInterval = interval
-	if h.ticker != nil {
-		h.ticker.Reset(interval)
+	if h.started && h.job != nil {
+		h.scheduler.RemoveByReference(h.job)
+		h.job, _ = h.scheduler.Every(interval).Do(h.heartbeatTask)
 	}
 }
