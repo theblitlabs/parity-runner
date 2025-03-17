@@ -42,28 +42,11 @@ func (h *DefaultTaskHandler) HandleTask(task *models.Task) error {
 
 	log := gologger.WithComponent("task_handler")
 
-	// Skip if task is not in pending state
-	if task.Status != models.TaskStatusPending {
-		log.Debug().
-			Str("status", string(task.Status)).
-			Msg("Skipping non-pending task")
-		return nil
-	}
-
 	log.Info().
 		Str("title", task.Title).
 		Str("nonce", task.Nonce).
 		Msg("Starting task execution")
 
-	// Log task details at debug level
-	log.Debug().
-		Str("creator_device_id", task.CreatorDeviceID).
-		Str("creator_address", task.CreatorAddress).
-		Interface("environment", task.Environment).
-		Interface("config", task.Config).
-		Msg("Task details")
-
-	// Validate task before processing
 	if task.CreatorDeviceID == "" {
 		log.Error().Msg("Creator device ID is missing from task")
 		return fmt.Errorf("creator device ID is missing from task")
@@ -135,11 +118,7 @@ func (h *DefaultTaskHandler) HandleTask(task *models.Task) error {
 		return fmt.Errorf("failed to save task result: %w", err)
 	}
 
-	if err := h.taskClient.CompleteTask(task.ID.String()); err != nil {
-		log.Error().Err(err).Msg("Failed to complete task")
-		return fmt.Errorf("failed to complete task: %w", err)
-	}
-
+	// Task is considered complete when result is saved
 	log.Info().
 		Float64("reward", result.Reward).
 		Int64("execution_time_ms", result.ExecutionTime/1e6).

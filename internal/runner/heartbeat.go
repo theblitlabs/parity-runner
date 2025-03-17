@@ -72,14 +72,17 @@ func (h *HeartbeatService) Start() error {
 		Str("device_id", h.config.DeviceID).
 		Msg("Starting heartbeat service")
 
+	// Send initial heartbeat
 	if err := h.sendHeartbeatWithRetry(); err != nil {
 		log.Error().Err(err).Msg("Failed to send initial heartbeat after retries")
 	} else {
 		log.Info().Msg("Initial heartbeat sent successfully")
 	}
 
-	job, err := h.scheduler.Every(h.config.BaseInterval).Do(h.heartbeatTask)
+	// Schedule heartbeat job with SingletonMode to prevent overlapping executions
+	h.scheduler.SingletonMode()
 
+	job, err := h.scheduler.Every(h.config.BaseInterval).Do(h.heartbeatTask)
 	if err != nil {
 		return fmt.Errorf("failed to schedule heartbeat job: %w", err)
 	}
@@ -92,6 +95,9 @@ func (h *HeartbeatService) Start() error {
 
 func (h *HeartbeatService) heartbeatTask() {
 	log := gologger.WithComponent("heartbeat")
+
+	// Check if we're currently processing before sending heartbeat
+	isProcessing := h.statusProvider.IsProcessing()
 
 	if err := h.sendHeartbeatWithRetry(); err != nil {
 		h.mu.Lock()
@@ -106,19 +112,22 @@ func (h *HeartbeatService) heartbeatTask() {
 			Err(err).
 			Int("consecutive_failures", h.consecutiveFailures).
 			Dur("next_retry", backoff).
+			Bool("is_processing", isProcessing).
 			Msg("Heartbeat failed, will retry with backoff")
 
 		h.mu.Lock()
 		if h.job != nil && backoff != h.config.BaseInterval {
 			h.scheduler.RemoveByReference(h.job)
-			h.job, _ = h.scheduler.Every(backoff).Do(h.heartbeatTask)
+			newJob, _ := h.scheduler.Every(backoff).Do(h.heartbeatTask)
+			h.job = newJob
 		}
 		h.mu.Unlock()
 	} else {
 		h.mu.Lock()
 		h.consecutiveFailures = 0
 
-		if h.job != nil && len(h.scheduler.Jobs()) > 0 {
+		// Only check for interval updates if we're not processing a task
+		if !isProcessing && h.job != nil && len(h.scheduler.Jobs()) > 0 {
 			nextRun := h.scheduler.Jobs()[0].NextRun()
 			currentInterval := time.Until(nextRun)
 
@@ -127,8 +136,15 @@ func (h *HeartbeatService) heartbeatTask() {
 			upperBound := time.Duration(baseIntervalFloat * 1.1)
 
 			if currentInterval < lowerBound || currentInterval > upperBound {
+				log.Debug().
+					Dur("current_interval", currentInterval).
+					Dur("base_interval", h.config.BaseInterval).
+					Bool("is_processing", isProcessing).
+					Msg("Resetting heartbeat interval to base interval")
+
 				h.scheduler.RemoveByReference(h.job)
-				h.job, _ = h.scheduler.Every(h.config.BaseInterval).Do(h.heartbeatTask)
+				newJob, _ := h.scheduler.Every(h.config.BaseInterval).Do(h.heartbeatTask)
+				h.job = newJob
 			}
 		}
 		h.mu.Unlock()
