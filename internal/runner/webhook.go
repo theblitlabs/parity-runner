@@ -205,9 +205,20 @@ func (w *WebhookClient) cleanupCompletedTasks() {
 	}
 
 	cutoff := time.Now().Add(-24 * time.Hour)
+	inProgressCutoff := time.Now().Add(-1 * time.Hour) // Consider in-progress tasks stale after 1 hour
+
 	for taskID, completedAt := range w.completedTasks {
-		if completedAt.Before(cutoff) {
-			delete(w.completedTasks, taskID)
+		// If it's a completed task (non-zero time)
+		if !completedAt.IsZero() {
+			if completedAt.Before(cutoff) {
+				delete(w.completedTasks, taskID)
+			}
+		} else {
+			// It's an in-progress task (zero time)
+			// If it's been in progress for too long, consider it stale and remove
+			if w.lastCleanupTime.Before(inProgressCutoff) {
+				delete(w.completedTasks, taskID)
+			}
 		}
 	}
 	w.lastCleanupTime = time.Now()
@@ -224,6 +235,21 @@ func (w *WebhookClient) markTaskCompleted(taskID string) {
 	w.completedTasksLock.Lock()
 	defer w.completedTasksLock.Unlock()
 	w.completedTasks[taskID] = time.Now()
+}
+
+// markTaskStarted marks a task as being processed to prevent duplicate processing
+func (w *WebhookClient) markTaskStarted(taskID string) bool {
+	w.completedTasksLock.Lock()
+	defer w.completedTasksLock.Unlock()
+
+	// If task is already completed or in progress, return false
+	if _, exists := w.completedTasks[taskID]; exists {
+		return false
+	}
+
+	// Mark as in-progress with zero time to distinguish from completed tasks
+	w.completedTasks[taskID] = time.Time{}
+	return true
 }
 
 // handleWebhook processes incoming webhook notifications
@@ -291,12 +317,21 @@ func (w *WebhookClient) handleWebhook(resp http.ResponseWriter, req *http.Reques
 			// Process tasks
 			for _, task := range tasks {
 				taskID := task.ID.String()
-				// Skip tasks that have already been completed
+				// Skip tasks that have already been completed or are in progress
 				if w.isTaskCompleted(taskID) {
 					log.Debug().
 						Str("id", taskID).
 						Str("type", string(task.Type)).
-						Msg("Skipping already completed task")
+						Msg("Skipping already completed or in-progress task")
+					continue
+				}
+
+				// Mark task as started and skip if already being processed
+				if !w.markTaskStarted(taskID) {
+					log.Debug().
+						Str("id", taskID).
+						Str("type", string(task.Type)).
+						Msg("Task is already being processed")
 					continue
 				}
 
@@ -313,13 +348,15 @@ func (w *WebhookClient) handleWebhook(resp http.ResponseWriter, req *http.Reques
 						Str("type", string(task.Type)).
 						Float64("reward", task.Reward).
 						Msg("Task processing failed")
-					// Don't mark failed tasks as completed
+					// Don't mark failed tasks as completed, but update the map with current time
+					// to prevent immediate retries
+					w.markTaskCompleted(taskID)
 				} else {
 					log.Info().
 						Str("id", taskID).
 						Str("type", string(task.Type)).
 						Msg("Task processed successfully")
-					// Only mark successful tasks as completed
+					// Mark successful tasks as completed
 					w.markTaskCompleted(taskID)
 				}
 			}
