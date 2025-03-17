@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"strings"
 	"time"
@@ -56,24 +57,48 @@ func (c *HTTPTaskClient) StartTask(taskID string) error {
 	baseURL := strings.TrimSuffix(c.baseURL, "/api")
 	url := fmt.Sprintf("%s/api/runners/tasks/%s/start", baseURL, taskID)
 
+	// Get the actual device ID
+	deviceIDManager := deviceid.NewManager(deviceid.Config{})
+	deviceID, err := deviceIDManager.VerifyDeviceID()
+	if err != nil {
+		return fmt.Errorf("failed to get device ID: %w", err)
+	}
+
 	req, err := http.NewRequest("POST", url, nil)
 	if err != nil {
 		return fmt.Errorf("failed to create request: %w", err)
 	}
 
-	req.Header.Set("X-Runner-ID", uuid.New().String())
+	// Set the correct runner ID header
+	req.Header.Set("X-Runner-ID", deviceID)
 
-	resp, err := http.DefaultClient.Do(req)
+	// Add timeout to the client
+	client := &http.Client{
+		Timeout: 10 * time.Second,
+	}
+
+	resp, err := client.Do(req)
 	if err != nil {
 		return fmt.Errorf("HTTP POST failed for %s: %w", url, err)
 	}
 	defer resp.Body.Close()
 
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("unexpected status code: %d", resp.StatusCode)
-	}
+	// Read response body for error details
+	body, _ := io.ReadAll(resp.Body)
 
-	return nil
+	// Handle different status codes appropriately
+	switch resp.StatusCode {
+	case http.StatusOK:
+		return nil
+	case http.StatusConflict:
+		return fmt.Errorf("task unavailable: %s", string(body))
+	case http.StatusBadRequest:
+		return fmt.Errorf("bad request: %s", string(body))
+	case http.StatusNotFound:
+		return fmt.Errorf("task not found")
+	default:
+		return fmt.Errorf("unexpected status code: %d, body: %s", resp.StatusCode, string(body))
+	}
 }
 
 func (c *HTTPTaskClient) CompleteTask(taskID string) error {

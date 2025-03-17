@@ -11,6 +11,7 @@ type Runner struct {
 	Status        RunnerStatus `gorm:"type:varchar(255)"`
 	TaskID        *uuid.UUID   `gorm:"type:uuid;constraint:OnUpdate:CASCADE,OnDelete:SET NULL;"`
 	Task          *Task        `gorm:"foreignKey:TaskID"`
+	Webhook       string       `gorm:"type:varchar(512)"`
 }
 
 type RunnerStatus string

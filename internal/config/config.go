@@ -33,9 +33,10 @@ type EthereumConfig struct {
 }
 
 type RunnerConfig struct {
-	ServerURL   string       `mapstructure:"server_url"`
-	WebhookPort int          `mapstructure:"webhook_port"`
-	Docker      DockerConfig `mapstructure:"docker"`
+	ServerURL         string        `mapstructure:"server_url"`
+	WebhookPort       int           `mapstructure:"webhook_port"`
+	HeartbeatInterval time.Duration `mapstructure:"heartbeat_interval"`
+	Docker            DockerConfig  `mapstructure:"docker"`
 }
 
 type DockerConfig struct {
@@ -55,6 +56,11 @@ func LoadConfig(path string) (*Config, error) {
 	var config Config
 	if err := viper.Unmarshal(&config); err != nil {
 		return nil, err
+	}
+
+	// Set default values
+	if config.Runner.HeartbeatInterval == 0 {
+		config.Runner.HeartbeatInterval = 30 * time.Second
 	}
 
 	return &config, nil

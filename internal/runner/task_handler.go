@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"sync/atomic"
 	"time"
 
 	"github.com/google/uuid"
@@ -15,11 +16,13 @@ import (
 
 type TaskHandler interface {
 	HandleTask(task *models.Task) error
+	IsProcessing() bool
 }
 
 type DefaultTaskHandler struct {
-	executor   TaskExecutor
-	taskClient TaskClient
+	executor     TaskExecutor
+	taskClient   TaskClient
+	isProcessing atomic.Bool
 }
 
 func NewTaskHandler(executor TaskExecutor, taskClient TaskClient) *DefaultTaskHandler {
@@ -29,7 +32,15 @@ func NewTaskHandler(executor TaskExecutor, taskClient TaskClient) *DefaultTaskHa
 	}
 }
 
+// IsProcessing returns true if the handler is currently processing a task
+func (h *DefaultTaskHandler) IsProcessing() bool {
+	return h.isProcessing.Load()
+}
+
 func (h *DefaultTaskHandler) HandleTask(task *models.Task) error {
+	h.isProcessing.Store(true)
+	defer h.isProcessing.Store(false)
+
 	log := gologger.WithComponent("task_handler")
 
 	// Skip if task is not in pending state
