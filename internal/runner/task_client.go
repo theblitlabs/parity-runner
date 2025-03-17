@@ -57,7 +57,6 @@ func (c *HTTPTaskClient) StartTask(taskID string) error {
 	baseURL := strings.TrimSuffix(c.baseURL, "/api")
 	url := fmt.Sprintf("%s/api/runners/tasks/%s/start", baseURL, taskID)
 
-	// Get the actual device ID
 	deviceIDManager := deviceid.NewManager(deviceid.Config{})
 	deviceID, err := deviceIDManager.VerifyDeviceID()
 	if err != nil {
@@ -69,10 +68,8 @@ func (c *HTTPTaskClient) StartTask(taskID string) error {
 		return fmt.Errorf("failed to create request: %w", err)
 	}
 
-	// Set the correct runner ID header
 	req.Header.Set("X-Runner-ID", deviceID)
 
-	// Add timeout to the client
 	client := &http.Client{
 		Timeout: 10 * time.Second,
 	}
@@ -83,10 +80,8 @@ func (c *HTTPTaskClient) StartTask(taskID string) error {
 	}
 	defer resp.Body.Close()
 
-	// Read response body for error details
 	body, _ := io.ReadAll(resp.Body)
 
-	// Handle different status codes appropriately
 	switch resp.StatusCode {
 	case http.StatusOK:
 		return nil

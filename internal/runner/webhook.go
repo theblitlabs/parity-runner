@@ -39,6 +39,7 @@ type WebhookClient struct {
 	heartbeatInterval  time.Duration
 	heartbeatTicker    *time.Ticker
 	heartbeatStopChan  chan struct{}
+	startTime          time.Time
 }
 
 // NewWebhookClient creates a new webhook client
@@ -54,14 +55,20 @@ func NewWebhookClient(serverURL string, webhookURL string, serverPort int, handl
 		serverPort:        serverPort,
 		completedTasks:    make(map[string]time.Time),
 		lastCleanupTime:   time.Now(),
-		heartbeatInterval: 30 * time.Second, // Default heartbeat interval
+		heartbeatInterval: 30 * time.Second,
 		heartbeatStopChan: make(chan struct{}),
+		startTime:         time.Now(),
 	}
 }
 
 // SetHeartbeatInterval sets the interval at which heartbeats are sent
 func (w *WebhookClient) SetHeartbeatInterval(interval time.Duration) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
 	w.heartbeatInterval = interval
+	if w.heartbeatTicker != nil {
+		w.heartbeatTicker.Reset(interval)
+	}
 }
 
 // StartHeartbeat starts sending periodic heartbeats to the server
@@ -76,29 +83,45 @@ func (w *WebhookClient) StartHeartbeat() {
 	w.mu.Unlock()
 
 	log := gologger.WithComponent("webhook")
-	nextHeartbeat := time.Now().Add(w.heartbeatInterval)
 	log.Info().
 		Dur("interval", w.heartbeatInterval).
-		Time("next_heartbeat", nextHeartbeat).
 		Str("device_id", w.deviceID).
 		Msg("Starting heartbeat service")
 
-	// Send an initial heartbeat immediately
-	if err := w.SendHeartbeat(); err != nil {
-		log.Error().Err(err).Msg("Failed to send initial heartbeat")
+	if err := w.sendHeartbeatWithRetry(); err != nil {
+		log.Error().Err(err).Msg("Failed to send initial heartbeat after retries")
 	} else {
 		log.Info().Msg("Initial heartbeat sent successfully")
 	}
 
 	go func() {
+		consecutiveFailures := 0
+		maxBackoff := 1 * time.Minute
+		baseBackoff := 5 * time.Second
+
 		for {
 			select {
-			case t := <-w.heartbeatTicker.C:
-				nextBeat := t.Add(w.heartbeatInterval)
-				log.Debug().Time("next_heartbeat", nextBeat).Msg("Heartbeat timer triggered")
+			case <-w.heartbeatTicker.C:
+				if err := w.sendHeartbeatWithRetry(); err != nil {
+					consecutiveFailures++
+					backoff := time.Duration(float64(baseBackoff) * float64(consecutiveFailures))
+					if backoff > maxBackoff {
+						backoff = maxBackoff
+					}
+					log.Warn().
+						Err(err).
+						Int("consecutive_failures", consecutiveFailures).
+						Dur("next_retry", backoff).
+						Msg("Heartbeat failed, will retry with backoff")
 
-				if err := w.SendHeartbeat(); err != nil {
-					log.Error().Err(err).Msg("Failed to send heartbeat")
+					w.mu.Lock()
+					w.heartbeatTicker.Reset(backoff)
+					w.mu.Unlock()
+				} else {
+					consecutiveFailures = 0
+					w.mu.Lock()
+					w.heartbeatTicker.Reset(w.heartbeatInterval)
+					w.mu.Unlock()
 				}
 			case <-w.heartbeatStopChan:
 				log.Info().Msg("Stopping heartbeat service")
@@ -108,17 +131,25 @@ func (w *WebhookClient) StartHeartbeat() {
 	}()
 }
 
-// StopHeartbeat stops the heartbeat ticker
-func (w *WebhookClient) StopHeartbeat() {
-	w.mu.Lock()
-	defer w.mu.Unlock()
+// sendHeartbeatWithRetry attempts to send a heartbeat with retries
+func (w *WebhookClient) sendHeartbeatWithRetry() error {
+	maxRetries := 3
+	var lastErr error
 
-	if w.heartbeatTicker != nil {
-		w.heartbeatTicker.Stop()
-		w.heartbeatTicker = nil
-		close(w.heartbeatStopChan)
-		w.heartbeatStopChan = make(chan struct{})
+	for attempt := 1; attempt <= maxRetries; attempt++ {
+		if err := w.SendHeartbeat(); err != nil {
+			lastErr = err
+			if attempt < maxRetries {
+				backoff := time.Duration(attempt) * time.Second
+				time.Sleep(backoff)
+				continue
+			}
+		} else {
+			return nil
+		}
 	}
+
+	return fmt.Errorf("failed after %d attempts: %w", maxRetries, lastErr)
 }
 
 // SendHeartbeat sends a heartbeat to the server
@@ -130,6 +161,9 @@ func (w *WebhookClient) SendHeartbeat() error {
 		WalletAddress string              `json:"wallet_address"`
 		Status        models.RunnerStatus `json:"status"`
 		Timestamp     int64               `json:"timestamp"`
+		Uptime        int64               `json:"uptime"`
+		Memory        int64               `json:"memory_usage"`
+		CPU           float64             `json:"cpu_usage"`
 	}
 
 	status := models.RunnerStatusOnline
@@ -137,11 +171,16 @@ func (w *WebhookClient) SendHeartbeat() error {
 		status = models.RunnerStatusBusy
 	}
 
+	memory, cpu := w.getSystemMetrics()
+
 	payload := HeartbeatPayload{
 		DeviceID:      w.deviceID,
 		WalletAddress: w.walletAddress,
 		Status:        status,
 		Timestamp:     time.Now().Unix(),
+		Uptime:        int64(time.Since(w.startTime).Seconds()),
+		Memory:        memory,
+		CPU:           cpu,
 	}
 
 	payloadBytes, err := json.Marshal(payload)
@@ -159,24 +198,27 @@ func (w *WebhookClient) SendHeartbeat() error {
 		return fmt.Errorf("failed to marshal heartbeat message: %w", err)
 	}
 
-	// Add /api prefix to match server's router configuration
 	heartbeatURL := fmt.Sprintf("%s/api/runners/heartbeat", w.serverURL)
-	log.Debug().
-		Str("device_id", w.deviceID).
-		Str("status", string(status)).
-		Str("endpoint", heartbeatURL).
-		Msg("Sending heartbeat to server")
-
 	req, err := http.NewRequest("POST", heartbeatURL, bytes.NewBuffer(messageBytes))
 	if err != nil {
 		return fmt.Errorf("failed to create heartbeat request: %w", err)
 	}
 
 	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("User-Agent", "ParityRunner/1.0")
 
 	client := &http.Client{
 		Timeout: 5 * time.Second,
+		Transport: &http.Transport{
+			MaxIdleConns:       100,
+			IdleConnTimeout:    90 * time.Second,
+			DisableCompression: true,
+		},
 	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	req = req.WithContext(ctx)
 
 	resp, err := client.Do(req)
 	if err != nil {
@@ -189,12 +231,21 @@ func (w *WebhookClient) SendHeartbeat() error {
 		return fmt.Errorf("heartbeat request failed with status %d: %s", resp.StatusCode, string(body))
 	}
 
-	log.Info().
+	log.Debug().
 		Str("device_id", w.deviceID).
 		Str("status", string(status)).
+		Float64("cpu", cpu).
+		Int64("memory", memory).
 		Msg("Heartbeat sent successfully")
 
 	return nil
+}
+
+// getSystemMetrics returns current memory usage in bytes and CPU usage percentage
+func (w *WebhookClient) getSystemMetrics() (int64, float64) {
+	// TODO: Implement actual system metrics collection
+	// For now return placeholder values
+	return 0, 0.0
 }
 
 // Register registers the webhook with the server
@@ -610,5 +661,20 @@ func (w *WebhookClient) handleWebhook(resp http.ResponseWriter, req *http.Reques
 
 	// Send a 200 OK response
 	resp.WriteHeader(http.StatusOK)
-	resp.Write([]byte(`{"status":"ok"}`))
+	if _, err := resp.Write([]byte(`{"status":"ok"}`)); err != nil {
+		log.Error().Err(err).Msg("Failed to write response")
+	}
+}
+
+// StopHeartbeat stops the heartbeat ticker
+func (w *WebhookClient) StopHeartbeat() {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+
+	if w.heartbeatTicker != nil {
+		w.heartbeatTicker.Stop()
+		w.heartbeatTicker = nil
+		close(w.heartbeatStopChan)
+		w.heartbeatStopChan = make(chan struct{})
+	}
 }

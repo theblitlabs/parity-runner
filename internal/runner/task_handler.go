@@ -32,7 +32,6 @@ func NewTaskHandler(executor TaskExecutor, taskClient TaskClient) *DefaultTaskHa
 	}
 }
 
-// IsProcessing returns true if the handler is currently processing a task
 func (h *DefaultTaskHandler) IsProcessing() bool {
 	return h.isProcessing.Load()
 }

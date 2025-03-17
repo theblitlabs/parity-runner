@@ -25,9 +25,7 @@ type Service struct {
 	taskClient        TaskClient
 	dockerExecutor    *docker.DockerExecutor
 	dockerClient      *client.Client
-	ipfsContainer     string
 	deviceID          string
-	walletAddress     string
 	heartbeatInterval time.Duration
 }
 
@@ -133,7 +131,6 @@ func NewService(cfg *config.Config) (*Service, error) {
 	return svc, nil
 }
 
-// SetHeartbeatInterval sets the interval for sending heartbeats
 func (s *Service) SetHeartbeatInterval(interval time.Duration) {
 	s.heartbeatInterval = interval
 	if s.webhookClient != nil {
@@ -141,14 +138,11 @@ func (s *Service) SetHeartbeatInterval(interval time.Duration) {
 	}
 }
 
-// SetupWithDeviceID sets up the runner service with a specific device ID
 func (s *Service) SetupWithDeviceID(deviceID string) error {
 	log := gologger.WithComponent("runner")
 
 	s.deviceID = deviceID
 
-	// For now, just log the setup and return success
-	// In a real implementation, you'd get the wallet address and set up other components
 	log.Info().
 		Str("device_id", deviceID).
 		Msg("Runner service setup with device ID")
@@ -156,7 +150,6 @@ func (s *Service) SetupWithDeviceID(deviceID string) error {
 	return nil
 }
 
-// Start starts the runner service
 func (s *Service) Start() error {
 	log := gologger.WithComponent("runner")
 

@@ -58,7 +58,6 @@ func LoadConfig(path string) (*Config, error) {
 		return nil, err
 	}
 
-	// Set default values
 	if config.Runner.HeartbeatInterval == 0 {
 		config.Runner.HeartbeatInterval = 30 * time.Second
 	}

@@ -16,6 +16,7 @@ ethereum:
 runner:
   server_url:
   webhook_port:
+  heartbeat_interval:
   docker:
     memory_limit:
     cpu_limit:

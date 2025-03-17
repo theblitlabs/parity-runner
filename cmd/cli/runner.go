@@ -10,6 +10,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/theblitlabs/deviceid"
 	"github.com/theblitlabs/gologger"
 	"github.com/theblitlabs/parity-runner/internal/config"
 	"github.com/theblitlabs/parity-runner/internal/runner"
@@ -59,7 +60,6 @@ func RunRunner() {
 		log.Fatal().Err(err).Str("server_url", cfg.Runner.ServerURL).Msg("Server connectivity check failed")
 	}
 
-	// Ensure port is available for webhook server
 	if err := checkPortAvailable(cfg.Runner.WebhookPort); err != nil {
 		log.Fatal().Err(err).Int("port", cfg.Runner.WebhookPort).Msg("Webhook port is not available")
 	}
@@ -78,17 +78,14 @@ func RunRunner() {
 		cancel()
 	}()
 
-	// Create the runner service
 	runnerService, err := runner.NewService(cfg)
 	if err != nil {
 		log.Fatal().Err(err).Msg("Failed to create runner service")
 	}
 
-	// Set heartbeat interval from config
 	runnerService.SetHeartbeatInterval(cfg.Runner.HeartbeatInterval)
 	log.Info().Dur("interval", cfg.Runner.HeartbeatInterval).Msg("Configured heartbeat interval")
 
-	// Get device ID and set up the runner with it
 	deviceID, err := generateDeviceID()
 	if err != nil {
 		log.Fatal().Err(err).Msg("Failed to generate device ID")
@@ -96,26 +93,21 @@ func RunRunner() {
 
 	log.Info().Str("device_id", deviceID).Msg("Using device ID")
 
-	// Configure the runner with the device ID
 	if err := runnerService.SetupWithDeviceID(deviceID); err != nil {
 		log.Fatal().Err(err).Msg("Failed to set up runner with device ID")
 	}
 
-	// Start the runner service
 	if err := runnerService.Start(); err != nil {
 		log.Fatal().Err(err).Msg("Failed to start runner service")
 	}
 
 	log.Info().Msg("Runner service started successfully")
 
-	// Wait for shutdown signal
 	<-ctx.Done()
 
-	// Create context with timeout for graceful shutdown
 	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer shutdownCancel()
 
-	// Stop the runner service
 	if err := runnerService.Stop(shutdownCtx); err != nil {
 		log.Error().Err(err).Msg("Error during runner service shutdown")
 	}
@@ -123,13 +115,7 @@ func RunRunner() {
 	log.Info().Msg("Runner service stopped")
 }
 
-// generateDeviceID creates a unique device identifier
 func generateDeviceID() (string, error) {
-	hostName, err := os.Hostname()
-	if err != nil {
-		return "", fmt.Errorf("failed to get hostname: %w", err)
-	}
-
-	// Create a simple hash of the hostname to use as device ID
-	return fmt.Sprintf("device-%s", hostName), nil
+	deviceIDManager := deviceid.NewManager(deviceid.Config{})
+	return deviceIDManager.VerifyDeviceID()
 }
