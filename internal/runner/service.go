@@ -7,7 +7,6 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/client"
 	"github.com/google/uuid"
 
@@ -16,16 +15,19 @@ import (
 	"github.com/theblitlabs/keystore"
 	"github.com/theblitlabs/parity-runner/internal/config"
 	"github.com/theblitlabs/parity-runner/internal/execution/sandbox/docker"
+	"github.com/theblitlabs/parity-runner/internal/utils"
 )
 
 type Service struct {
-	cfg            *config.Config
-	webhookClient  *WebhookClient
-	taskHandler    TaskHandler
-	taskClient     TaskClient
-	dockerExecutor *docker.DockerExecutor
-	dockerClient   *client.Client
-	ipfsContainer  string
+	cfg               *config.Config
+	webhookClient     *WebhookClient
+	taskHandler       TaskHandler
+	taskClient        TaskClient
+	dockerExecutor    *docker.DockerExecutor
+	dockerClient      *client.Client
+	deviceID          string
+	heartbeatInterval time.Duration
+	heartbeatService  *HeartbeatService
 }
 
 func NewService(cfg *config.Config) (*Service, error) {
@@ -43,8 +45,9 @@ func NewService(cfg *config.Config) (*Service, error) {
 	}
 
 	svc := &Service{
-		cfg:          cfg,
-		dockerClient: dockerClient,
+		cfg:               cfg,
+		dockerClient:      dockerClient,
+		heartbeatInterval: cfg.Runner.HeartbeatInterval,
 	}
 
 	homeDir, err := os.UserHomeDir()
@@ -99,6 +102,13 @@ func NewService(cfg *config.Config) (*Service, error) {
 	}
 
 	webhookURL := fmt.Sprintf("http://%s:%d/webhook", hostname, webhookPort)
+
+	walletAddress, err := utils.GetWalletAddress()
+	if err != nil {
+		log.Error().Err(err).Msg("Failed to get wallet address")
+		return nil, fmt.Errorf("failed to get wallet address: %w", err)
+	}
+
 	webhookClient := NewWebhookClient(
 		cfg.Runner.ServerURL,
 		webhookURL,
@@ -106,6 +116,7 @@ func NewService(cfg *config.Config) (*Service, error) {
 		taskHandler,
 		runnerID,
 		deviceID,
+		walletAddress,
 	)
 
 	svc.webhookClient = webhookClient
@@ -121,11 +132,39 @@ func NewService(cfg *config.Config) (*Service, error) {
 	return svc, nil
 }
 
+func (s *Service) SetHeartbeatInterval(interval time.Duration) {
+	s.heartbeatInterval = interval
+	if s.webhookClient != nil {
+		s.webhookClient.SetHeartbeatInterval(interval)
+	}
+}
+
+func (s *Service) SetupWithDeviceID(deviceID string) error {
+	log := gologger.WithComponent("runner")
+
+	s.deviceID = deviceID
+
+	log.Info().
+		Str("device_id", deviceID).
+		Msg("Runner service setup with device ID")
+
+	return nil
+}
+
 func (s *Service) Start() error {
 	log := gologger.WithComponent("runner")
 
-	if err := s.webhookClient.Start(); err != nil {
-		log.Warn().Err(err).Msg("Webhook client failed to start properly. The runner will operate in offline mode")
+	if s.webhookClient != nil {
+		s.webhookClient.SetHeartbeatInterval(s.heartbeatInterval)
+
+		if err := s.webhookClient.Start(); err != nil {
+			log.Error().Err(err).Msg("Failed to start webhook server")
+			return err
+		}
+
+		log.Info().Msg("Runner service started with webhook and heartbeat system")
+	} else {
+		log.Warn().Msg("Webhook client not initialized, running in offline mode")
 	}
 
 	return nil
@@ -133,91 +172,55 @@ func (s *Service) Start() error {
 
 func (s *Service) Stop(ctx context.Context) error {
 	log := gologger.WithComponent("runner")
-	var shutdownErrors []error
+	log.Info().Msg("Stopping runner service...")
 
-	if deadline, ok := ctx.Deadline(); ok {
-		timeLeft := time.Until(deadline) - 1*time.Second
-		if timeLeft <= 0 {
-			return fmt.Errorf("insufficient time for graceful shutdown")
-		}
-	}
-
-	webhookCtx, webhookCancel := context.WithTimeout(ctx, 10*time.Second)
-	defer webhookCancel()
-
-	webhookDone := make(chan error, 1)
+	// Create a channel to track completion
+	done := make(chan error, 1)
 	go func() {
-		if s.webhookClient != nil {
-			webhookDone <- s.webhookClient.Stop()
-		} else {
-			webhookDone <- nil
+		var err error
+
+		// First stop the heartbeat service if it exists
+		if s.heartbeatService != nil {
+			s.heartbeatService.Stop()
+			log.Info().Msg("Heartbeat service stopped successfully")
 		}
+
+		// Then stop the webhook client
+		if s.webhookClient != nil {
+			if stopErr := s.webhookClient.Stop(); stopErr != nil {
+				log.Error().Err(stopErr).Msg("Failed to stop webhook client")
+				err = stopErr
+			} else {
+				log.Info().Msg("Webhook client stopped successfully")
+			}
+		}
+
+		// Finally close the docker client
+		if s.dockerClient != nil {
+			if closeErr := s.dockerClient.Close(); closeErr != nil {
+				log.Error().Err(closeErr).Msg("Failed to close Docker client")
+				if err == nil {
+					err = closeErr
+				}
+			} else {
+				log.Info().Msg("Docker client closed successfully")
+			}
+		}
+
+		done <- err
 	}()
 
+	// Wait for shutdown to complete or context to timeout
 	select {
-	case err := <-webhookDone:
+	case err := <-done:
 		if err != nil {
-			log.Error().Err(err).Msg("Error stopping webhook client")
-			shutdownErrors = append(shutdownErrors, fmt.Errorf("webhook client shutdown error: %w", err))
+			return fmt.Errorf("error during shutdown: %w", err)
 		}
-	case <-webhookCtx.Done():
-		log.Warn().Msg("Webhook client shutdown timed out")
-		shutdownErrors = append(shutdownErrors, fmt.Errorf("webhook client shutdown timed out"))
+		log.Info().Msg("Runner service stopped successfully")
+		return nil
+	case <-ctx.Done():
+		return fmt.Errorf("shutdown timed out: %w", ctx.Err())
 	}
-
-	if s.ipfsContainer != "" {
-		containerCtx, containerCancel := context.WithTimeout(ctx, 10*time.Second)
-		defer containerCancel()
-
-		timeout := 8 * time.Second
-		stopDone := make(chan error, 1)
-		go func() {
-			stopDone <- s.dockerClient.ContainerStop(containerCtx, s.ipfsContainer, &timeout)
-		}()
-
-		select {
-		case err := <-stopDone:
-			if err != nil {
-				log.Error().Err(err).Msg("Failed to stop IPFS container")
-				shutdownErrors = append(shutdownErrors, fmt.Errorf("IPFS container stop error: %w", err))
-			}
-		case <-containerCtx.Done():
-			log.Warn().Msg("IPFS container stop timed out")
-			shutdownErrors = append(shutdownErrors, fmt.Errorf("IPFS container stop timed out"))
-		}
-
-		removeOpts := types.ContainerRemoveOptions{Force: true}
-		removeDone := make(chan error, 1)
-		go func() {
-			removeDone <- s.dockerClient.ContainerRemove(containerCtx, s.ipfsContainer, removeOpts)
-		}()
-
-		select {
-		case err := <-removeDone:
-			if err != nil {
-				log.Error().Err(err).Msg("Failed to remove IPFS container")
-				shutdownErrors = append(shutdownErrors, fmt.Errorf("failed to remove IPFS container: %w", err))
-			}
-		case <-containerCtx.Done():
-			log.Warn().Msg("IPFS container removal timed out")
-			shutdownErrors = append(shutdownErrors, fmt.Errorf("IPFS container removal timed out"))
-		}
-	}
-
-	// Close Docker client if it exists
-	if s.dockerClient != nil {
-		log.Info().Msg("Closing Docker client")
-		if err := s.dockerClient.Close(); err != nil {
-			log.Error().Err(err).Msg("Error closing Docker client")
-			shutdownErrors = append(shutdownErrors, fmt.Errorf("failed to close docker client: %w", err))
-		}
-	}
-
-	if len(shutdownErrors) > 0 {
-		return fmt.Errorf("shutdown completed with errors: %v", shutdownErrors)
-	}
-
-	return nil
 }
 
 func checkDockerAvailability(cli *client.Client) error {

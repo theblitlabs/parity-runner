@@ -10,6 +10,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/theblitlabs/deviceid"
 	"github.com/theblitlabs/gologger"
 	"github.com/theblitlabs/parity-runner/internal/config"
 	"github.com/theblitlabs/parity-runner/internal/runner"
@@ -51,21 +52,15 @@ func RunRunner() {
 
 	cfg, err := config.LoadConfig("config/config.yaml")
 	if err != nil {
-		log.Fatal().Err(err).Msg("Failed to load config")
-	}
-
-	webhookPort := 8090
-	if cfg.Runner.WebhookPort > 0 {
-		webhookPort = cfg.Runner.WebhookPort
-	}
-
-	if err := checkPortAvailable(webhookPort); err != nil {
-		log.Fatal().Err(err).Int("port", webhookPort).Msg("Webhook port is not available")
+		log.Fatal().Err(err).Msg("failed to load config")
 	}
 
 	if err := checkServerConnectivity(cfg.Runner.ServerURL); err != nil {
-		log.Warn().Err(err).Str("server_url", cfg.Runner.ServerURL).
-			Msg("API server is not reachable. The runner will start but webhook registration may fail")
+		log.Fatal().Err(err).Str("server_url", cfg.Runner.ServerURL).Msg("Server connectivity check failed")
+	}
+
+	if err := checkPortAvailable(cfg.Runner.WebhookPort); err != nil {
+		log.Fatal().Err(err).Int("port", cfg.Runner.WebhookPort).Msg("Webhook port is not available")
 	}
 
 	stopChan := make(chan os.Signal, 1)
@@ -73,85 +68,66 @@ func RunRunner() {
 
 	ctx, cancel := context.WithCancel(context.Background())
 
-	go func() {
-		sig := <-stopChan
+	runnerService, err := runner.NewService(cfg)
+	if err != nil {
+		log.Fatal().Err(err).Msg("Failed to create runner service")
+	}
+
+	runnerService.SetHeartbeatInterval(cfg.Runner.HeartbeatInterval)
+	log.Info().Dur("interval", cfg.Runner.HeartbeatInterval).Msg("Configured heartbeat interval")
+
+	deviceID, err := generateDeviceID()
+	if err != nil {
+		log.Fatal().Err(err).Msg("Failed to generate device ID")
+	}
+
+	log.Info().Str("device_id", deviceID).Msg("Using device ID")
+
+	if err := runnerService.SetupWithDeviceID(deviceID); err != nil {
+		log.Fatal().Err(err).Msg("Failed to set up runner with device ID")
+	}
+
+	if err := runnerService.Start(); err != nil {
+		log.Fatal().Err(err).Msg("Failed to start runner service")
+	}
+
+	log.Info().Msg("Runner service started successfully")
+
+	select {
+	case sig := <-stopChan:
 		log.Info().
 			Str("signal", sig.String()).
-			Msg("Shutdown signal received, gracefully shutting down runner...")
+			Msg("Shutdown signal received, initiating graceful shutdown...")
+
 		cancel()
-	}()
 
-	serviceChan := make(chan *runner.Service, 1)
-	errorChan := make(chan error, 1)
+		shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer shutdownCancel()
 
-	go func() {
-		service, err := runner.NewService(cfg)
-		if err != nil {
-			log.Error().Err(err).Msg("Failed to create runner service")
-			errorChan <- err
-			cancel()
-			return
-		}
+		shutdownChan := make(chan struct{})
+		go func() {
+			if err := runnerService.Stop(shutdownCtx); err != nil {
+				log.Error().Err(err).Msg("Error during runner service shutdown")
+			}
+			close(shutdownChan)
+		}()
 
-		serviceChan <- service
-
-		if err := service.Start(); err != nil {
-			log.Error().Err(err).Msg("Failed to start runner service")
-			errorChan <- err
-			cancel()
-			return
-		}
-
-		log.Info().Msg("Runner service started successfully")
-	}()
-
-	var service *runner.Service
-	select {
-	case service = <-serviceChan:
-	case err := <-errorChan:
-		log.Fatal().Err(err).Msg("Runner failed to initialize")
-	case <-ctx.Done():
-		log.Info().Msg("Shutdown requested before service initialization completed")
-		return
-	}
-
-	forceExitChan := make(chan struct{})
-	go func() {
-		<-ctx.Done()
-	}()
-
-	<-ctx.Done()
-	close(forceExitChan)
-
-	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer shutdownCancel()
-
-	shutdownStart := time.Now()
-
-	forceShutdownChan := make(chan struct{})
-	go func() {
 		select {
-		case <-time.After(35 * time.Second):
-			log.Error().Msg("Shutdown timeout exceeded, forcing exit")
-			os.Exit(1)
-		case <-forceShutdownChan:
-			return
+		case <-shutdownChan:
+			log.Info().Msg("Runner service stopped successfully")
+		case <-shutdownCtx.Done():
+			log.Error().Msg("Shutdown timed out, forcing exit")
 		}
-	}()
 
-	if service != nil {
-		if err := service.Stop(shutdownCtx); err != nil {
-			log.Error().
-				Err(err).
-				Msg("Error during runner service shutdown")
-		} else {
-			shutdownDuration := time.Since(shutdownStart)
-			log.Info().
-				Dur("duration_ms", shutdownDuration).
-				Msg("Runner service stopped gracefully")
-		}
+		os.Exit(0)
+
+	case <-ctx.Done():
+		log.Info().Msg("Context cancelled, shutting down...")
+		os.Exit(0)
 	}
+}
 
-	close(forceShutdownChan)
-	log.Info().Msg("Runner shutdown complete")
+func generateDeviceID() (string, error) {
+	deviceIDManager := deviceid.NewManager(deviceid.Config{})
+	return deviceIDManager.VerifyDeviceID()
 }
