@@ -9,8 +9,10 @@ import (
 	"github.com/google/uuid"
 )
 
-type TaskStatus string
-type TaskType string
+type (
+	TaskStatus string
+	TaskType   string
+)
 
 const (
 	TaskStatusPending   TaskStatus = "pending"
@@ -85,7 +87,6 @@ func NewTask() *Task {
 	}
 }
 
-// Validate performs basic validation on the task
 func (t *Task) Validate() error {
 	if t.Title == "" {
 		return errors.New("title is required")

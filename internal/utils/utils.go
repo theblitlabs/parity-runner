@@ -14,7 +14,6 @@ type KeyStore struct {
 	PrivateKey string `json:"private_key"`
 }
 
-// formatEther converts wei (big.Int) to ether (string)
 func FormatEther(wei *big.Int) string {
 	ether := new(big.Float).SetInt(wei)
 	ether.Quo(ether, new(big.Float).SetFloat64(1e18))

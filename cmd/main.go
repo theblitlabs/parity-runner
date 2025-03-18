@@ -8,6 +8,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/theblitlabs/gologger"
+
 	"github.com/theblitlabs/parity-runner/cmd/cli"
 )
 
@@ -70,7 +71,6 @@ func init() {
 	if err := stakeCmd.MarkFlagRequired("amount"); err != nil {
 		log.Error().Err(err).Msg("Failed to mark amount flag as required")
 	}
-
 }
 
 var runnerCmd = &cobra.Command{

@@ -1,4 +1,4 @@
-package runner
+package webhook
 
 import (
 	"bytes"
@@ -12,7 +12,10 @@ import (
 	"time"
 
 	"github.com/theblitlabs/gologger"
-	"github.com/theblitlabs/parity-runner/internal/models"
+
+	"github.com/theblitlabs/parity-runner/internal/core/models"
+	"github.com/theblitlabs/parity-runner/internal/core/ports"
+	"github.com/theblitlabs/parity-runner/internal/messaging/heartbeat"
 )
 
 type WebhookMessage struct {
@@ -24,7 +27,7 @@ type WebhookClient struct {
 	serverURL          string
 	webhookURL         string
 	webhookID          string
-	handler            TaskHandler
+	handler            ports.TaskHandler
 	server             *http.Server
 	runnerID           string
 	deviceID           string
@@ -36,13 +39,13 @@ type WebhookClient struct {
 	completedTasks     map[string]time.Time
 	lastCleanupTime    time.Time
 	completedTasksLock sync.RWMutex
-	heartbeat          *HeartbeatService
+	heartbeat          *heartbeat.HeartbeatService
 }
 
-func NewWebhookClient(serverURL string, webhookURL string, serverPort int, handler TaskHandler, runnerID, deviceID, walletAddress string) *WebhookClient {
+func NewWebhookClient(serverURL string, serverPort int, handler ports.TaskHandler, runnerID, deviceID, walletAddress string) *WebhookClient {
 	client := &WebhookClient{
 		serverURL:       serverURL,
-		webhookURL:      webhookURL,
+		webhookURL:      "",
 		handler:         handler,
 		runnerID:        runnerID,
 		deviceID:        deviceID,
@@ -53,8 +56,7 @@ func NewWebhookClient(serverURL string, webhookURL string, serverPort int, handl
 		lastCleanupTime: time.Now(),
 	}
 
-	// Create heartbeat service
-	heartbeatConfig := HeartbeatConfig{
+	heartbeatConfig := heartbeat.HeartbeatConfig{
 		ServerURL:     serverURL,
 		DeviceID:      deviceID,
 		WalletAddress: walletAddress,
@@ -64,7 +66,7 @@ func NewWebhookClient(serverURL string, webhookURL string, serverPort int, handl
 		MaxRetries:    3,
 	}
 
-	client.heartbeat = NewHeartbeatService(heartbeatConfig, handler, &defaultMetricsProvider{})
+	client.heartbeat = heartbeat.NewHeartbeatService(heartbeatConfig, handler, &defaultMetricsProvider{})
 	return client
 }
 
@@ -85,18 +87,16 @@ func (w *WebhookClient) Start() error {
 
 	log := gologger.WithComponent("webhook")
 
-	// Check if the webhook port is available
 	ln, err := net.Listen("tcp", fmt.Sprintf(":%d", w.serverPort))
 	if err != nil {
 		return fmt.Errorf("webhook port %d is not available: %w", w.serverPort, err)
 	}
 	ln.Close()
 
-	// Register first, before starting the server
 	if err := w.Register(); err != nil {
 		log.Error().Err(err).Msg("Webhook registration failed")
 		log.Warn().Msg("Runner will operate in offline mode without webhook notifications")
-		// Don't return error - allow runner to operate in offline mode
+
 	}
 
 	mux := http.NewServeMux()
@@ -107,14 +107,12 @@ func (w *WebhookClient) Start() error {
 		Handler: mux,
 	}
 
-	// Start heartbeat service if registration was successful
 	if w.heartbeat != nil {
 		if err := w.heartbeat.Start(); err != nil {
 			log.Error().Err(err).Msg("Failed to start heartbeat service")
 		}
 	}
 
-	// Start server in a separate goroutine
 	go func() {
 		log.Info().Str("port", fmt.Sprintf("%d", w.serverPort)).Msg("Starting webhook server")
 		if err := w.server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
@@ -125,7 +123,6 @@ func (w *WebhookClient) Start() error {
 	return nil
 }
 
-// Stop stops the webhook server
 func (w *WebhookClient) Stop() error {
 	w.mu.Lock()
 	if !w.started {
@@ -138,22 +135,18 @@ func (w *WebhookClient) Stop() error {
 	log := gologger.WithComponent("webhook")
 	log.Info().Msg("Stopping webhook client...")
 
-	// Create a context with timeout for the entire shutdown process
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	// First stop the heartbeat service
 	if w.heartbeat != nil {
 		w.heartbeat.Stop()
 		log.Info().Msg("Heartbeat service stopped")
 	}
 
-	// Then unregister webhook
 	if err := w.UnregisterWithContext(ctx); err != nil {
 		log.Warn().Err(err).Msg("Failed to unregister webhook")
 	}
 
-	// Finally shutdown HTTP server
 	if w.server != nil {
 		if err := w.server.Shutdown(ctx); err != nil {
 			log.Error().Err(err).Msg("Server shutdown error")
@@ -166,7 +159,6 @@ func (w *WebhookClient) Stop() error {
 	return nil
 }
 
-// UnregisterWithContext removes the webhook registration with context
 func (w *WebhookClient) UnregisterWithContext(ctx context.Context) error {
 	log := gologger.WithComponent("webhook")
 	if w.webhookID == "" {
@@ -205,17 +197,14 @@ func (w *WebhookClient) cleanupCompletedTasks() {
 	}
 
 	cutoff := time.Now().Add(-24 * time.Hour)
-	inProgressCutoff := time.Now().Add(-1 * time.Hour) // Consider in-progress tasks stale after 1 hour
+	inProgressCutoff := time.Now().Add(-1 * time.Hour)
 
 	for taskID, completedAt := range w.completedTasks {
-		// If it's a completed task (non-zero time)
 		if !completedAt.IsZero() {
 			if completedAt.Before(cutoff) {
 				delete(w.completedTasks, taskID)
 			}
 		} else {
-			// It's an in-progress task (zero time)
-			// If it's been in progress for too long, consider it stale and remove
 			if w.lastCleanupTime.Before(inProgressCutoff) {
 				delete(w.completedTasks, taskID)
 			}
@@ -237,42 +226,34 @@ func (w *WebhookClient) markTaskCompleted(taskID string) {
 	w.completedTasks[taskID] = time.Now()
 }
 
-// markTaskStarted marks a task as being processed to prevent duplicate processing
 func (w *WebhookClient) markTaskStarted(taskID string) bool {
 	w.completedTasksLock.Lock()
 	defer w.completedTasksLock.Unlock()
 
-	// If task is already completed or in progress, return false
 	if _, exists := w.completedTasks[taskID]; exists {
 		return false
 	}
 
-	// Mark as in-progress with zero time to distinguish from completed tasks
 	w.completedTasks[taskID] = time.Time{}
 	return true
 }
 
-// handleWebhook processes incoming webhook notifications
 func (w *WebhookClient) handleWebhook(resp http.ResponseWriter, req *http.Request) {
 	log := gologger.WithComponent("webhook")
 
-	// Only allow POST requests
 	if req.Method != "POST" {
 		log.Warn().Str("method", req.Method).Msg("Received non-POST request to webhook endpoint")
 		http.Error(resp, "Method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
 
-	// Debug log request information
 	log.Debug().
 		Str("path", req.URL.Path).
 		Str("remote_addr", req.RemoteAddr).
 		Msg("Received webhook request")
 
-	// Cleanup old completed tasks
 	w.cleanupCompletedTasks()
 
-	// Read and log the request body for debugging
 	reqBody, err := io.ReadAll(req.Body)
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to read webhook request body")
@@ -281,7 +262,6 @@ func (w *WebhookClient) handleWebhook(resp http.ResponseWriter, req *http.Reques
 	}
 	req.Body.Close()
 
-	// For debugging, log a portion of the request body
 	if len(reqBody) > 0 {
 		preview := string(reqBody)
 		if len(preview) > 100 {
@@ -290,10 +270,8 @@ func (w *WebhookClient) handleWebhook(resp http.ResponseWriter, req *http.Reques
 		log.Debug().Str("body_preview", preview).Msg("Webhook request body preview")
 	}
 
-	// Create a new reader from the saved body for json.Decoder
 	req.Body = io.NopCloser(bytes.NewBuffer(reqBody))
 
-	// Parse the webhook message
 	var message WebhookMessage
 	if err := json.NewDecoder(req.Body).Decode(&message); err != nil {
 		log.Error().Err(err).Msg("Failed to decode webhook message")
@@ -301,7 +279,6 @@ func (w *WebhookClient) handleWebhook(resp http.ResponseWriter, req *http.Reques
 		return
 	}
 
-	// Handle the message based on type
 	switch message.Type {
 	case "available_tasks":
 		var tasks []*models.Task
@@ -314,10 +291,9 @@ func (w *WebhookClient) handleWebhook(resp http.ResponseWriter, req *http.Reques
 		if len(tasks) > 0 {
 			log.Info().Int("count", len(tasks)).Msg("Tasks received via webhook")
 
-			// Process tasks
 			for _, task := range tasks {
 				taskID := task.ID.String()
-				// Skip tasks that have already been completed or are in progress
+
 				if w.isTaskCompleted(taskID) {
 					log.Debug().
 						Str("id", taskID).
@@ -326,7 +302,6 @@ func (w *WebhookClient) handleWebhook(resp http.ResponseWriter, req *http.Reques
 					continue
 				}
 
-				// Mark task as started and skip if already being processed
 				if !w.markTaskStarted(taskID) {
 					log.Debug().
 						Str("id", taskID).
@@ -348,15 +323,14 @@ func (w *WebhookClient) handleWebhook(resp http.ResponseWriter, req *http.Reques
 						Str("type", string(task.Type)).
 						Float64("reward", task.Reward).
 						Msg("Task processing failed")
-					// Don't mark failed tasks as completed, but update the map with current time
-					// to prevent immediate retries
+
 					w.markTaskCompleted(taskID)
 				} else {
 					log.Info().
 						Str("id", taskID).
 						Str("type", string(task.Type)).
 						Msg("Task processed successfully")
-					// Mark successful tasks as completed
+
 					w.markTaskCompleted(taskID)
 				}
 			}
@@ -367,18 +341,15 @@ func (w *WebhookClient) handleWebhook(resp http.ResponseWriter, req *http.Reques
 		log.Warn().Str("type", message.Type).Msg("Unknown webhook message type")
 	}
 
-	// Send a 200 OK response
 	resp.WriteHeader(http.StatusOK)
 	if _, err := resp.Write([]byte(`{"status":"ok"}`)); err != nil {
 		log.Error().Err(err).Msg("Failed to write response")
 	}
 }
 
-// Register registers the webhook with the server
 func (w *WebhookClient) Register() error {
 	log := gologger.WithComponent("webhook")
 
-	// Build the full webhook URL that the server will call
 	localIP, err := getOutboundIP()
 	if err != nil {
 		return fmt.Errorf("failed to get outbound IP: %w", err)
@@ -406,7 +377,6 @@ func (w *WebhookClient) Register() error {
 		return fmt.Errorf("failed to marshal register payload: %w", err)
 	}
 
-	// Add /api prefix to match server's router configuration
 	registerURL := fmt.Sprintf("%s/api/runners", w.serverURL)
 	log.Debug().
 		Str("device_id", w.deviceID).
@@ -444,7 +414,6 @@ func (w *WebhookClient) Register() error {
 	return nil
 }
 
-// getOutboundIP gets the preferred outbound IP of this machine
 func getOutboundIP() (net.IP, error) {
 	conn, err := net.Dial("udp", "8.8.8.8:80")
 	if err != nil {
@@ -456,10 +425,8 @@ func getOutboundIP() (net.IP, error) {
 	return localAddr.IP, nil
 }
 
-// defaultMetricsProvider implements MetricsProvider interface
 type defaultMetricsProvider struct{}
 
 func (p *defaultMetricsProvider) GetSystemMetrics() (int64, float64) {
-	// TODO: Implement actual system metrics collection
 	return 0, 0.0
 }

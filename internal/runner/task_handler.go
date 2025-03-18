@@ -2,30 +2,25 @@ package runner
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"fmt"
 	"sync/atomic"
 	"time"
 
-	"github.com/google/uuid"
 	"github.com/theblitlabs/deviceid"
 	"github.com/theblitlabs/gologger"
-	"github.com/theblitlabs/parity-runner/internal/models"
+
+	"github.com/theblitlabs/parity-runner/internal/core/models"
+	"github.com/theblitlabs/parity-runner/internal/core/ports"
+	"github.com/theblitlabs/parity-runner/internal/utils"
 )
 
-type TaskHandler interface {
-	HandleTask(task *models.Task) error
-	IsProcessing() bool
-}
-
 type DefaultTaskHandler struct {
-	executor     TaskExecutor
-	taskClient   TaskClient
+	executor     ports.TaskExecutor
+	taskClient   ports.TaskClient
 	isProcessing atomic.Bool
 }
 
-func NewTaskHandler(executor TaskExecutor, taskClient TaskClient) *DefaultTaskHandler {
+func NewTaskHandler(executor ports.TaskExecutor, taskClient ports.TaskClient) *DefaultTaskHandler {
 	return &DefaultTaskHandler{
 		executor:   executor,
 		taskClient: taskClient,
@@ -36,93 +31,75 @@ func (h *DefaultTaskHandler) IsProcessing() bool {
 	return h.isProcessing.Load()
 }
 
+func (h *DefaultTaskHandler) verifyNonce(nonceStr string) error {
+	return utils.VerifyDrandNonce(nonceStr)
+}
+
 func (h *DefaultTaskHandler) HandleTask(task *models.Task) error {
+	if h.isProcessing.Load() {
+		return fmt.Errorf("task already in progress")
+	}
+
+	log := gologger.WithComponent("task_handler")
+	log.Info().
+		Str("id", task.ID.String()).
+		Str("title", task.Title).
+		Str("type", string(task.Type)).
+		Msg("Starting task execution")
+
 	h.isProcessing.Store(true)
 	defer h.isProcessing.Store(false)
 
-	log := gologger.WithComponent("task_handler")
-
-	log.Info().
-		Str("title", task.Title).
-		Str("nonce", task.Nonce).
-		Msg("Starting task execution")
-
-	if task.CreatorDeviceID == "" {
-		log.Error().Msg("Creator device ID is missing from task")
-		return fmt.Errorf("creator device ID is missing from task")
+	if err := h.taskClient.UpdateTaskStatus(task.ID.String(), models.TaskStatusRunning, nil); err != nil {
+		log.Error().Err(err).Str("id", task.ID.String()).Msg("Failed to update task status to running")
 	}
 
-	if err := task.Validate(); err != nil {
-		log.Error().Err(err).Msg("Invalid task configuration")
-		return fmt.Errorf("invalid task configuration: %w", err)
-	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+	defer cancel()
 
-	// Try to start task
-	if err := h.taskClient.StartTask(task.ID.String()); err != nil {
-		if err.Error() == "task unavailable" {
-			// Task is no longer available (e.g. completed or taken by another runner)
-			log.Debug().Msg("Task is no longer available")
-			return nil // Return nil to avoid retrying
+	if err := h.verifyNonce(task.Nonce); err != nil {
+		log.Error().Err(err).Str("id", task.ID.String()).Msg("Nonce verification failed")
+		if updateErr := h.taskClient.UpdateTaskStatus(task.ID.String(), models.TaskStatusFailed, &models.TaskResult{
+			TaskID: task.ID,
+			Error:  err.Error(),
+		}); updateErr != nil {
+			log.Error().Err(updateErr).Str("id", task.ID.String()).Msg("Failed to update task status")
 		}
-		log.Error().Err(err).Msg("Failed to start task")
-		return fmt.Errorf("failed to start task: %w", err)
+		return err
 	}
 
-	// Execute task
-	result, err := h.executor.ExecuteTask(context.Background(), task)
+	result, err := h.executor.ExecuteTask(ctx, task)
 	if err != nil {
-		log.Error().Err(err).
-			Str("executor", fmt.Sprintf("%T", h.executor)).
-			Msg("Task execution failed")
-		return fmt.Errorf("failed to execute task: %w", err)
+		log.Error().Err(err).Str("id", task.ID.String()).Msg("Task execution failed")
+		if updateErr := h.taskClient.UpdateTaskStatus(task.ID.String(), models.TaskStatusFailed, &models.TaskResult{
+			TaskID: task.ID,
+			Error:  err.Error(),
+		}); updateErr != nil {
+			log.Error().Err(updateErr).Str("id", task.ID.String()).Msg("Failed to update task status")
+		}
+		return err
 	}
 
-	// Get device ID
 	deviceIDManager := deviceid.NewManager(deviceid.Config{})
 	deviceID, err := deviceIDManager.VerifyDeviceID()
-	if err != nil {
-		log.Error().Err(err).Msg("Failed to get device ID")
-		return fmt.Errorf("failed to get device ID: %w", err)
+	if err == nil {
+		result.DeviceID = deviceID
 	}
 
-	// Hash the device ID
-	hash := sha256.Sum256([]byte(deviceID))
-	deviceIDHash := hex.EncodeToString(hash[:])
-
-	// Ensure result has required fields
-	if result.ID == uuid.Nil {
-		result.ID = uuid.New()
-	}
-	if result.TaskID == uuid.Nil {
-		result.TaskID = task.ID
-	}
-	if result.CreatedAt.IsZero() {
-		result.CreatedAt = time.Now()
+	status := models.TaskStatusCompleted
+	if result.ExitCode != 0 {
+		status = models.TaskStatusFailed
 	}
 
-	result.DeviceID = deviceID
-	result.DeviceIDHash = deviceIDHash
-	result.SolverDeviceID = deviceID
-	result.CreatorDeviceID = task.CreatorDeviceID
-	result.CreatorAddress = task.CreatorAddress
-	result.RunnerAddress = deviceID
-	result.Reward = task.Reward
-
-	if result.CreatorDeviceID == "" {
-		log.Error().Msg("Creator device ID is empty after setting from task")
-		return fmt.Errorf("creator device ID is missing from task")
+	if err := h.taskClient.UpdateTaskStatus(task.ID.String(), status, result); err != nil {
+		log.Error().Err(err).Str("id", task.ID.String()).Msg("Failed to update task status")
+		return fmt.Errorf("failed to update task status: %w", err)
 	}
 
-	if err := h.taskClient.SaveTaskResult(task.ID.String(), result); err != nil {
-		log.Error().Err(err).Msg("Failed to save task result")
-		return fmt.Errorf("failed to save task result: %w", err)
-	}
-
-	// Task is considered complete when result is saved
 	log.Info().
-		Float64("reward", result.Reward).
-		Int64("execution_time_ms", result.ExecutionTime/1e6).
-		Bool("success", result.ExitCode == 0).
-		Msg("Task completed")
+		Str("id", task.ID.String()).
+		Int("exit_code", result.ExitCode).
+		Msg("Task execution completed")
+
 	return nil
 }

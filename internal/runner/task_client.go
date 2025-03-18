@@ -11,15 +11,9 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/theblitlabs/deviceid"
-	"github.com/theblitlabs/parity-runner/internal/models"
-)
 
-type TaskClient interface {
-	GetAvailableTasks() ([]*models.Task, error)
-	StartTask(taskID string) error
-	CompleteTask(taskID string) error
-	SaveTaskResult(taskID string, result *models.TaskResult) error
-}
+	"github.com/theblitlabs/parity-runner/internal/core/models"
+)
 
 type HTTPTaskClient struct {
 	baseURL string
@@ -29,6 +23,41 @@ func NewHTTPTaskClient(baseURL string) *HTTPTaskClient {
 	return &HTTPTaskClient{
 		baseURL: baseURL,
 	}
+}
+
+func (c *HTTPTaskClient) FetchTask() (*models.Task, error) {
+	tasks, err := c.GetAvailableTasks()
+	if err != nil {
+		return nil, err
+	}
+
+	if len(tasks) == 0 {
+		return nil, fmt.Errorf("no tasks available")
+	}
+
+	task := tasks[0]
+	if err := c.StartTask(task.ID.String()); err != nil {
+		return nil, err
+	}
+
+	return task, nil
+}
+
+func (c *HTTPTaskClient) UpdateTaskStatus(taskID string, status models.TaskStatus, result *models.TaskResult) error {
+	if status == models.TaskStatusRunning {
+		return c.StartTask(taskID)
+	} else if status == models.TaskStatusCompleted || status == models.TaskStatusFailed {
+		if err := c.CompleteTask(taskID); err != nil {
+			return err
+		}
+
+		if result != nil {
+			return c.SaveTaskResult(taskID, result)
+		}
+		return nil
+	}
+
+	return fmt.Errorf("unsupported status: %s", status)
 }
 
 func (c *HTTPTaskClient) GetAvailableTasks() ([]*models.Task, error) {
@@ -123,7 +152,6 @@ func (c *HTTPTaskClient) SaveTaskResult(taskID string, result *models.TaskResult
 		return fmt.Errorf("failed to get device ID: %w", err)
 	}
 
-	// Only set the essential runner-related fields
 	if result.TaskID == uuid.Nil {
 		result.TaskID = uuid.MustParse(taskID)
 	}

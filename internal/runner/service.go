@@ -13,21 +13,25 @@ import (
 	"github.com/theblitlabs/deviceid"
 	"github.com/theblitlabs/gologger"
 	"github.com/theblitlabs/keystore"
-	"github.com/theblitlabs/parity-runner/internal/config"
+
+	"github.com/theblitlabs/parity-runner/internal/core/config"
+	"github.com/theblitlabs/parity-runner/internal/core/ports"
 	"github.com/theblitlabs/parity-runner/internal/execution/sandbox/docker"
+	"github.com/theblitlabs/parity-runner/internal/messaging/heartbeat"
+	"github.com/theblitlabs/parity-runner/internal/messaging/webhook"
 	"github.com/theblitlabs/parity-runner/internal/utils"
 )
 
 type Service struct {
 	cfg               *config.Config
-	webhookClient     *WebhookClient
-	taskHandler       TaskHandler
-	taskClient        TaskClient
+	webhookClient     *webhook.WebhookClient
+	taskHandler       ports.TaskHandler
+	taskClient        ports.TaskClient
 	dockerExecutor    *docker.DockerExecutor
 	dockerClient      *client.Client
 	deviceID          string
 	heartbeatInterval time.Duration
-	heartbeatService  *HeartbeatService
+	heartbeatService  *heartbeat.HeartbeatService
 }
 
 func NewService(cfg *config.Config) (*Service, error) {
@@ -91,17 +95,6 @@ func NewService(cfg *config.Config) (*Service, error) {
 	}
 
 	runnerID := uuid.New().String()
-	hostname, err := os.Hostname()
-	if err != nil {
-		hostname = "localhost"
-	}
-
-	webhookPort := 8090
-	if cfg.Runner.WebhookPort > 0 {
-		webhookPort = cfg.Runner.WebhookPort
-	}
-
-	webhookURL := fmt.Sprintf("http://%s:%d/webhook", hostname, webhookPort)
 
 	walletAddress, err := utils.GetWalletAddress()
 	if err != nil {
@@ -109,10 +102,9 @@ func NewService(cfg *config.Config) (*Service, error) {
 		return nil, fmt.Errorf("failed to get wallet address: %w", err)
 	}
 
-	webhookClient := NewWebhookClient(
+	webhookClient := webhook.NewWebhookClient(
 		cfg.Runner.ServerURL,
-		webhookURL,
-		webhookPort,
+		cfg.Runner.WebhookPort,
 		taskHandler,
 		runnerID,
 		deviceID,
@@ -126,7 +118,6 @@ func NewService(cfg *config.Config) (*Service, error) {
 
 	log.Info().
 		Str("server_url", cfg.Runner.ServerURL).
-		Str("webhook_url", webhookURL).
 		Msg("Runner service initialized")
 
 	return svc, nil
@@ -174,18 +165,15 @@ func (s *Service) Stop(ctx context.Context) error {
 	log := gologger.WithComponent("runner")
 	log.Info().Msg("Stopping runner service...")
 
-	// Create a channel to track completion
 	done := make(chan error, 1)
 	go func() {
 		var err error
 
-		// First stop the heartbeat service if it exists
 		if s.heartbeatService != nil {
 			s.heartbeatService.Stop()
 			log.Info().Msg("Heartbeat service stopped successfully")
 		}
 
-		// Then stop the webhook client
 		if s.webhookClient != nil {
 			if stopErr := s.webhookClient.Stop(); stopErr != nil {
 				log.Error().Err(stopErr).Msg("Failed to stop webhook client")
@@ -195,7 +183,6 @@ func (s *Service) Stop(ctx context.Context) error {
 			}
 		}
 
-		// Finally close the docker client
 		if s.dockerClient != nil {
 			if closeErr := s.dockerClient.Close(); closeErr != nil {
 				log.Error().Err(closeErr).Msg("Failed to close Docker client")
@@ -210,7 +197,6 @@ func (s *Service) Stop(ctx context.Context) error {
 		done <- err
 	}()
 
-	// Wait for shutdown to complete or context to timeout
 	select {
 	case err := <-done:
 		if err != nil {

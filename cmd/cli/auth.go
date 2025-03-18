@@ -2,55 +2,52 @@ package cli
 
 import (
 	"fmt"
-	"os"
-	"path/filepath"
 	"strings"
 
-	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/rs/zerolog/log"
 	"github.com/spf13/cobra"
-	walletsdk "github.com/theblitlabs/go-wallet-sdk"
-	"github.com/theblitlabs/keystore"
-	"github.com/theblitlabs/parity-runner/internal/config"
-)
 
-const (
-	KeystoreDirName  = ".parity"
-	KeystoreFileName = "keystore.json"
+	"github.com/theblitlabs/parity-runner/internal/utils"
 )
 
 func RunAuth() {
 	var privateKey string
+	logger := log.With().Str("component", "auth").Logger()
 
-	cmd := &cobra.Command{
+	cmd := utils.CreateCommand(utils.CommandConfig{
 		Use:   "auth",
 		Short: "Authenticate with the network",
-		Run: func(cmd *cobra.Command, args []string) {
-			if err := ExecuteAuth(privateKey, "config/config.yaml"); err != nil {
-				log.Fatal().Err(err).Msg("Failed to authenticate")
-			}
+		Flags: map[string]utils.Flag{
+			"private-key": {
+				Type:        utils.FlagTypeString,
+				Shorthand:   "k",
+				Description: "Private key in hex format",
+				Required:    true,
+			},
 		},
-	}
+		RunFunc: func(cmd *cobra.Command, args []string) error {
+			var err error
+			privateKey, err = cmd.Flags().GetString("private-key")
+			if err != nil {
+				return fmt.Errorf("failed to get private key flag: %w", err)
+			}
 
-	cmd.Flags().StringVarP(&privateKey, "private-key", "k", "", "Private key in hex format")
-	if err := cmd.MarkFlagRequired("private-key"); err != nil {
-		log.Fatal().Err(err).Msg("Failed to mark flag as required")
-	}
+			return ExecuteAuth(privateKey)
+		},
+	}, logger)
 
-	if err := cmd.Execute(); err != nil {
-		log.Fatal().Err(err).Msg("Failed to execute auth command")
-	}
+	utils.ExecuteCommand(cmd, logger)
 }
 
-func ExecuteAuth(privateKey string, configPath string) error {
-	log := log.With().Str("component", "auth").Logger()
+func ExecuteAuth(privateKey string) error {
+	logger := log.With().Str("component", "auth").Logger()
 
 	if privateKey == "" {
 		return fmt.Errorf("private key is required")
 	}
 
-	cfg, err := config.LoadConfig(configPath)
+	cfg, err := utils.GetConfig()
 	if err != nil {
 		return fmt.Errorf("failed to load config: %w", err)
 	}
@@ -66,37 +63,20 @@ func ExecuteAuth(privateKey string, configPath string) error {
 		return fmt.Errorf("invalid private key format: %w", err)
 	}
 
-	homeDir, err := os.UserHomeDir()
-	if err != nil {
-		return fmt.Errorf("failed to get home directory: %w", err)
-	}
-
-	ks, err := keystore.NewKeystore(keystore.Config{
-		DirPath:  filepath.Join(homeDir, KeystoreDirName),
-		FileName: KeystoreFileName,
-	})
-	if err != nil {
-		return fmt.Errorf("failed to create keystore: %w", err)
-	}
-
-	if err := ks.SavePrivateKey(privateKey); err != nil {
+	if err := utils.SavePrivateKey(privateKey); err != nil {
 		return fmt.Errorf("failed to save private key: %w", err)
 	}
 
-	tokenAddress := common.HexToAddress(cfg.Ethereum.TokenAddress)
-	client, err := walletsdk.NewClient(walletsdk.ClientConfig{
-		RPCURL:       cfg.Ethereum.RPC,
-		ChainID:      cfg.Ethereum.ChainID,
-		PrivateKey:   privateKey,
-		TokenAddress: tokenAddress,
-	})
+	utils.ResetClient()
+
+	client, err := utils.GetClientWithPrivateKey(cfg, privateKey)
 	if err != nil {
-		return fmt.Errorf("invalid private key: %w", err)
+		return utils.WrapError(err, "invalid private key")
 	}
 
-	log.Info().
+	logger.Info().
 		Str("address", client.Address().Hex()).
-		Str("keystore", fmt.Sprintf("%s/%s", KeystoreDirName, KeystoreFileName)).
+		Str("keystore", fmt.Sprintf("%s/%s", utils.KeystoreDirName, utils.KeystoreFileName)).
 		Msg("Wallet authenticated successfully")
 
 	return nil
