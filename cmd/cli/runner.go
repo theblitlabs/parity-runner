@@ -12,7 +12,7 @@ import (
 
 	"github.com/theblitlabs/deviceid"
 	"github.com/theblitlabs/gologger"
-	"github.com/theblitlabs/parity-runner/internal/config"
+	"github.com/theblitlabs/parity-runner/internal/core/config"
 	"github.com/theblitlabs/parity-runner/internal/runner"
 )
 

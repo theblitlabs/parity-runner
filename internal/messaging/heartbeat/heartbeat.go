@@ -1,4 +1,4 @@
-package runner
+package heartbeat
 
 import (
 	"bytes"
@@ -12,7 +12,8 @@ import (
 
 	"github.com/go-co-op/gocron"
 	"github.com/theblitlabs/gologger"
-	"github.com/theblitlabs/parity-runner/internal/models"
+	"github.com/theblitlabs/parity-runner/internal/core/models"
+	"github.com/theblitlabs/parity-runner/internal/core/ports"
 )
 
 // HeartbeatConfig contains configuration for the heartbeat service
@@ -32,21 +33,13 @@ type HeartbeatService struct {
 	mu                  sync.Mutex
 	started             bool
 	startTime           time.Time
-	statusProvider      StatusProvider
-	metricsProvider     MetricsProvider
+	statusProvider      ports.TaskHandler
+	metricsProvider     ports.MetricsProvider
 	job                 *gocron.Job
 	consecutiveFailures int
 }
 
-type StatusProvider interface {
-	IsProcessing() bool
-}
-
-type MetricsProvider interface {
-	GetSystemMetrics() (memory int64, cpu float64)
-}
-
-func NewHeartbeatService(config HeartbeatConfig, statusProvider StatusProvider, metricsProvider MetricsProvider) *HeartbeatService {
+func NewHeartbeatService(config HeartbeatConfig, statusProvider ports.TaskHandler, metricsProvider ports.MetricsProvider) *HeartbeatService {
 	return &HeartbeatService{
 		config:              config,
 		scheduler:           gocron.NewScheduler(time.UTC),

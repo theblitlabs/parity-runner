@@ -1,4 +1,4 @@
-package runner
+package webhook
 
 import (
 	"bytes"
@@ -12,7 +12,9 @@ import (
 	"time"
 
 	"github.com/theblitlabs/gologger"
-	"github.com/theblitlabs/parity-runner/internal/models"
+	"github.com/theblitlabs/parity-runner/internal/core/models"
+	"github.com/theblitlabs/parity-runner/internal/core/ports"
+	"github.com/theblitlabs/parity-runner/internal/messaging/heartbeat"
 )
 
 type WebhookMessage struct {
@@ -24,7 +26,7 @@ type WebhookClient struct {
 	serverURL          string
 	webhookURL         string
 	webhookID          string
-	handler            TaskHandler
+	handler            ports.TaskHandler
 	server             *http.Server
 	runnerID           string
 	deviceID           string
@@ -36,10 +38,10 @@ type WebhookClient struct {
 	completedTasks     map[string]time.Time
 	lastCleanupTime    time.Time
 	completedTasksLock sync.RWMutex
-	heartbeat          *HeartbeatService
+	heartbeat          *heartbeat.HeartbeatService
 }
 
-func NewWebhookClient(serverURL string, webhookURL string, serverPort int, handler TaskHandler, runnerID, deviceID, walletAddress string) *WebhookClient {
+func NewWebhookClient(serverURL string, webhookURL string, serverPort int, handler ports.TaskHandler, runnerID, deviceID, walletAddress string) *WebhookClient {
 	client := &WebhookClient{
 		serverURL:       serverURL,
 		webhookURL:      webhookURL,
@@ -54,7 +56,7 @@ func NewWebhookClient(serverURL string, webhookURL string, serverPort int, handl
 	}
 
 	// Create heartbeat service
-	heartbeatConfig := HeartbeatConfig{
+	heartbeatConfig := heartbeat.HeartbeatConfig{
 		ServerURL:     serverURL,
 		DeviceID:      deviceID,
 		WalletAddress: walletAddress,
@@ -64,7 +66,7 @@ func NewWebhookClient(serverURL string, webhookURL string, serverPort int, handl
 		MaxRetries:    3,
 	}
 
-	client.heartbeat = NewHeartbeatService(heartbeatConfig, handler, &defaultMetricsProvider{})
+	client.heartbeat = heartbeat.NewHeartbeatService(heartbeatConfig, handler, &defaultMetricsProvider{})
 	return client
 }
 
@@ -456,7 +458,7 @@ func getOutboundIP() (net.IP, error) {
 	return localAddr.IP, nil
 }
 
-// defaultMetricsProvider implements MetricsProvider interface
+// defaultMetricsProvider implements ports.MetricsProvider interface
 type defaultMetricsProvider struct{}
 
 func (p *defaultMetricsProvider) GetSystemMetrics() (int64, float64) {

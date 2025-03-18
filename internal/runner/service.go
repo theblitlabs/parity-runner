@@ -13,21 +13,24 @@ import (
 	"github.com/theblitlabs/deviceid"
 	"github.com/theblitlabs/gologger"
 	"github.com/theblitlabs/keystore"
-	"github.com/theblitlabs/parity-runner/internal/config"
+	"github.com/theblitlabs/parity-runner/internal/core/config"
+	"github.com/theblitlabs/parity-runner/internal/core/ports"
 	"github.com/theblitlabs/parity-runner/internal/execution/sandbox/docker"
+	"github.com/theblitlabs/parity-runner/internal/messaging/heartbeat"
+	"github.com/theblitlabs/parity-runner/internal/messaging/webhook"
 	"github.com/theblitlabs/parity-runner/internal/utils"
 )
 
 type Service struct {
 	cfg               *config.Config
-	webhookClient     *WebhookClient
-	taskHandler       TaskHandler
-	taskClient        TaskClient
+	webhookClient     *webhook.WebhookClient
+	taskHandler       ports.TaskHandler
+	taskClient        ports.TaskClient
 	dockerExecutor    *docker.DockerExecutor
 	dockerClient      *client.Client
 	deviceID          string
 	heartbeatInterval time.Duration
-	heartbeatService  *HeartbeatService
+	heartbeatService  *heartbeat.HeartbeatService
 }
 
 func NewService(cfg *config.Config) (*Service, error) {
@@ -109,10 +112,10 @@ func NewService(cfg *config.Config) (*Service, error) {
 		return nil, fmt.Errorf("failed to get wallet address: %w", err)
 	}
 
-	webhookClient := NewWebhookClient(
+	webhookClient := webhook.NewWebhookClient(
 		cfg.Runner.ServerURL,
-		webhookURL,
-		webhookPort,
+		"", // Will be set in the client
+		cfg.Runner.WebhookPort,
 		taskHandler,
 		runnerID,
 		deviceID,

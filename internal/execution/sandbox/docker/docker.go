@@ -16,7 +16,7 @@ import (
 	"time"
 
 	"github.com/theblitlabs/gologger"
-	"github.com/theblitlabs/parity-runner/internal/models"
+	"github.com/theblitlabs/parity-runner/internal/core/models"
 )
 
 type DockerExecutor struct {
@@ -547,4 +547,9 @@ func (e *DockerExecutor) verifyDrandNonce(nonce string) error {
 		Msg("Nonce format verified")
 
 	return nil
+}
+
+// Execute implements TaskExecutor interface
+func (e *DockerExecutor) Execute(task *models.Task) (*models.TaskResult, error) {
+	return e.ExecuteTask(context.Background(), task)
 }
