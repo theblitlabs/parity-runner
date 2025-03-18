@@ -35,7 +35,7 @@ BUILD_FLAGS=-v
 # Add these lines after the existing parameters
 INSTALL_PATH=/usr/local/bin
 
-.PHONY: all build test run clean deps fmt imports format lint format-lint check-format lint-report help docker-up docker-down docker-logs docker-build docker-clean install-air watch migrate-up migrate-down tools install uninstall install-lint-tools lint
+.PHONY: all build test run clean deps fmt imports format lint format-lint check-format lint-report help docker-up docker-down docker-logs docker-build docker-clean install-air watch migrate-up migrate-down tools install uninstall install-lint-tools lint install-hooks
 
 all: clean build
 
@@ -169,5 +169,9 @@ install-lint-tools: ## Install formatting and linting tools
 	go install mvdan.cc/gofumpt@latest
 	go install golang.org/x/tools/cmd/goimports@latest
 	@echo "Tools installation complete."
+
+install-hooks: ## Install git hooks
+	@echo "Installing git hooks..."
+	@./scripts/hooks/install-hooks.sh
 
 .DEFAULT_GOAL := help

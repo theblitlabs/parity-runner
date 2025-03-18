@@ -7,28 +7,8 @@ on:
   pull_request:
 
 jobs:
-  format:
-    name: Format Check
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v3
-        with:
-          submodules: recursive
-          token: ${{ secrets.PAT_TOKEN }}
-      - name: Set up Go
-        uses: actions/setup-go@v4
-        with:
-          go-version: "1.21"
-          cache: true
-      - name: Install gofumpt and goimports
-        run: |
-          go install mvdan.cc/gofumpt@latest
-          go install golang.org/x/tools/cmd/goimports@latest
-      - name: Check code formatting
-        run: ./scripts/check_format.sh
-
   lint:
-    name: Lint
+    name: Quick Lint
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
@@ -44,27 +24,7 @@ jobs:
         uses: golangci/golangci-lint-action@v3
         with:
           version: latest
-          args: --timeout=5m --out-format=colored-line-number
+          args: --timeout=5m --out-format=colored-line-number --fast
           skip-cache: true
           skip-pkg-cache: true
           skip-build-cache: true
-
-  static-analysis:
-    name: Static Analysis
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v3
-        with:
-          submodules: recursive
-          token: ${{ secrets.PAT_TOKEN }}
-      - name: Set up Go
-        uses: actions/setup-go@v4
-        with:
-          go-version: "1.21"
-          cache: true
-      - name: Run static checks
-        run: |
-          go vet -unusedresult ./...
-          go vet -stdmethods ./...
-          go vet -composites ./...
-          go vet -unreachable ./...

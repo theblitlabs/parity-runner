@@ -149,9 +149,27 @@ parity <command> --help
 
 1. Fork the repository
 2. Create your feature branch (`git checkout -b feature/amazing-feature`)
-3. Commit your changes (`git commit -m 'Add some amazing feature'`)
-4. Push to the branch (`git push origin feature/amazing-feature`)
-5. Open a Pull Request
+3. Install pre-commit hooks:
+   ```bash
+   make install-hooks
+   ```
+   This will install git hooks that run:
+   - Code quality, security, and verification checks before each commit
+   - Conventional commit message validation
+4. Follow the [Conventional Commits](https://www.conventionalcommits.org/) specification for your commit messages:
+
+   ```
+   <type>[optional scope]: <description>
+
+   [optional body]
+
+   [optional footer(s)]
+   ```
+
+   Valid types: feat, fix, chore, docs, style, refactor, perf, test, build, ci, revert
+
+5. Push to the branch (`git push origin feature/amazing-feature`)
+6. Open a Pull Request
 
 ### License
 
