@@ -72,20 +72,24 @@ func (h *DefaultTaskHandler) HandleTask(task *models.Task) error {
 
 	if err := h.verifyNonce(ctx, task.Nonce); err != nil {
 		log.Error().Err(err).Str("id", task.ID.String()).Msg("Nonce verification failed")
-		h.taskClient.UpdateTaskStatus(task.ID.String(), models.TaskStatusFailed, &models.TaskResult{
+		if updateErr := h.taskClient.UpdateTaskStatus(task.ID.String(), models.TaskStatusFailed, &models.TaskResult{
 			TaskID: task.ID,
 			Error:  err.Error(),
-		})
+		}); updateErr != nil {
+			log.Error().Err(updateErr).Str("id", task.ID.String()).Msg("Failed to update task status")
+		}
 		return err
 	}
 
 	result, err := h.executor.ExecuteTask(ctx, task)
 	if err != nil {
 		log.Error().Err(err).Str("id", task.ID.String()).Msg("Task execution failed")
-		h.taskClient.UpdateTaskStatus(task.ID.String(), models.TaskStatusFailed, &models.TaskResult{
+		if updateErr := h.taskClient.UpdateTaskStatus(task.ID.String(), models.TaskStatusFailed, &models.TaskResult{
 			TaskID: task.ID,
 			Error:  err.Error(),
-		})
+		}); updateErr != nil {
+			log.Error().Err(updateErr).Str("id", task.ID.String()).Msg("Failed to update task status")
+		}
 		return err
 	}
 

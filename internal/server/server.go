@@ -52,7 +52,10 @@ func (s *Server) Start() error {
 
 	s.mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		w.Write([]byte(`{"status":"ok"}`))
+		if _, err := w.Write([]byte(`{"status":"ok"}`)); err != nil {
+			log := gologger.WithComponent("server")
+			log.Error().Err(err).Msg("Failed to write health check response")
+		}
 	})
 
 	serverAddr := s.httpServer.Addr

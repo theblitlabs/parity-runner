@@ -113,7 +113,11 @@ func (e *DockerExecutor) ExecuteTask(ctx context.Context, task *models.Task) (*m
 		return nil, fmt.Errorf("container creation failed: %w", err)
 	}
 
-	defer e.containerMgr.RemoveContainer(context.Background(), containerID)
+	defer func() {
+		if err := e.containerMgr.RemoveContainer(context.Background(), containerID); err != nil {
+			log.Error().Err(err).Str("container", containerID).Msg("Failed to remove container")
+		}
+	}()
 
 	if err := e.containerMgr.StartContainer(ctx, containerID); err != nil {
 		log.Error().Err(err).Str("id", task.ID.String()).Msg("Container start failed")

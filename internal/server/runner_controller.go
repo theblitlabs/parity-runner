@@ -54,7 +54,9 @@ func (c *RunnerController) handleRunnerRequest(w http.ResponseWriter, r *http.Re
 
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte(`{"status":"registered"}`))
+		if _, err := w.Write([]byte(`{"status":"registered"}`)); err != nil {
+			log.Error().Err(err).Msg("Failed to write response")
+		}
 		return
 	}
 
@@ -85,7 +87,9 @@ func (c *RunnerController) handleHeartbeat(w http.ResponseWriter, r *http.Reques
 
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte(`{"status":"ok"}`))
+		if _, err := w.Write([]byte(`{"status":"ok"}`)); err != nil {
+			log.Error().Err(err).Msg("Failed to write response")
+		}
 		return
 	}
 
@@ -100,7 +104,9 @@ func (c *RunnerController) handleTaskRequest(w http.ResponseWriter, r *http.Requ
 
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte(`[]`))
+		if _, err := w.Write([]byte(`[]`)); err != nil {
+			log.Error().Err(err).Msg("Failed to write response")
+		}
 		return
 	}
 
@@ -118,7 +124,9 @@ func (c *RunnerController) handleTaskRequest(w http.ResponseWriter, r *http.Requ
 
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte(`{"status":"ok"}`))
+		if _, err := w.Write([]byte(`{"status":"ok"}`)); err != nil {
+			log.Error().Err(err).Msg("Failed to write response")
+		}
 		return
 	}
 
@@ -129,7 +137,9 @@ func (c *RunnerController) handleTaskRequest(w http.ResponseWriter, r *http.Requ
 
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte(`{"status":"ok"}`))
+		if _, err := w.Write([]byte(`{"status":"ok"}`)); err != nil {
+			log.Error().Err(err).Msg("Failed to write response")
+		}
 		return
 	}
 
@@ -148,7 +158,9 @@ func (c *RunnerController) handleTaskRequest(w http.ResponseWriter, r *http.Requ
 
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte(`{"status":"ok"}`))
+		if _, err := w.Write([]byte(`{"status":"ok"}`)); err != nil {
+			log.Error().Err(err).Msg("Failed to write response")
+		}
 		return
 	}
 
