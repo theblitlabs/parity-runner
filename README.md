@@ -6,7 +6,7 @@ Parity Protocol is a decentralized compute network where runners can execute com
 
 ### Prerequisites
 
-- Go 1.22.7 or higher (using Go toolchain 1.23.4)
+- Go 1.23.0 or higher (using Go toolchain 1.24.0)
 - PostgreSQL
 - Make
 - Docker (optional, for containerized database)
@@ -36,26 +36,25 @@ docker rm -f parity-db || true
 docker run --name parity-db -e POSTGRES_PASSWORD=postgres -p 5432:5432 -d postgres
 ```
 
-4. Run database migrations:
-
-```bash
-make migrate-up
-```
-
 ### Development
 
 The project includes several helpful Makefile commands for development:
 
 ```bash
 make build          # Build the application
-make run           # Run the application
-make clean         # Clean build files
-make deps          # Download dependencies
-make fmt           # Format code
-make watch         # Run with hot reload (requires air)
-make install       # Install parity command globally
-make uninstall     # Remove parity command from system
-make help          # Display all available commands
+make run            # Run the application
+make clean          # Clean build files
+make deps           # Download dependencies
+make fmt            # Format code
+make lint           # Lint code
+make watch          # Run with hot reload (requires air)
+make install        # Install parity command globally
+make uninstall      # Remove parity command from system
+make runner         # Start the task runner
+make stake          # Stake tokens in the network
+make balance        # Check token balances
+make auth           # Authenticate with the network
+make help           # Display all available commands
 ```
 
 For hot reloading during development:
@@ -73,24 +72,29 @@ make watch
 Create a `config.yaml` file in the `config` directory using the example provided:
 
 ```yaml
+server:
+  port: "8080"
+  host: "localhost"
+  endpoint: "/api"
+  websocket:
+    write_wait: 10s
+    pong_wait: 60s
+    max_message_size: 512
+
 ethereum:
   rpc: "http://localhost:8545"
   chain_id: 1337
   token_address: "0x..."
   stake_wallet_address: "0x..."
 
-server:
-  host: "localhost"
-  port: "8080"
-  endpoint: "/api"
-
-database:
-  host: "localhost"
-  port: 5432
-  user: "postgres"
-  password: "postgres"
-  name: "parity"
-  sslmode: "disable"
+runner:
+  server_url: "http://localhost:8080"
+  webhook_port: "8081"
+  heartbeat_interval: 30s
+  docker:
+    memory_limit: "2g"
+    cpu_limit: "1.0"
+    timeout: 300s
 ```
 
 ### CLI Commands
@@ -104,9 +108,6 @@ parity help
 # Authenticate with your private key
 parity auth --private-key <private-key>
 
-# Start the server
-parity server
-
 # Start a runner
 parity runner
 
@@ -115,57 +116,12 @@ parity balance
 
 # Stake tokens
 parity stake --amount <amount>
-
-# Start chain proxy
-parity chain
-
-# Run database migrations
-parity migrate
 ```
 
 Each command supports the `--help` flag for detailed usage information:
 
 ```bash
 parity <command> --help
-```
-
-### Project Structure
-
-```
-parity-runner/
-├── cmd/                    # Application entry points
-│   ├── cli/               # CLI commands
-│   │   ├── auth.go       # Authentication command
-│   │   ├── balance.go    # Balance checking
-│   │   ├── chain.go      # Chain proxy
-│   │   ├── migrate.go    # Database migrations
-│   │   ├── root.go       # Root command
-│   │   ├── runner.go     # Runner command
-│   │   ├── server.go     # Server command
-│   │   └── stake.go      # Staking command
-│   └── main.go           # Main application entry
-├── config/                # Configuration files
-│   └── config.yaml       # Application configuration
-├── internal/              # Private application code
-│   ├── api/              # API layer
-│   │   ├── handlers/     # Request handlers
-│   │   ├── middleware/   # HTTP middleware
-│   │   └── router.go     # API routing
-│   ├── config/           # Configuration handling
-│   ├── database/         # Database layer
-│   │   └── repositories/ # Data access
-│   ├── models/           # Data models
-│   ├── runner/           # Runner implementation
-│   └── services/         # Business logic
-├── pkg/                   # Public packages
-│   ├── database/         # Database utilities
-│   ├── device/           # Device management
-│   ├── keystore/         # Key management
-│   ├── logger/           # Logging utilities
-│   ├── stakewallet/      # Stake wallet interface
-│   └── wallet/           # Wallet operations
-└── coverage/             # Test coverage reports
-
 ```
 
 ### API Documentation

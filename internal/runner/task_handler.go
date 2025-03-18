@@ -2,9 +2,7 @@ package runner
 
 import (
 	"context"
-	"encoding/hex"
 	"fmt"
-	"strings"
 	"sync/atomic"
 	"time"
 
@@ -12,6 +10,7 @@ import (
 	"github.com/theblitlabs/gologger"
 	"github.com/theblitlabs/parity-runner/internal/core/models"
 	"github.com/theblitlabs/parity-runner/internal/core/ports"
+	"github.com/theblitlabs/parity-runner/internal/utils/nonce"
 )
 
 type DefaultTaskHandler struct {
@@ -31,20 +30,8 @@ func (h *DefaultTaskHandler) IsProcessing() bool {
 	return h.isProcessing.Load()
 }
 
-func (h *DefaultTaskHandler) verifyNonce(ctx context.Context, nonce string) error {
-	if nonce == "" {
-		return fmt.Errorf("empty nonce")
-	}
-
-	if _, err := hex.DecodeString(nonce); err != nil {
-
-		parts := strings.Split(nonce, "-")
-		if len(parts) < 2 {
-			return fmt.Errorf("invalid nonce format: not hex and not UUID-based")
-		}
-	}
-
-	return nil
+func (h *DefaultTaskHandler) verifyNonce(nonceStr string) error {
+	return nonce.VerifyDrandNonce(nonceStr)
 }
 
 func (h *DefaultTaskHandler) HandleTask(task *models.Task) error {
@@ -70,7 +57,7 @@ func (h *DefaultTaskHandler) HandleTask(task *models.Task) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 	defer cancel()
 
-	if err := h.verifyNonce(ctx, task.Nonce); err != nil {
+	if err := h.verifyNonce(task.Nonce); err != nil {
 		log.Error().Err(err).Str("id", task.ID.String()).Msg("Nonce verification failed")
 		if updateErr := h.taskClient.UpdateTaskStatus(task.ID.String(), models.TaskStatusFailed, &models.TaskResult{
 			TaskID: task.ID,
