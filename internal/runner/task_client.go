@@ -14,7 +14,6 @@ import (
 	"github.com/theblitlabs/parity-runner/internal/core/models"
 )
 
-// HTTPTaskClient implements ports.TaskClient
 type HTTPTaskClient struct {
 	baseURL string
 }
@@ -25,7 +24,6 @@ func NewHTTPTaskClient(baseURL string) *HTTPTaskClient {
 	}
 }
 
-// FetchTask implements ports.TaskClient.FetchTask
 func (c *HTTPTaskClient) FetchTask() (*models.Task, error) {
 	tasks, err := c.GetAvailableTasks()
 	if err != nil {
@@ -36,7 +34,6 @@ func (c *HTTPTaskClient) FetchTask() (*models.Task, error) {
 		return nil, fmt.Errorf("no tasks available")
 	}
 
-	// Start the first available task
 	task := tasks[0]
 	if err := c.StartTask(task.ID.String()); err != nil {
 		return nil, err
@@ -45,7 +42,6 @@ func (c *HTTPTaskClient) FetchTask() (*models.Task, error) {
 	return task, nil
 }
 
-// UpdateTaskStatus implements ports.TaskClient.UpdateTaskStatus
 func (c *HTTPTaskClient) UpdateTaskStatus(taskID string, status models.TaskStatus, result *models.TaskResult) error {
 	if status == models.TaskStatusRunning {
 		return c.StartTask(taskID)
@@ -155,7 +151,6 @@ func (c *HTTPTaskClient) SaveTaskResult(taskID string, result *models.TaskResult
 		return fmt.Errorf("failed to get device ID: %w", err)
 	}
 
-	// Only set the essential runner-related fields
 	if result.TaskID == uuid.Nil {
 		result.TaskID = uuid.MustParse(taskID)
 	}

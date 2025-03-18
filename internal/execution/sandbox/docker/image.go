@@ -10,15 +10,12 @@ import (
 	"github.com/theblitlabs/gologger"
 )
 
-// ImageManager handles Docker image operations
 type ImageManager struct{}
 
-// NewImageManager creates a new ImageManager
 func NewImageManager() *ImageManager {
 	return &ImageManager{}
 }
 
-// PullImage pulls a Docker image from a registry
 func (im *ImageManager) PullImage(ctx context.Context, imageName string) error {
 	log := gologger.WithComponent("docker.image")
 
@@ -31,13 +28,11 @@ func (im *ImageManager) PullImage(ctx context.Context, imageName string) error {
 	return nil
 }
 
-// DownloadAndLoadImage downloads a Docker image from a URL and loads it
 func (im *ImageManager) DownloadAndLoadImage(ctx context.Context, imageURL, imageName string) error {
 	log := gologger.WithComponent("docker.image")
 
 	log.Info().Str("url", imageURL).Msg("Downloading Docker image")
 
-	// Download image from URL
 	resp, err := http.Get(imageURL)
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to download Docker image")
@@ -45,7 +40,6 @@ func (im *ImageManager) DownloadAndLoadImage(ctx context.Context, imageURL, imag
 	}
 	defer resp.Body.Close()
 
-	// Create temporary file
 	tmpFile, err := os.CreateTemp("", "docker-image-*.tar")
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to create temporary file")
@@ -58,13 +52,11 @@ func (im *ImageManager) DownloadAndLoadImage(ctx context.Context, imageURL, imag
 	}()
 	defer tmpFile.Close()
 
-	// Copy image to temporary file
 	if _, err := io.Copy(tmpFile, resp.Body); err != nil {
 		log.Error().Err(err).Msg("Failed to save Docker image")
 		return fmt.Errorf("failed to save Docker image: %w", err)
 	}
 
-	// Load the Docker image
 	log.Info().Str("image", imageName).Msg("Loading Docker image")
 	if _, err := execCommand(ctx, "docker", "load", "-i", tmpFile.Name()); err != nil {
 		log.Error().Err(err).Msg("Failed to load Docker image")
@@ -74,7 +66,6 @@ func (im *ImageManager) DownloadAndLoadImage(ctx context.Context, imageURL, imag
 	return nil
 }
 
-// EnsureImageAvailable makes sure an image is available, either by pulling it or downloading and loading it
 func (im *ImageManager) EnsureImageAvailable(ctx context.Context, imageName, imageURL string) error {
 	if imageURL != "" {
 		return im.DownloadAndLoadImage(ctx, imageURL, imageName)

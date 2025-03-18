@@ -85,7 +85,6 @@ func NewTask() *Task {
 	}
 }
 
-// Validate performs basic validation on the task
 func (t *Task) Validate() error {
 	if t.Title == "" {
 		return errors.New("title is required")

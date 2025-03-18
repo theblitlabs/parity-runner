@@ -10,13 +10,11 @@ import (
 	"github.com/theblitlabs/gologger"
 )
 
-// ContainerManager handles Docker container creation, execution, and cleanup
 type ContainerManager struct {
 	memoryLimit string
 	cpuLimit    string
 }
 
-// NewContainerManager creates a new ContainerManager
 func NewContainerManager(memoryLimit, cpuLimit string) *ContainerManager {
 	return &ContainerManager{
 		memoryLimit: memoryLimit,
@@ -24,9 +22,8 @@ func NewContainerManager(memoryLimit, cpuLimit string) *ContainerManager {
 	}
 }
 
-// formatContainerOutput removes control characters from command output
 func formatContainerOutput(output []byte) string {
-	// Remove any control characters except newlines and tabs
+
 	cleaned := bytes.Map(func(r rune) rune {
 		if r < 32 && r != '\n' && r != '\t' {
 			return -1
@@ -37,11 +34,9 @@ func formatContainerOutput(output []byte) string {
 	return strings.TrimSpace(string(cleaned))
 }
 
-// CreateContainer creates a new Docker container
 func (cm *ContainerManager) CreateContainer(ctx context.Context, image string, command []string, workdir string, envVars []string) (string, error) {
 	log := gologger.WithComponent("docker.container")
 
-	// Prepare container create command
 	createArgs := []string{
 		"create",
 		"--memory", cm.memoryLimit,
@@ -67,7 +62,6 @@ func (cm *ContainerManager) CreateContainer(ctx context.Context, image string, c
 	return containerID, nil
 }
 
-// StartContainer starts a Docker container
 func (cm *ContainerManager) StartContainer(ctx context.Context, containerID string) error {
 	log := gologger.WithComponent("docker.container")
 
@@ -79,7 +73,6 @@ func (cm *ContainerManager) StartContainer(ctx context.Context, containerID stri
 	return nil
 }
 
-// WaitForContainer waits for a container to complete and returns its exit code
 func (cm *ContainerManager) WaitForContainer(ctx context.Context, containerID string) (int, error) {
 	log := gologger.WithComponent("docker.container")
 
@@ -98,7 +91,6 @@ func (cm *ContainerManager) WaitForContainer(ctx context.Context, containerID st
 	return exitCode, nil
 }
 
-// GetContainerLogs retrieves logs from a container
 func (cm *ContainerManager) GetContainerLogs(ctx context.Context, containerID string) (string, error) {
 	log := gologger.WithComponent("docker.container")
 
@@ -111,7 +103,6 @@ func (cm *ContainerManager) GetContainerLogs(ctx context.Context, containerID st
 	return formatContainerOutput(logs), nil
 }
 
-// RemoveContainer removes a Docker container
 func (cm *ContainerManager) RemoveContainer(ctx context.Context, containerID string) error {
 	log := gologger.WithComponent("docker.container")
 
@@ -123,7 +114,6 @@ func (cm *ContainerManager) RemoveContainer(ctx context.Context, containerID str
 	return nil
 }
 
-// VerifyNonceInOutput checks if a nonce appears in the container output
 func (cm *ContainerManager) VerifyNonceInOutput(output, nonce string) bool {
 	return strings.Contains(output, nonce)
 }

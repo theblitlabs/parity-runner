@@ -14,7 +14,6 @@ const (
 	RunnerStatusBusy    RunnerStatus = "busy"
 )
 
-// Runner represents a compute node in the network
 type Runner struct {
 	ID            uuid.UUID    `json:"id" gorm:"type:uuid;primaryKey"`
 	DeviceID      string       `json:"device_id" gorm:"type:varchar(255);uniqueIndex"`
@@ -29,7 +28,6 @@ type Runner struct {
 	UpdatedAt     time.Time    `json:"updated_at" gorm:"type:timestamp"`
 }
 
-// NewRunner creates a new runner instance
 func NewRunner(deviceID, walletAddress string) *Runner {
 	return &Runner{
 		ID:            uuid.New(),

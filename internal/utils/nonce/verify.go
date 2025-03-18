@@ -9,7 +9,6 @@ import (
 	"github.com/theblitlabs/gologger"
 )
 
-// VerifyDrandNonce verifies that a nonce format is valid
 func VerifyDrandNonce(nonce string) error {
 	log := gologger.WithComponent("nonce.verify")
 
@@ -17,9 +16,8 @@ func VerifyDrandNonce(nonce string) error {
 		return fmt.Errorf("empty nonce")
 	}
 
-	// Verify nonce is valid hex
 	if _, err := hex.DecodeString(nonce); err != nil {
-		// Check if it might be a fallback UUID-based nonce
+
 		parts := strings.Split(nonce, "-")
 		if len(parts) < 2 {
 			return fmt.Errorf("invalid nonce format: not hex and not UUID-based")

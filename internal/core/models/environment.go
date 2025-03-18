@@ -6,17 +6,14 @@ import (
 	"errors"
 )
 
-// EnvironmentType represents the type of execution environment
 type EnvironmentType string
 
 const (
-	// EnvironmentTypeDocker represents a Docker-based execution environment
 	EnvironmentTypeDocker EnvironmentType = "docker"
-	// EnvironmentTypeLocal represents a local command execution environment
+
 	EnvironmentTypeLocal EnvironmentType = "local"
 )
 
-// Environment represents a runtime environment for task execution
 type Environment interface {
 	Setup() error
 	Run(task *Task) error
@@ -24,7 +21,6 @@ type Environment interface {
 	GetType() string
 }
 
-// EnvironmentConfig represents configuration for task execution environments
 type EnvironmentConfig struct {
 	Type   EnvironmentType        `json:"type"`
 	Config map[string]interface{} `json:"config"`
@@ -48,7 +44,6 @@ func (ec *EnvironmentConfig) Scan(value interface{}) error {
 	return json.Unmarshal(bytes, &ec)
 }
 
-// Validate ensures the environment configuration is valid
 func (e *EnvironmentConfig) Validate() error {
 	if e.Type == "" {
 		return errors.New("environment type is required")
@@ -64,7 +59,6 @@ func (e *EnvironmentConfig) Validate() error {
 	}
 }
 
-// validateDockerConfig validates Docker-specific configuration
 func (e *EnvironmentConfig) validateDockerConfig() error {
 	if e.Config == nil {
 		return errors.New("docker environment configuration is required")
@@ -73,13 +67,11 @@ func (e *EnvironmentConfig) validateDockerConfig() error {
 	return nil
 }
 
-// validateLocalConfig validates local execution configuration
 func (e *EnvironmentConfig) validateLocalConfig() error {
-	// For now, we don't have specific validation for local execution
+
 	return nil
 }
 
-// UnmarshalJSON customizes JSON unmarshalling for EnvironmentConfig
 func (e *EnvironmentConfig) UnmarshalJSON(data []byte) error {
 	type Alias EnvironmentConfig
 	aux := &struct {
@@ -92,7 +84,6 @@ func (e *EnvironmentConfig) UnmarshalJSON(data []byte) error {
 		return err
 	}
 
-	// Ensure Config is initialized
 	if e.Config == nil {
 		e.Config = make(map[string]interface{})
 	}
@@ -100,7 +91,6 @@ func (e *EnvironmentConfig) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
-// NewDockerEnvironment creates a new Docker environment configuration
 func NewDockerEnvironment(workdir string, env []string) *EnvironmentConfig {
 	config := map[string]interface{}{
 		"workdir": workdir,
@@ -116,7 +106,6 @@ func NewDockerEnvironment(workdir string, env []string) *EnvironmentConfig {
 	}
 }
 
-// NewLocalEnvironment creates a new local environment configuration
 func NewLocalEnvironment(workdir string, env map[string]string) *EnvironmentConfig {
 	config := map[string]interface{}{
 		"workdir": workdir,

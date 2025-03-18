@@ -52,7 +52,6 @@ func RunStake() {
 func executeStake(amount float64) {
 	log := gologger.Get().With().Str("component", "stake").Logger()
 
-	// Load configuration
 	cfg, err := config.LoadConfig("config/config.yaml")
 	if err != nil {
 		log.Fatal().
@@ -61,7 +60,6 @@ func executeStake(amount float64) {
 		return
 	}
 
-	// Get private key from keystore
 	homeDir, err := os.UserHomeDir()
 	if err != nil {
 		log.Fatal().
@@ -89,7 +87,6 @@ func executeStake(amount float64) {
 		return
 	}
 
-	// Create Ethereum client
 	client, err := walletsdk.NewClient(walletsdk.ClientConfig{
 		RPCURL:     cfg.Ethereum.RPC,
 		ChainID:    cfg.Ethereum.ChainID,
@@ -104,7 +101,6 @@ func executeStake(amount float64) {
 		return
 	}
 
-	// Verify device ID
 	deviceIDManager := deviceid.NewManager(deviceid.Config{})
 	deviceID, err := deviceIDManager.VerifyDeviceID()
 	if err != nil {
@@ -122,7 +118,6 @@ func executeStake(amount float64) {
 	tokenAddr := common.HexToAddress(cfg.Ethereum.TokenAddress)
 	stakeWalletAddr := common.HexToAddress(cfg.Ethereum.StakeWalletAddress)
 
-	// Check token balance
 	token, err := walletsdk.NewParityToken(tokenAddr, client)
 	if err != nil {
 		log.Fatal().
@@ -157,7 +152,6 @@ func executeStake(amount float64) {
 		Str("token_address", tokenAddr.Hex()).
 		Msg("Current token balance verified")
 
-	// Check allowance
 	allowance, err := token.Allowance(&bind.CallOpts{}, client.Address(), stakeWalletAddr)
 	if err != nil {
 		log.Fatal().
@@ -168,7 +162,6 @@ func executeStake(amount float64) {
 		return
 	}
 
-	// Approve token spending if needed
 	if allowance.Cmp(amountToStake) < 0 {
 		log.Info().
 			Str("amount", utils.FormatEther(amountToStake)+" PRTY").
@@ -196,7 +189,6 @@ func executeStake(amount float64) {
 			Str("amount", utils.FormatEther(amountToStake)+" PRTY").
 			Msg("Token approval submitted - waiting for confirmation...")
 
-		// Wait for approval confirmation
 		receipt, err := bind.WaitMined(context.Background(), client, tx)
 		if err != nil {
 			log.Fatal().
@@ -217,11 +209,9 @@ func executeStake(amount float64) {
 			Str("tx_hash", tx.Hash().Hex()).
 			Msg("Token approval confirmed successfully")
 
-		// Small delay to ensure approval is propagated
 		time.Sleep(5 * time.Second)
 	}
 
-	// Create stake wallet contract instance
 	stakeWallet, err := walletsdk.NewStakeWallet(client, stakeWalletAddr, tokenAddr)
 	if err != nil {
 		log.Fatal().
@@ -236,7 +226,6 @@ func executeStake(amount float64) {
 		Str("device_id", deviceID).
 		Msg("Submitting stake transaction...")
 
-	// Execute stake transaction
 	tx, err := stakeWallet.Stake(amountToStake, deviceID)
 	if err != nil {
 		log.Fatal().
@@ -254,7 +243,6 @@ func executeStake(amount float64) {
 		Str("wallet", client.Address().Hex()).
 		Msg("Stake transaction submitted - waiting for confirmation...")
 
-	// Wait for stake transaction confirmation
 	receipt, err := bind.WaitMined(context.Background(), client, tx)
 	if err != nil {
 		log.Error().

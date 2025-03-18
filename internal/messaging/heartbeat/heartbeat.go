@@ -16,7 +16,6 @@ import (
 	"github.com/theblitlabs/parity-runner/internal/core/ports"
 )
 
-// HeartbeatConfig contains configuration for the heartbeat service
 type HeartbeatConfig struct {
 	ServerURL     string
 	DeviceID      string
@@ -65,14 +64,12 @@ func (h *HeartbeatService) Start() error {
 		Str("device_id", h.config.DeviceID).
 		Msg("Starting heartbeat service")
 
-	// Send initial heartbeat
 	if err := h.sendHeartbeatWithRetry(); err != nil {
 		log.Error().Err(err).Msg("Failed to send initial heartbeat after retries")
 	} else {
 		log.Info().Msg("Initial heartbeat sent successfully")
 	}
 
-	// Schedule heartbeat job with SingletonMode to prevent overlapping executions
 	h.scheduler.SingletonMode()
 
 	job, err := h.scheduler.Every(h.config.BaseInterval).Do(h.heartbeatTask)
@@ -89,7 +86,6 @@ func (h *HeartbeatService) Start() error {
 func (h *HeartbeatService) heartbeatTask() {
 	log := gologger.WithComponent("heartbeat")
 
-	// Check if we're currently processing before sending heartbeat
 	isProcessing := h.statusProvider.IsProcessing()
 
 	if err := h.sendHeartbeatWithRetry(); err != nil {
@@ -119,7 +115,6 @@ func (h *HeartbeatService) heartbeatTask() {
 		h.mu.Lock()
 		h.consecutiveFailures = 0
 
-		// Only check for interval updates if we're not processing a task
 		if !isProcessing && h.job != nil && len(h.scheduler.Jobs()) > 0 {
 			nextRun := h.scheduler.Jobs()[0].NextRun()
 			currentInterval := time.Until(nextRun)

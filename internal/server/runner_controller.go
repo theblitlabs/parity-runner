@@ -10,32 +10,28 @@ import (
 	"github.com/theblitlabs/parity-runner/internal/core/services"
 )
 
-// RunnerController handles runner-related HTTP endpoints
 type RunnerController struct {
 	runnerService services.RunnerService
 }
 
-// NewRunnerController creates a new runner controller
 func NewRunnerController(runnerService services.RunnerService) *RunnerController {
 	return &RunnerController{
 		runnerService: runnerService,
 	}
 }
 
-// RegisterRoutes sets up the runner routes
 func (c *RunnerController) RegisterRoutes(mux *http.ServeMux) {
-	// Register routes
+
 	mux.HandleFunc("/api/runners", c.handleRunnerRequest)
 	mux.HandleFunc("/api/runners/heartbeat", c.handleHeartbeat)
 	mux.HandleFunc("/api/runners/tasks/", c.handleTaskRequest)
 }
 
-// handleRunnerRequest handles requests for runner registration
 func (c *RunnerController) handleRunnerRequest(w http.ResponseWriter, r *http.Request) {
 	log := gologger.WithComponent("runner_controller")
 
 	if r.Method == http.MethodPost {
-		// Handle registration
+
 		var req struct {
 			DeviceID      string              `json:"device_id"`
 			WalletAddress string              `json:"wallet_address"`
@@ -56,19 +52,15 @@ func (c *RunnerController) handleRunnerRequest(w http.ResponseWriter, r *http.Re
 			return
 		}
 
-		// Call service to register runner
-		// For now, we'll just return success
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
 		w.Write([]byte(`{"status":"registered"}`))
 		return
 	}
 
-	// Methods not supported
 	http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 }
 
-// handleHeartbeat processes runner heartbeats
 func (c *RunnerController) handleHeartbeat(w http.ResponseWriter, r *http.Request) {
 	log := gologger.WithComponent("runner_controller")
 
@@ -91,39 +83,32 @@ func (c *RunnerController) handleHeartbeat(w http.ResponseWriter, r *http.Reques
 			return
 		}
 
-		// Process heartbeat
-		// For now, we'll just return success
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
 		w.Write([]byte(`{"status":"ok"}`))
 		return
 	}
 
-	// Methods not supported
 	http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 }
 
-// handleTaskRequest handles task-related operations
 func (c *RunnerController) handleTaskRequest(w http.ResponseWriter, r *http.Request) {
 	log := gologger.WithComponent("runner_controller")
 	path := strings.TrimPrefix(r.URL.Path, "/api/runners/tasks")
 
-	// Handle available tasks endpoint
 	if path == "/available" && r.Method == http.MethodGet {
-		// Return an empty task list for now
+
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
 		w.Write([]byte(`[]`))
 		return
 	}
 
-	// Handle task status updates (start/complete)
 	if strings.HasSuffix(path, "/start") && r.Method == http.MethodPost {
-		// Extract task ID from path
+
 		taskID := strings.TrimSuffix(strings.TrimPrefix(path, "/"), "/start")
 		log.Debug().Str("task_id", taskID).Msg("Start task request received")
 
-		// Get device ID from header
 		deviceID := r.Header.Get("X-Runner-ID")
 		if deviceID == "" {
 			log.Error().Msg("Missing runner ID header")
@@ -131,7 +116,6 @@ func (c *RunnerController) handleTaskRequest(w http.ResponseWriter, r *http.Requ
 			return
 		}
 
-		// For now, just return success
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
 		w.Write([]byte(`{"status":"ok"}`))
@@ -139,11 +123,10 @@ func (c *RunnerController) handleTaskRequest(w http.ResponseWriter, r *http.Requ
 	}
 
 	if strings.HasSuffix(path, "/complete") && r.Method == http.MethodPost {
-		// Extract task ID from path
+
 		taskID := strings.TrimSuffix(strings.TrimPrefix(path, "/"), "/complete")
 		log.Debug().Str("task_id", taskID).Msg("Complete task request received")
 
-		// For now, just return success
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
 		w.Write([]byte(`{"status":"ok"}`))
@@ -151,11 +134,10 @@ func (c *RunnerController) handleTaskRequest(w http.ResponseWriter, r *http.Requ
 	}
 
 	if strings.HasSuffix(path, "/result") && r.Method == http.MethodPost {
-		// Extract task ID from path
+
 		taskID := strings.TrimSuffix(strings.TrimPrefix(path, "/"), "/result")
 		log.Debug().Str("task_id", taskID).Msg("Task result submission received")
 
-		// Parse the result
 		var result models.TaskResult
 		decoder := json.NewDecoder(r.Body)
 		if err := decoder.Decode(&result); err != nil {
@@ -164,13 +146,11 @@ func (c *RunnerController) handleTaskRequest(w http.ResponseWriter, r *http.Requ
 			return
 		}
 
-		// For now, just return success
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
 		w.Write([]byte(`{"status":"ok"}`))
 		return
 	}
 
-	// Handle unknown endpoints
 	http.Error(w, "Not found", http.StatusNotFound)
 }

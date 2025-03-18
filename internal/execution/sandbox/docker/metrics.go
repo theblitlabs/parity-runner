@@ -15,7 +15,6 @@ import (
 	"github.com/theblitlabs/parity-runner/internal/core/ports"
 )
 
-// ContainerMetrics stores collected resource usage metrics
 type ContainerMetrics struct {
 	CPUSeconds      float64
 	EstimatedCycles uint64
@@ -24,7 +23,6 @@ type ContainerMetrics struct {
 	NetworkDataGB   float64
 }
 
-// ResourceMonitor collects resource usage from a Docker container and implements ports.MetricsProvider
 type ResourceMonitor struct {
 	containerID string
 	stopCh      chan struct{}
@@ -33,7 +31,6 @@ type ResourceMonitor struct {
 	metrics     ContainerMetrics
 }
 
-// NewResourceMetrics creates a new ResourceMonitor for a container
 func NewResourceMetrics(containerID string) (*ResourceMonitor, error) {
 	if containerID == "" {
 		return nil, fmt.Errorf("container ID is required")
@@ -45,21 +42,17 @@ func NewResourceMetrics(containerID string) (*ResourceMonitor, error) {
 	}, nil
 }
 
-// GetSystemMetrics implements the ports.MetricsProvider interface
 func (rc *ResourceMonitor) GetSystemMetrics() (memory int64, cpu float64) {
 	rc.metricsLock.RLock()
 	defer rc.metricsLock.RUnlock()
 
-	// Convert memory from GB to bytes for the interface
 	memoryBytes := int64(rc.metrics.MemoryGBHours * float64(1024*1024*1024))
 	return memoryBytes, rc.metrics.CPUSeconds
 }
 
-// Start begins collecting resource metrics in a background goroutine
 func (rc *ResourceMonitor) Start(ctx context.Context) error {
 	log := gologger.WithComponent("docker.metrics")
 
-	// Check if we can access the container stats
 	statsCmd := fmt.Sprintf(`docker stats --no-stream --format `+
 		`'{"cpu":"{{.CPUPerc}}", "memory":"{{.MemUsage}}", "netIO":"{{.NetIO}}", "blockIO":"{{.BlockIO}}"}' %s`,
 		rc.containerID)
@@ -93,20 +86,17 @@ func (rc *ResourceMonitor) Start(ctx context.Context) error {
 	return nil
 }
 
-// Stop ends the metrics collection process
 func (rc *ResourceMonitor) Stop() {
 	close(rc.stopCh)
 	rc.wg.Wait()
 }
 
-// GetMetrics returns the current resource metrics
 func (rc *ResourceMonitor) GetMetrics() ContainerMetrics {
 	rc.metricsLock.RLock()
 	defer rc.metricsLock.RUnlock()
 	return rc.metrics
 }
 
-// collectMetrics gathers resource usage data from the container
 func (rc *ResourceMonitor) collectMetrics(startTime time.Time) {
 	log := gologger.WithComponent("docker.metrics")
 
@@ -136,26 +126,23 @@ func (rc *ResourceMonitor) collectMetrics(startTime time.Time) {
 	rc.metricsLock.Lock()
 	defer rc.metricsLock.Unlock()
 
-	// Parse CPU percentage (format: "0.00%")
 	cpuStr := strings.TrimSuffix(stats.CPU, "%")
 	if cpuPerc, err := strconv.ParseFloat(cpuStr, 64); err == nil {
-		// Calculate CPU seconds based on percentage and elapsed time
+
 		elapsedSeconds := time.Since(startTime).Seconds()
 		rc.metrics.CPUSeconds = (cpuPerc / 100.0) * elapsedSeconds
 
-		// Estimate cycles based on CPU frequency
 		cpuFreq := getSystemCPUFrequency()
 		rc.metrics.EstimatedCycles = uint64(rc.metrics.CPUSeconds * cpuFreq * 1e9)
 	}
 
-	// Parse memory usage (format: "100MiB / 16GiB")
 	if parts := strings.Split(stats.Memory, " / "); len(parts) >= 1 {
 		if memStr := parts[0]; memStr != "" {
-			// Extract number and unit
+
 			var mem float64
 			var unit string
 			if _, err := fmt.Sscanf(memStr, "%f%s", &mem, &unit); err == nil {
-				// Convert to GB-hours
+
 				var memGB float64
 				switch strings.ToUpper(unit) {
 				case "B":
@@ -174,7 +161,6 @@ func (rc *ResourceMonitor) collectMetrics(startTime time.Time) {
 		}
 	}
 
-	// Parse network I/O (format: "100MB / 200MB")
 	netParts := strings.Split(stats.NetIO, " / ")
 	if len(netParts) == 2 {
 		inBytes, _ := parseSize(netParts[0])
@@ -182,7 +168,6 @@ func (rc *ResourceMonitor) collectMetrics(startTime time.Time) {
 		rc.metrics.NetworkDataGB = float64(inBytes+outBytes) / (1024 * 1024 * 1024)
 	}
 
-	// Parse block I/O (format: "100MB / 200MB")
 	blockParts := strings.Split(stats.BlockIO, " / ")
 	if len(blockParts) == 2 {
 		readBytes, _ := parseSize(blockParts[0])
@@ -203,7 +188,6 @@ func (rc *ResourceMonitor) collectMetrics(startTime time.Time) {
 		Msg("Resource metrics updated")
 }
 
-// parseSize converts a string size representation (e.g. "10MB") to bytes
 func parseSize(size string) (int64, error) {
 	size = strings.TrimSpace(size)
 	if size == "" {
@@ -238,7 +222,6 @@ func parseSize(size string) (int64, error) {
 	return int64(value * float64(multiplier)), nil
 }
 
-// getSystemCPUFrequency returns the CPU frequency in GHz for the current system
 func getSystemCPUFrequency() float64 {
 	switch runtime.GOOS {
 	case "darwin":
@@ -248,26 +231,24 @@ func getSystemCPUFrequency() float64 {
 	case "windows":
 		return getWindowsCPUFrequency()
 	default:
-		return 2.0 // Conservative default for unknown OS
+		return 2.0
 	}
 }
 
-// getMacCPUFrequency gets the CPU frequency on macOS
 func getMacCPUFrequency() float64 {
 	out, err := exec.Command("sysctl", "-n", "hw.cpufrequency").Output()
 	if err == nil {
 		if freq, err := strconv.ParseFloat(strings.TrimSpace(string(out)), 64); err == nil {
-			return freq / 1e9 // Convert Hz to GHz
+			return freq / 1e9
 		}
 	}
 
-	// If that fails, try getting it from CPU brand string
 	out, err = exec.Command("sysctl", "-n", "machdep.cpu.brand_string").Output()
 	if err == nil {
 		if strings.Contains(string(out), "Apple") {
 			return 3.0
 		}
-		// For Intel Macs
+
 		if strings.Contains(string(out), "@") {
 			parts := strings.Split(string(out), "@")
 			if len(parts) > 1 {
@@ -283,12 +264,11 @@ func getMacCPUFrequency() float64 {
 	return 2.0
 }
 
-// getLinuxCPUFrequency gets the CPU frequency on Linux
 func getLinuxCPUFrequency() float64 {
 	out, err := exec.Command("cat", "/sys/devices/system/cpu/cpu0/cpufreq/cpuinfo_max_freq").Output()
 	if err == nil {
 		if freq, err := strconv.ParseFloat(strings.TrimSpace(string(out)), 64); err == nil {
-			return freq / 1e6 // Convert kHz to GHz
+			return freq / 1e6
 		}
 	}
 
@@ -334,10 +314,9 @@ func getLinuxCPUFrequency() float64 {
 		}
 	}
 
-	return 2.0 // Conservative default
+	return 2.0
 }
 
-// getWindowsCPUFrequency gets the CPU frequency on Windows
 func getWindowsCPUFrequency() float64 {
 	out, err := exec.Command("powershell", "-Command",
 		"Get-WmiObject Win32_Processor | Select-Object MaxClockSpeed | Format-Table -HideTableHeaders").Output()
@@ -348,19 +327,17 @@ func getWindowsCPUFrequency() float64 {
 		}
 	}
 
-	// Try using wmic as fallback
 	out, err = exec.Command("wmic", "cpu", "get", "maxclockspeed").Output()
 	if err == nil {
 		lines := strings.Split(string(out), "\n")
 		if len(lines) >= 2 {
 			freqStr := strings.TrimSpace(lines[1])
 			if freq, err := strconv.ParseFloat(freqStr, 64); err == nil {
-				return freq / 1000 // Convert MHz to GHz
+				return freq / 1000
 			}
 		}
 	}
 
-	// Try getting it from CPU name as last resort
 	out, err = exec.Command("wmic", "cpu", "get", "name").Output()
 	if err == nil {
 		if strings.Contains(string(out), "@") {
@@ -375,8 +352,7 @@ func getWindowsCPUFrequency() float64 {
 		}
 	}
 
-	return 2.0 // Conservative default
+	return 2.0
 }
 
-// Ensure ResourceMonitor implements ports.MetricsProvider
 var _ ports.MetricsProvider = (*ResourceMonitor)(nil)

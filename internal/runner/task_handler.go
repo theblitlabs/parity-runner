@@ -14,8 +14,6 @@ import (
 	"github.com/theblitlabs/parity-runner/internal/core/ports"
 )
 
-// TaskHandler interface moved to internal/core/ports/task_handler.go
-
 type DefaultTaskHandler struct {
 	executor     ports.TaskExecutor
 	taskClient   ports.TaskClient
@@ -38,9 +36,8 @@ func (h *DefaultTaskHandler) verifyNonce(ctx context.Context, nonce string) erro
 		return fmt.Errorf("empty nonce")
 	}
 
-	// Verify nonce is valid hex
 	if _, err := hex.DecodeString(nonce); err != nil {
-		// Check if it might be a fallback UUID-based nonce
+
 		parts := strings.Split(nonce, "-")
 		if len(parts) < 2 {
 			return fmt.Errorf("invalid nonce format: not hex and not UUID-based")
@@ -62,21 +59,17 @@ func (h *DefaultTaskHandler) HandleTask(task *models.Task) error {
 		Str("type", string(task.Type)).
 		Msg("Starting task execution")
 
-	// Mark task as in progress
 	h.isProcessing.Store(true)
 	defer h.isProcessing.Store(false)
 
-	// Update task status to running
 	if err := h.taskClient.UpdateTaskStatus(task.ID.String(), models.TaskStatusRunning, nil); err != nil {
 		log.Error().Err(err).Str("id", task.ID.String()).Msg("Failed to update task status to running")
-		// Continue execution even if status update fails
+
 	}
 
-	// Create a context for task execution
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 	defer cancel()
 
-	// Verify the nonce
 	if err := h.verifyNonce(ctx, task.Nonce); err != nil {
 		log.Error().Err(err).Str("id", task.ID.String()).Msg("Nonce verification failed")
 		h.taskClient.UpdateTaskStatus(task.ID.String(), models.TaskStatusFailed, &models.TaskResult{
@@ -86,7 +79,6 @@ func (h *DefaultTaskHandler) HandleTask(task *models.Task) error {
 		return err
 	}
 
-	// Execute the task
 	result, err := h.executor.ExecuteTask(ctx, task)
 	if err != nil {
 		log.Error().Err(err).Str("id", task.ID.String()).Msg("Task execution failed")
@@ -97,14 +89,12 @@ func (h *DefaultTaskHandler) HandleTask(task *models.Task) error {
 		return err
 	}
 
-	// Add device ID to result
 	deviceIDManager := deviceid.NewManager(deviceid.Config{})
 	deviceID, err := deviceIDManager.VerifyDeviceID()
 	if err == nil {
 		result.DeviceID = deviceID
 	}
 
-	// Update task status to completed
 	status := models.TaskStatusCompleted
 	if result.ExitCode != 0 {
 		status = models.TaskStatusFailed

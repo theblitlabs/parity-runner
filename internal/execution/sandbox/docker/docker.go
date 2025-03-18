@@ -58,20 +58,17 @@ func (e *DockerExecutor) ExecuteTask(ctx context.Context, task *models.Task) (*m
 
 	log.Info().Str("id", task.ID.String()).Str("nonce", task.Nonce).Msg("Executing task")
 
-	// Verify nonce format
 	if err := nonce.VerifyDrandNonce(task.Nonce); err != nil {
 		log.Error().Err(err).Str("id", task.ID.String()).Msg("Invalid nonce format")
 		return nil, fmt.Errorf("invalid nonce format: %w", err)
 	}
 
-	// Parse task config
 	var config models.TaskConfig
 	if err := json.Unmarshal(task.Config, &config); err != nil {
 		log.Error().Err(err).Str("id", task.ID.String()).Msg("Invalid config")
 		return nil, fmt.Errorf("invalid config: %w", err)
 	}
 
-	// Validate config
 	if len(config.Command) == 0 {
 		log.Error().Str("id", task.ID.String()).Msg("Missing command")
 		return nil, fmt.Errorf("command required")
@@ -83,21 +80,18 @@ func (e *DockerExecutor) ExecuteTask(ctx context.Context, task *models.Task) (*m
 		return nil, fmt.Errorf("image name required")
 	}
 
-	// Ensure image is available
 	if err := e.imageManager.EnsureImageAvailable(ctx, image, config.DockerImageURL); err != nil {
 		log.Error().Err(err).Str("id", task.ID.String()).Msg("Failed to prepare image")
 		return nil, fmt.Errorf("image preparation failed: %w", err)
 	}
 
-	// Set up workdir
 	workdir, ok := task.Environment.Config["workdir"].(string)
 	if !ok || workdir == "" {
-		// Use root directory as default workdir
+
 		workdir = "/"
 		log.Debug().Str("id", task.ID.String()).Msg("Using default workdir '/'")
 	}
 
-	// Prepare environment variables
 	envVars := []string{
 		fmt.Sprintf("TASK_NONCE=%s", task.Nonce),
 	}
@@ -110,27 +104,22 @@ func (e *DockerExecutor) ExecuteTask(ctx context.Context, task *models.Task) (*m
 		}
 	}
 
-	// Create timeout context
 	ctx, cancel := context.WithTimeout(ctx, e.config.Timeout)
 	defer cancel()
 
-	// Create container
 	containerID, err := e.containerMgr.CreateContainer(ctx, image, config.Command, workdir, envVars)
 	if err != nil {
 		log.Error().Err(err).Str("id", task.ID.String()).Msg("Container creation failed")
 		return nil, fmt.Errorf("container creation failed: %w", err)
 	}
 
-	// Ensure container is removed at the end
 	defer e.containerMgr.RemoveContainer(context.Background(), containerID)
 
-	// Start container
 	if err := e.containerMgr.StartContainer(ctx, containerID); err != nil {
 		log.Error().Err(err).Str("id", task.ID.String()).Msg("Container start failed")
 		return nil, fmt.Errorf("container start failed: %w", err)
 	}
 
-	// Set up metrics collection
 	metrics, err := NewResourceMetrics(containerID)
 	if err == nil {
 		if err := metrics.Start(ctx); err != nil {
@@ -142,7 +131,6 @@ func (e *DockerExecutor) ExecuteTask(ctx context.Context, task *models.Task) (*m
 		log.Error().Err(err).Str("id", task.ID.String()).Msg("Failed to initialize metrics collector")
 	}
 
-	// Wait for container completion
 	exitCode, err := e.containerMgr.WaitForContainer(ctx, containerID)
 	if err != nil {
 		log.Error().Err(err).Str("id", task.ID.String()).Msg("Container wait failed")
@@ -152,7 +140,6 @@ func (e *DockerExecutor) ExecuteTask(ctx context.Context, task *models.Task) (*m
 	}
 	result.ExitCode = exitCode
 
-	// Get container logs
 	logs, err := e.containerMgr.GetContainerLogs(ctx, containerID)
 	if err != nil {
 		log.Error().Err(err).Str("id", task.ID.String()).Msg("Log fetch failed")
@@ -161,14 +148,12 @@ func (e *DockerExecutor) ExecuteTask(ctx context.Context, task *models.Task) (*m
 	}
 	result.Output = fmt.Sprintf("NONCE: %s\n%s", task.Nonce, logs)
 
-	// Verify nonce appears in output
 	if !e.containerMgr.VerifyNonceInOutput(result.Output, task.Nonce) {
 		log.Error().Str("id", task.ID.String()).Str("nonce", task.Nonce).Msg("Nonce not found in task output")
 		return nil, fmt.Errorf("nonce verification failed: nonce not found in output")
 	}
 	log.Info().Str("id", task.ID.String()).Str("nonce", task.Nonce).Msg("Nonce verified in output")
 
-	// Collect metrics
 	if metrics != nil {
 		collectedMetrics := metrics.GetMetrics()
 		result.CPUSeconds = collectedMetrics.CPUSeconds

@@ -9,19 +9,16 @@ import (
 	"gorm.io/gorm"
 )
 
-// GormTaskRepository implements TaskRepository using GORM
 type GormTaskRepository struct {
 	db *gorm.DB
 }
 
-// NewGormTaskRepository creates a new GORM-based task repository
 func NewGormTaskRepository(db *gorm.DB) *GormTaskRepository {
 	return &GormTaskRepository{
 		db: db,
 	}
 }
 
-// GetTask retrieves a task by ID
 func (r *GormTaskRepository) GetTask(id uuid.UUID) (*models.Task, error) {
 	var task models.Task
 	if err := r.db.First(&task, "id = ?", id).Error; err != nil {
@@ -33,7 +30,6 @@ func (r *GormTaskRepository) GetTask(id uuid.UUID) (*models.Task, error) {
 	return &task, nil
 }
 
-// SaveTask persists a task
 func (r *GormTaskRepository) SaveTask(task *models.Task) error {
 	log := gologger.WithComponent("gorm_task_repo")
 
@@ -46,7 +42,6 @@ func (r *GormTaskRepository) SaveTask(task *models.Task) error {
 	return nil
 }
 
-// UpdateTaskStatus updates the status of a task
 func (r *GormTaskRepository) UpdateTaskStatus(id uuid.UUID, status models.TaskStatus) error {
 	log := gologger.WithComponent("gorm_task_repo")
 
@@ -77,7 +72,6 @@ func (r *GormTaskRepository) UpdateTaskStatus(id uuid.UUID, status models.TaskSt
 	return nil
 }
 
-// SaveTaskResult stores a task result
 func (r *GormTaskRepository) SaveTaskResult(result *models.TaskResult) error {
 	log := gologger.WithComponent("gorm_task_repo")
 
@@ -95,7 +89,6 @@ func (r *GormTaskRepository) SaveTaskResult(result *models.TaskResult) error {
 	return nil
 }
 
-// ListTasksByStatus retrieves tasks filtered by status
 func (r *GormTaskRepository) ListTasksByStatus(status models.TaskStatus, limit int) ([]*models.Task, error) {
 	log := gologger.WithComponent("gorm_task_repo")
 
@@ -122,5 +115,4 @@ func (r *GormTaskRepository) ListTasksByStatus(status models.TaskStatus, limit i
 	return tasks, nil
 }
 
-// Ensure GormTaskRepository implements TaskRepository
 var _ TaskRepository = (*GormTaskRepository)(nil)

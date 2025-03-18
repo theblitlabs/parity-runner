@@ -10,24 +10,20 @@ import (
 	"github.com/theblitlabs/parity-runner/internal/execution/sandbox/docker"
 )
 
-// Executor implements the TaskExecutor interface for various execution environments
 type Executor struct {
 	dockerExecutor *docker.DockerExecutor
 }
 
-// NewExecutor creates a new task executor
 func NewExecutor(dockerExec *docker.DockerExecutor) *Executor {
 	return &Executor{
 		dockerExecutor: dockerExec,
 	}
 }
 
-// Execute executes a task based on its type
 func (e *Executor) Execute(task *models.Task) (*models.TaskResult, error) {
 	return e.ExecuteTask(context.Background(), task)
 }
 
-// ExecuteTask executes a task based on its type with context
 func (e *Executor) ExecuteTask(ctx context.Context, task *models.Task) (*models.TaskResult, error) {
 	log := gologger.WithComponent("task_executor")
 
@@ -44,12 +40,11 @@ func (e *Executor) ExecuteTask(ctx context.Context, task *models.Task) (*models.
 	case models.TaskTypeDocker:
 		return e.dockerExecutor.ExecuteTask(ctx, task)
 	case models.TaskTypeCommand:
-		// For future implementation
+
 		return nil, fmt.Errorf("command task type not implemented yet")
 	default:
 		return nil, fmt.Errorf("unsupported task type: %s", task.Type)
 	}
 }
 
-// Ensure Executor implements ports.TaskExecutor
 var _ ports.TaskExecutor = (*Executor)(nil)

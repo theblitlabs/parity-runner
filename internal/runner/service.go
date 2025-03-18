@@ -114,7 +114,7 @@ func NewService(cfg *config.Config) (*Service, error) {
 
 	webhookClient := webhook.NewWebhookClient(
 		cfg.Runner.ServerURL,
-		"", // Will be set in the client
+		"",
 		cfg.Runner.WebhookPort,
 		taskHandler,
 		runnerID,
@@ -177,18 +177,15 @@ func (s *Service) Stop(ctx context.Context) error {
 	log := gologger.WithComponent("runner")
 	log.Info().Msg("Stopping runner service...")
 
-	// Create a channel to track completion
 	done := make(chan error, 1)
 	go func() {
 		var err error
 
-		// First stop the heartbeat service if it exists
 		if s.heartbeatService != nil {
 			s.heartbeatService.Stop()
 			log.Info().Msg("Heartbeat service stopped successfully")
 		}
 
-		// Then stop the webhook client
 		if s.webhookClient != nil {
 			if stopErr := s.webhookClient.Stop(); stopErr != nil {
 				log.Error().Err(stopErr).Msg("Failed to stop webhook client")
@@ -198,7 +195,6 @@ func (s *Service) Stop(ctx context.Context) error {
 			}
 		}
 
-		// Finally close the docker client
 		if s.dockerClient != nil {
 			if closeErr := s.dockerClient.Close(); closeErr != nil {
 				log.Error().Err(closeErr).Msg("Failed to close Docker client")
@@ -213,7 +209,6 @@ func (s *Service) Stop(ctx context.Context) error {
 		done <- err
 	}()
 
-	// Wait for shutdown to complete or context to timeout
 	select {
 	case err := <-done:
 		if err != nil {
