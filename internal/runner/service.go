@@ -114,7 +114,6 @@ func NewService(cfg *config.Config) (*Service, error) {
 
 	webhookClient := webhook.NewWebhookClient(
 		cfg.Runner.ServerURL,
-		"",
 		cfg.Runner.WebhookPort,
 		taskHandler,
 		runnerID,

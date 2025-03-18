@@ -41,10 +41,10 @@ type WebhookClient struct {
 	heartbeat          *heartbeat.HeartbeatService
 }
 
-func NewWebhookClient(serverURL string, webhookURL string, serverPort int, handler ports.TaskHandler, runnerID, deviceID, walletAddress string) *WebhookClient {
+func NewWebhookClient(serverURL string, serverPort int, handler ports.TaskHandler, runnerID, deviceID, walletAddress string) *WebhookClient {
 	client := &WebhookClient{
 		serverURL:       serverURL,
-		webhookURL:      webhookURL,
+		webhookURL:      "",
 		handler:         handler,
 		runnerID:        runnerID,
 		deviceID:        deviceID,
