@@ -8,7 +8,7 @@ on:
 
 jobs:
   lint:
-    name: Quick Lint
+    name: Linting
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
@@ -24,7 +24,7 @@ jobs:
         uses: golangci/golangci-lint-action@v3
         with:
           version: latest
-          args: --timeout=5m --out-format=colored-line-number --fast
+          args: --timeout=5m --out-format=colored-line-number
           skip-cache: true
           skip-pkg-cache: true
           skip-build-cache: true

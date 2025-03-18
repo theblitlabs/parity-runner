@@ -35,10 +35,6 @@ if command -v goimports >/dev/null 2>&1; then
   goimports -w -local github.com/theblitlabs/parity-runner .
 fi
 
-# Lint checks (but continue even if they fail)
-echo "🔍 Running linters..."
-make lint || echo "⚠️ Linting issues found, but continuing..."
-
 # Security checks
 echo "🔒 Running security checks..."
 
@@ -83,19 +79,6 @@ mv go.sum.bak go.sum
 
 if [ -n "$diff_mod" ] || [ -n "$diff_sum" ]; then
   echo "⚠️ Warning: go.mod or go.sum not tidy. You should run 'go mod tidy'."
-fi
-
-# Static analysis (but continue even if they fail)
-echo "🔍 Running static analysis..."
-# Get a list of packages (excluding vendor/ and .git/)
-GO_PACKAGES=$(go list ./... 2>/dev/null || echo "")
-if [ -n "$GO_PACKAGES" ]; then
-  go vet -unusedresult $GO_PACKAGES || echo "⚠️ Go vet unusedresult issues found, but continuing..."
-  go vet -stdmethods $GO_PACKAGES || echo "⚠️ Go vet stdmethods issues found, but continuing..."
-  go vet -composites $GO_PACKAGES || echo "⚠️ Go vet composites issues found, but continuing..."
-  go vet -unreachable $GO_PACKAGES || echo "⚠️ Go vet unreachable issues found, but continuing..."
-else
-  echo "No Go packages found to analyze."
 fi
 
 echo "✅ Pre-commit checks completed!"
