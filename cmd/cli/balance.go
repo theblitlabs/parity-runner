@@ -1,117 +1,96 @@
 package cli
 
 import (
-	"context"
-	"time"
-
 	"github.com/ethereum/go-ethereum/common"
-	"github.com/ethereum/go-ethereum/crypto"
-
-	walletsdk "github.com/theblitlabs/go-wallet-sdk"
-	"github.com/theblitlabs/parity-runner/internal/core/config"
-
-	"os"
-	"path/filepath"
-
-	"github.com/theblitlabs/deviceid"
+	"github.com/spf13/cobra"
 	"github.com/theblitlabs/gologger"
-	"github.com/theblitlabs/keystore"
+	"github.com/theblitlabs/parity-runner/internal/utils/cliutil"
+	"github.com/theblitlabs/parity-runner/internal/utils/configutil"
+	"github.com/theblitlabs/parity-runner/internal/utils/contextutil"
+	"github.com/theblitlabs/parity-runner/internal/utils/deviceidutil"
+	"github.com/theblitlabs/parity-runner/internal/utils/errorutil"
+	"github.com/theblitlabs/parity-runner/internal/utils/walletutil"
 )
 
 func RunBalance() {
-	log := gologger.Get().With().Str("component", "balance").Logger()
+	logger := gologger.Get().With().Str("component", "balance").Logger()
 
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	cmd := cliutil.CreateCommand(cliutil.CommandConfig{
+		Use:   "balance",
+		Short: "Check token balances and stake status",
+		RunFunc: func(cmd *cobra.Command, args []string) error {
+			return executeBalance()
+		},
+	}, logger)
+
+	cliutil.ExecuteCommand(cmd, logger)
+}
+
+func executeBalance() error {
+	logger := gologger.Get().With().Str("component", "balance").Logger()
+
+	ctx, cancel := contextutil.WithTimeout()
 	defer cancel()
 
-	cfg, err := config.LoadConfig("config/config.yaml")
+	cfg, err := configutil.GetConfig()
 	if err != nil {
-		log.Fatal().Err(err).Msg("Failed to load config")
+		return err
 	}
 
-	homeDir, err := os.UserHomeDir()
+	client, err := walletutil.NewClient(cfg)
 	if err != nil {
-		log.Fatal().Err(err).Msg("Failed to get user home directory")
-	}
-
-	ks, err := keystore.NewKeystore(keystore.Config{
-		DirPath:  filepath.Join(homeDir, ".parity"),
-		FileName: "keystore.json",
-	})
-	if err != nil {
-		log.Fatal().Err(err).Msg("Failed to create keystore")
-	}
-
-	privateKey, err := ks.LoadPrivateKey()
-	if err != nil {
-		log.Fatal().Err(err).Msg("No private key found - please authenticate first using 'parity auth'")
-	}
-
-	clientConfig := walletsdk.ClientConfig{
-		RPCURL:       cfg.Ethereum.RPC,
-		ChainID:      cfg.Ethereum.ChainID,
-		PrivateKey:   common.Bytes2Hex(crypto.FromECDSA(privateKey)),
-		TokenAddress: common.HexToAddress(cfg.Ethereum.TokenAddress),
-		StakeAddress: common.HexToAddress(cfg.Ethereum.StakeWalletAddress),
-	}
-
-	client, err := walletsdk.NewClient(clientConfig)
-	if err != nil {
-		log.Fatal().Err(err).Msg("Failed to create Ethereum client")
+		return err
 	}
 
 	walletBalance, err := client.GetBalance(client.Address())
 	if err != nil {
-		select {
-		case <-ctx.Done():
-			log.Fatal().Err(ctx.Err()).Msg("Operation timed out while getting wallet balance")
-		default:
-			log.Fatal().Err(err).Msg("Failed to get wallet balance")
-		}
+		errorutil.HandleContextFatal(logger, ctx, err,
+			"Operation timed out while getting wallet balance",
+			"Failed to get wallet balance")
+		return err
 	}
 
-	log.Info().
+	logger.Info().
 		Str("wallet_address", client.Address().Hex()).
 		Str("balance", walletBalance.String()+" PRTY").
 		Msg("Wallet token balance")
 
-	deviceIDManager := deviceid.NewManager(deviceid.Config{})
-	deviceID, err := deviceIDManager.VerifyDeviceID()
+	deviceID, err := deviceidutil.GetDeviceID()
 	if err != nil {
-		log.Fatal().Err(err).Msg("Failed to get device ID")
+		logger.Fatal().Err(err).Msg("Failed to get device ID")
+		return err
 	}
 
 	stakeInfo, err := client.GetStakeInfo(deviceID)
 	if err != nil {
-		select {
-		case <-ctx.Done():
-			log.Fatal().Err(ctx.Err()).Msg("Operation timed out while getting stake info")
-		default:
-			log.Fatal().Err(err).Msg("Failed to get stake info")
-		}
+		errorutil.HandleContextFatal(logger, ctx, err,
+			"Operation timed out while getting stake info",
+			"Failed to get stake info")
+		return err
 	}
 
 	if stakeInfo.Exists {
-		log.Info().
+		logger.Info().
 			Str("amount", stakeInfo.Amount.String()+" PRTY").
 			Str("device_id", stakeInfo.DeviceID).
 			Str("wallet_address", stakeInfo.WalletAddress.Hex()).
 			Msg("Current stake info")
 
-		contractBalance, err := client.GetBalance(clientConfig.StakeAddress)
+		stakeAddress := common.HexToAddress(cfg.Ethereum.StakeWalletAddress)
+		contractBalance, err := client.GetBalance(stakeAddress)
 		if err != nil {
-			select {
-			case <-ctx.Done():
-				log.Fatal().Err(ctx.Err()).Msg("Operation timed out while getting contract balance")
-			default:
-				log.Fatal().Err(err).Msg("Failed to get contract balance")
-			}
+			errorutil.HandleContextFatal(logger, ctx, err,
+				"Operation timed out while getting contract balance",
+				"Failed to get contract balance")
+			return err
 		}
-		log.Info().
+		logger.Info().
 			Str("balance", contractBalance.String()).
-			Str("contract_address", clientConfig.StakeAddress.Hex()).
+			Str("contract_address", stakeAddress.Hex()).
 			Msg("Contract token balance")
 	} else {
-		log.Info().Msg("No active stake found")
+		logger.Info().Msg("No active stake found")
 	}
+
+	return nil
 }
