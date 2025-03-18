@@ -3,7 +3,6 @@ package db
 import (
 	"fmt"
 
-	"github.com/theblitlabs/gologger"
 	"gorm.io/gorm"
 )
 
@@ -41,19 +40,4 @@ func (s *Service) Close() error {
 	}
 
 	return sqlDB.Close()
-}
-
-// Migrate runs database migrations
-func (s *Service) Migrate(models ...interface{}) error {
-	log := gologger.WithComponent("database.migrate")
-
-	if s.config.AutoMigrate {
-		log.Info().Msg("Running auto-migrations")
-		if err := s.db.AutoMigrate(models...); err != nil {
-			return fmt.Errorf("auto-migration failed: %w", err)
-		}
-		log.Info().Msg("Auto-migrations completed successfully")
-	}
-
-	return nil
 }
