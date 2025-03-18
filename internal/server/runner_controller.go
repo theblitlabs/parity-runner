@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/theblitlabs/gologger"
+
 	"github.com/theblitlabs/parity-runner/internal/core/models"
 	"github.com/theblitlabs/parity-runner/internal/core/services"
 )
@@ -21,7 +22,6 @@ func NewRunnerController(runnerService services.RunnerService) *RunnerController
 }
 
 func (c *RunnerController) RegisterRoutes(mux *http.ServeMux) {
-
 	mux.HandleFunc("/api/runners", c.handleRunnerRequest)
 	mux.HandleFunc("/api/runners/heartbeat", c.handleHeartbeat)
 	mux.HandleFunc("/api/runners/tasks/", c.handleTaskRequest)

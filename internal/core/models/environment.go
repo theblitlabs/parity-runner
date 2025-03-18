@@ -68,7 +68,6 @@ func (e *EnvironmentConfig) validateDockerConfig() error {
 }
 
 func (e *EnvironmentConfig) validateLocalConfig() error {
-
 	return nil
 }
 

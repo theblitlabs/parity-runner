@@ -4,6 +4,7 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/spf13/cobra"
 	"github.com/theblitlabs/gologger"
+
 	"github.com/theblitlabs/parity-runner/internal/utils/cliutil"
 	"github.com/theblitlabs/parity-runner/internal/utils/configutil"
 	"github.com/theblitlabs/parity-runner/internal/utils/contextutil"

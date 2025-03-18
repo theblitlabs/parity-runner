@@ -12,6 +12,7 @@ import (
 
 	"github.com/go-co-op/gocron"
 	"github.com/theblitlabs/gologger"
+
 	"github.com/theblitlabs/parity-runner/internal/core/models"
 	"github.com/theblitlabs/parity-runner/internal/core/ports"
 )

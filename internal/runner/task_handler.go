@@ -8,6 +8,7 @@ import (
 
 	"github.com/theblitlabs/deviceid"
 	"github.com/theblitlabs/gologger"
+
 	"github.com/theblitlabs/parity-runner/internal/core/models"
 	"github.com/theblitlabs/parity-runner/internal/core/ports"
 	"github.com/theblitlabs/parity-runner/internal/utils/nonce"
@@ -51,7 +52,6 @@ func (h *DefaultTaskHandler) HandleTask(task *models.Task) error {
 
 	if err := h.taskClient.UpdateTaskStatus(task.ID.String(), models.TaskStatusRunning, nil); err != nil {
 		log.Error().Err(err).Str("id", task.ID.String()).Msg("Failed to update task status to running")
-
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)

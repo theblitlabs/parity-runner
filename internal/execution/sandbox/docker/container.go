@@ -23,7 +23,6 @@ func NewContainerManager(memoryLimit, cpuLimit string) *ContainerManager {
 }
 
 func formatContainerOutput(output []byte) string {
-
 	cleaned := bytes.Map(func(r rune) rune {
 		if r < 32 && r != '\n' && r != '\t' {
 			return -1

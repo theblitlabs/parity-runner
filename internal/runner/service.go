@@ -13,6 +13,7 @@ import (
 	"github.com/theblitlabs/deviceid"
 	"github.com/theblitlabs/gologger"
 	"github.com/theblitlabs/keystore"
+
 	"github.com/theblitlabs/parity-runner/internal/core/config"
 	"github.com/theblitlabs/parity-runner/internal/core/ports"
 	"github.com/theblitlabs/parity-runner/internal/execution/sandbox/docker"

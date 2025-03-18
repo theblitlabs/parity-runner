@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/theblitlabs/gologger"
+
 	"github.com/theblitlabs/parity-runner/internal/core/models"
 	"github.com/theblitlabs/parity-runner/internal/core/ports"
 	"github.com/theblitlabs/parity-runner/internal/messaging/heartbeat"
@@ -199,13 +200,11 @@ func (w *WebhookClient) cleanupCompletedTasks() {
 	inProgressCutoff := time.Now().Add(-1 * time.Hour)
 
 	for taskID, completedAt := range w.completedTasks {
-
 		if !completedAt.IsZero() {
 			if completedAt.Before(cutoff) {
 				delete(w.completedTasks, taskID)
 			}
 		} else {
-
 			if w.lastCleanupTime.Before(inProgressCutoff) {
 				delete(w.completedTasks, taskID)
 			}
@@ -429,6 +428,5 @@ func getOutboundIP() (net.IP, error) {
 type defaultMetricsProvider struct{}
 
 func (p *defaultMetricsProvider) GetSystemMetrics() (int64, float64) {
-
 	return 0, 0.0
 }

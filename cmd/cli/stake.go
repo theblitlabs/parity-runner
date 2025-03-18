@@ -11,6 +11,7 @@ import (
 	"github.com/spf13/cobra"
 	walletsdk "github.com/theblitlabs/go-wallet-sdk"
 	"github.com/theblitlabs/gologger"
+
 	"github.com/theblitlabs/parity-runner/internal/utils"
 	"github.com/theblitlabs/parity-runner/internal/utils/cliutil"
 	"github.com/theblitlabs/parity-runner/internal/utils/configutil"

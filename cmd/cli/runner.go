@@ -12,6 +12,7 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/theblitlabs/gologger"
+
 	"github.com/theblitlabs/parity-runner/internal/runner"
 	"github.com/theblitlabs/parity-runner/internal/utils/cliutil"
 	"github.com/theblitlabs/parity-runner/internal/utils/configutil"

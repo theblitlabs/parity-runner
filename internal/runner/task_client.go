@@ -11,6 +11,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/theblitlabs/deviceid"
+
 	"github.com/theblitlabs/parity-runner/internal/core/models"
 )
 

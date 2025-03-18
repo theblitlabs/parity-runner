@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/theblitlabs/gologger"
+
 	"github.com/theblitlabs/parity-runner/internal/core/models"
 	"github.com/theblitlabs/parity-runner/internal/utils/nonce"
 )

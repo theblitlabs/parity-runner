@@ -5,8 +5,9 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/theblitlabs/gologger"
-	"github.com/theblitlabs/parity-runner/internal/core/models"
 	"gorm.io/gorm"
+
+	"github.com/theblitlabs/parity-runner/internal/core/models"
 )
 
 type GormTaskRepository struct {

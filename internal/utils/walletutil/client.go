@@ -6,6 +6,7 @@ import (
 
 	"github.com/ethereum/go-ethereum/common"
 	walletsdk "github.com/theblitlabs/go-wallet-sdk"
+
 	"github.com/theblitlabs/parity-runner/internal/core/config"
 	"github.com/theblitlabs/parity-runner/internal/utils/keystoreutil"
 )

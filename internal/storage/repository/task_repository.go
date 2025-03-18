@@ -2,6 +2,7 @@ package repository
 
 import (
 	"github.com/google/uuid"
+
 	"github.com/theblitlabs/parity-runner/internal/core/models"
 )
 

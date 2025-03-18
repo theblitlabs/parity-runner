@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/theblitlabs/gologger"
+
 	"github.com/theblitlabs/parity-runner/internal/core/ports"
 )
 
