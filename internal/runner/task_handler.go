@@ -87,7 +87,7 @@ func (h *DefaultTaskHandler) HandleTask(task *models.Task) error {
 	}
 
 	// Execute the task
-	result, err := h.executor.Execute(task)
+	result, err := h.executor.ExecuteTask(ctx, task)
 	if err != nil {
 		log.Error().Err(err).Str("id", task.ID.String()).Msg("Task execution failed")
 		h.taskClient.UpdateTaskStatus(task.ID.String(), models.TaskStatusFailed, &models.TaskResult{

@@ -1,6 +1,8 @@
 package ports
 
 import (
+	"context"
+
 	"github.com/theblitlabs/parity-runner/internal/core/models"
 )
 
@@ -12,7 +14,7 @@ type TaskHandler interface {
 
 // TaskExecutor defines the interface for executing tasks
 type TaskExecutor interface {
-	Execute(task *models.Task) (*models.TaskResult, error)
+	ExecuteTask(ctx context.Context, task *models.Task) (*models.TaskResult, error)
 }
 
 // TaskClient defines the interface for task-related API communications

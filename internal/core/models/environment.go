@@ -67,7 +67,7 @@ func (e *EnvironmentConfig) Validate() error {
 // validateDockerConfig validates Docker-specific configuration
 func (e *EnvironmentConfig) validateDockerConfig() error {
 	if e.Config == nil {
-		return errors.New("Docker environment configuration is required")
+		return errors.New("docker environment configuration is required")
 	}
 
 	return nil

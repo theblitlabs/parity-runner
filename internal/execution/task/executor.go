@@ -1,6 +1,7 @@
 package task
 
 import (
+	"context"
 	"fmt"
 
 	"github.com/theblitlabs/gologger"
@@ -23,6 +24,11 @@ func NewExecutor(dockerExec *docker.DockerExecutor) *Executor {
 
 // Execute executes a task based on its type
 func (e *Executor) Execute(task *models.Task) (*models.TaskResult, error) {
+	return e.ExecuteTask(context.Background(), task)
+}
+
+// ExecuteTask executes a task based on its type with context
+func (e *Executor) ExecuteTask(ctx context.Context, task *models.Task) (*models.TaskResult, error) {
 	log := gologger.WithComponent("task_executor")
 
 	if task == nil {
@@ -36,7 +42,7 @@ func (e *Executor) Execute(task *models.Task) (*models.TaskResult, error) {
 
 	switch task.Type {
 	case models.TaskTypeDocker:
-		return e.dockerExecutor.Execute(task)
+		return e.dockerExecutor.ExecuteTask(ctx, task)
 	case models.TaskTypeCommand:
 		// For future implementation
 		return nil, fmt.Errorf("command task type not implemented yet")
