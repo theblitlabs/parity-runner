@@ -8,7 +8,7 @@ import (
 	"github.com/ethereum/go-ethereum/crypto"
 
 	walletsdk "github.com/theblitlabs/go-wallet-sdk"
-	"github.com/theblitlabs/parity-runner/internal/config"
+	"github.com/theblitlabs/parity-runner/internal/core/config"
 
 	"os"
 	"path/filepath"

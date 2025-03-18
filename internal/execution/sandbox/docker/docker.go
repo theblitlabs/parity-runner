@@ -548,8 +548,3 @@ func (e *DockerExecutor) verifyDrandNonce(nonce string) error {
 
 	return nil
 }
-
-// Execute implements TaskExecutor interface
-func (e *DockerExecutor) Execute(task *models.Task) (*models.TaskResult, error) {
-	return e.ExecuteTask(context.Background(), task)
-}

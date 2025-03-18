@@ -16,7 +16,7 @@ import (
 	walletsdk "github.com/theblitlabs/go-wallet-sdk"
 	"github.com/theblitlabs/gologger"
 	"github.com/theblitlabs/keystore"
-	"github.com/theblitlabs/parity-runner/internal/config"
+	"github.com/theblitlabs/parity-runner/internal/core/config"
 	"github.com/theblitlabs/parity-runner/internal/utils"
 )
 
