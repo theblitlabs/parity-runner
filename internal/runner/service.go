@@ -94,17 +94,6 @@ func NewService(cfg *config.Config) (*Service, error) {
 	}
 
 	runnerID := uuid.New().String()
-	hostname, err := os.Hostname()
-	if err != nil {
-		hostname = "localhost"
-	}
-
-	webhookPort := 8090
-	if cfg.Runner.WebhookPort > 0 {
-		webhookPort = cfg.Runner.WebhookPort
-	}
-
-	webhookURL := fmt.Sprintf("http://%s:%d/webhook", hostname, webhookPort)
 
 	walletAddress, err := utils.GetWalletAddress()
 	if err != nil {
@@ -128,7 +117,6 @@ func NewService(cfg *config.Config) (*Service, error) {
 
 	log.Info().
 		Str("server_url", cfg.Runner.ServerURL).
-		Str("webhook_url", webhookURL).
 		Msg("Runner service initialized")
 
 	return svc, nil
