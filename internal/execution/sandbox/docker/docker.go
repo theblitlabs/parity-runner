@@ -10,7 +10,7 @@ import (
 	"github.com/theblitlabs/gologger"
 
 	"github.com/theblitlabs/parity-runner/internal/core/models"
-	"github.com/theblitlabs/parity-runner/internal/utils/nonce"
+	"github.com/theblitlabs/parity-runner/internal/utils"
 )
 
 type DockerExecutor struct {
@@ -59,7 +59,7 @@ func (e *DockerExecutor) ExecuteTask(ctx context.Context, task *models.Task) (*m
 
 	log.Info().Str("id", task.ID.String()).Str("nonce", task.Nonce).Msg("Executing task")
 
-	if err := nonce.VerifyDrandNonce(task.Nonce); err != nil {
+	if err := utils.VerifyDrandNonce(task.Nonce); err != nil {
 		log.Error().Err(err).Str("id", task.ID.String()).Msg("Invalid nonce format")
 		return nil, fmt.Errorf("invalid nonce format: %w", err)
 	}

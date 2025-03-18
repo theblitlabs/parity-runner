@@ -1,4 +1,4 @@
-package keystoreutil
+package utils
 
 import (
 	"crypto/ecdsa"

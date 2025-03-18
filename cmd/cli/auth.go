@@ -8,23 +8,19 @@ import (
 	"github.com/rs/zerolog/log"
 	"github.com/spf13/cobra"
 
-	"github.com/theblitlabs/parity-runner/internal/utils/cliutil"
-	"github.com/theblitlabs/parity-runner/internal/utils/configutil"
-	"github.com/theblitlabs/parity-runner/internal/utils/errorutil"
-	"github.com/theblitlabs/parity-runner/internal/utils/keystoreutil"
-	"github.com/theblitlabs/parity-runner/internal/utils/walletutil"
+	"github.com/theblitlabs/parity-runner/internal/utils"
 )
 
 func RunAuth() {
 	var privateKey string
 	logger := log.With().Str("component", "auth").Logger()
 
-	cmd := cliutil.CreateCommand(cliutil.CommandConfig{
+	cmd := utils.CreateCommand(utils.CommandConfig{
 		Use:   "auth",
 		Short: "Authenticate with the network",
-		Flags: map[string]cliutil.Flag{
+		Flags: map[string]utils.Flag{
 			"private-key": {
-				Type:        cliutil.FlagTypeString,
+				Type:        utils.FlagTypeString,
 				Shorthand:   "k",
 				Description: "Private key in hex format",
 				Required:    true,
@@ -41,7 +37,7 @@ func RunAuth() {
 		},
 	}, logger)
 
-	cliutil.ExecuteCommand(cmd, logger)
+	utils.ExecuteCommand(cmd, logger)
 }
 
 func ExecuteAuth(privateKey string) error {
@@ -51,7 +47,7 @@ func ExecuteAuth(privateKey string) error {
 		return fmt.Errorf("private key is required")
 	}
 
-	cfg, err := configutil.GetConfig()
+	cfg, err := utils.GetConfig()
 	if err != nil {
 		return fmt.Errorf("failed to load config: %w", err)
 	}
@@ -67,20 +63,20 @@ func ExecuteAuth(privateKey string) error {
 		return fmt.Errorf("invalid private key format: %w", err)
 	}
 
-	if err := keystoreutil.SavePrivateKey(privateKey); err != nil {
+	if err := utils.SavePrivateKey(privateKey); err != nil {
 		return fmt.Errorf("failed to save private key: %w", err)
 	}
 
-	walletutil.ResetClient()
+	utils.ResetClient()
 
-	client, err := walletutil.GetClientWithPrivateKey(cfg, privateKey)
+	client, err := utils.GetClientWithPrivateKey(cfg, privateKey)
 	if err != nil {
-		return errorutil.WrapError(err, "invalid private key")
+		return utils.WrapError(err, "invalid private key")
 	}
 
 	logger.Info().
 		Str("address", client.Address().Hex()).
-		Str("keystore", fmt.Sprintf("%s/%s", keystoreutil.KeystoreDirName, keystoreutil.KeystoreFileName)).
+		Str("keystore", fmt.Sprintf("%s/%s", utils.KeystoreDirName, utils.KeystoreFileName)).
 		Msg("Wallet authenticated successfully")
 
 	return nil

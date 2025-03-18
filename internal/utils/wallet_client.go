@@ -1,4 +1,4 @@
-package walletutil
+package utils
 
 import (
 	"fmt"
@@ -8,7 +8,6 @@ import (
 	walletsdk "github.com/theblitlabs/go-wallet-sdk"
 
 	"github.com/theblitlabs/parity-runner/internal/core/config"
-	"github.com/theblitlabs/parity-runner/internal/utils/keystoreutil"
 )
 
 var (
@@ -28,7 +27,7 @@ func NewClient(cfg *config.Config) (*walletsdk.Client, error) {
 		return clientInstance, nil
 	}
 
-	privateKeyHex, err := keystoreutil.GetPrivateKeyHex()
+	privateKeyHex, err := GetPrivateKeyHex()
 	if err != nil {
 		return nil, fmt.Errorf("failed to get private key: %w", err)
 	}

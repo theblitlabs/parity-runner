@@ -1,4 +1,4 @@
-package nonce
+package utils
 
 import (
 	"encoding/hex"

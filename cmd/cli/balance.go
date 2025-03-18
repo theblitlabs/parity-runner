@@ -5,18 +5,13 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/theblitlabs/gologger"
 
-	"github.com/theblitlabs/parity-runner/internal/utils/cliutil"
-	"github.com/theblitlabs/parity-runner/internal/utils/configutil"
-	"github.com/theblitlabs/parity-runner/internal/utils/contextutil"
-	"github.com/theblitlabs/parity-runner/internal/utils/deviceidutil"
-	"github.com/theblitlabs/parity-runner/internal/utils/errorutil"
-	"github.com/theblitlabs/parity-runner/internal/utils/walletutil"
+	"github.com/theblitlabs/parity-runner/internal/utils"
 )
 
 func RunBalance() {
 	logger := gologger.Get().With().Str("component", "balance").Logger()
 
-	cmd := cliutil.CreateCommand(cliutil.CommandConfig{
+	cmd := utils.CreateCommand(utils.CommandConfig{
 		Use:   "balance",
 		Short: "Check token balances and stake status",
 		RunFunc: func(cmd *cobra.Command, args []string) error {
@@ -24,28 +19,28 @@ func RunBalance() {
 		},
 	}, logger)
 
-	cliutil.ExecuteCommand(cmd, logger)
+	utils.ExecuteCommand(cmd, logger)
 }
 
 func executeBalance() error {
 	logger := gologger.Get().With().Str("component", "balance").Logger()
 
-	ctx, cancel := contextutil.WithTimeout()
+	ctx, cancel := utils.WithTimeout()
 	defer cancel()
 
-	cfg, err := configutil.GetConfig()
+	cfg, err := utils.GetConfig()
 	if err != nil {
 		return err
 	}
 
-	client, err := walletutil.NewClient(cfg)
+	client, err := utils.NewClient(cfg)
 	if err != nil {
 		return err
 	}
 
 	walletBalance, err := client.GetBalance(client.Address())
 	if err != nil {
-		errorutil.HandleContextFatal(logger, ctx, err,
+		utils.HandleContextFatal(logger, ctx, err,
 			"Operation timed out while getting wallet balance",
 			"Failed to get wallet balance")
 		return err
@@ -56,7 +51,7 @@ func executeBalance() error {
 		Str("balance", walletBalance.String()+" PRTY").
 		Msg("Wallet token balance")
 
-	deviceID, err := deviceidutil.GetDeviceID()
+	deviceID, err := utils.GetDeviceID()
 	if err != nil {
 		logger.Fatal().Err(err).Msg("Failed to get device ID")
 		return err
@@ -64,7 +59,7 @@ func executeBalance() error {
 
 	stakeInfo, err := client.GetStakeInfo(deviceID)
 	if err != nil {
-		errorutil.HandleContextFatal(logger, ctx, err,
+		utils.HandleContextFatal(logger, ctx, err,
 			"Operation timed out while getting stake info",
 			"Failed to get stake info")
 		return err
@@ -80,7 +75,7 @@ func executeBalance() error {
 		stakeAddress := common.HexToAddress(cfg.Ethereum.StakeWalletAddress)
 		contractBalance, err := client.GetBalance(stakeAddress)
 		if err != nil {
-			errorutil.HandleContextFatal(logger, ctx, err,
+			utils.HandleContextFatal(logger, ctx, err,
 				"Operation timed out while getting contract balance",
 				"Failed to get contract balance")
 			return err

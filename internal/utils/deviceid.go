@@ -1,4 +1,4 @@
-package deviceidutil
+package utils
 
 import (
 	"fmt"

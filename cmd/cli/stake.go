@@ -13,10 +13,6 @@ import (
 	"github.com/theblitlabs/gologger"
 
 	"github.com/theblitlabs/parity-runner/internal/utils"
-	"github.com/theblitlabs/parity-runner/internal/utils/cliutil"
-	"github.com/theblitlabs/parity-runner/internal/utils/configutil"
-	"github.com/theblitlabs/parity-runner/internal/utils/deviceidutil"
-	"github.com/theblitlabs/parity-runner/internal/utils/walletutil"
 )
 
 func RunStake() {
@@ -25,12 +21,12 @@ func RunStake() {
 	logger := gologger.Get().With().Str("component", "stake").Logger()
 	logger.Info().Msg("Starting staking process...")
 
-	cmd := cliutil.CreateCommand(cliutil.CommandConfig{
+	cmd := utils.CreateCommand(utils.CommandConfig{
 		Use:   "stake",
 		Short: "Stake tokens in the network",
-		Flags: map[string]cliutil.Flag{
+		Flags: map[string]utils.Flag{
 			"amount": {
-				Type:           cliutil.FlagTypeFloat64,
+				Type:           utils.FlagTypeFloat64,
 				Shorthand:      "a",
 				Description:    "Amount of PRTY tokens to stake",
 				DefaultFloat64: 1.0,
@@ -52,13 +48,13 @@ func RunStake() {
 		},
 	}, logger)
 
-	cliutil.ExecuteCommand(cmd, logger)
+	utils.ExecuteCommand(cmd, logger)
 }
 
 func executeStake(amount float64) error {
 	logger := gologger.Get().With().Str("component", "stake").Logger()
 
-	cfg, err := configutil.GetConfig()
+	cfg, err := utils.GetConfig()
 	if err != nil {
 		logger.Fatal().
 			Err(err).
@@ -66,7 +62,7 @@ func executeStake(amount float64) error {
 		return err
 	}
 
-	client, err := walletutil.NewClient(cfg)
+	client, err := utils.NewClient(cfg)
 	if err != nil {
 		logger.Fatal().
 			Err(err).
@@ -74,7 +70,7 @@ func executeStake(amount float64) error {
 		return err
 	}
 
-	deviceID, err := deviceidutil.GetDeviceID()
+	deviceID, err := utils.GetDeviceID()
 	if err != nil {
 		logger.Fatal().
 			Err(err).

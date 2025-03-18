@@ -11,7 +11,7 @@ import (
 
 	"github.com/theblitlabs/parity-runner/internal/core/models"
 	"github.com/theblitlabs/parity-runner/internal/core/ports"
-	"github.com/theblitlabs/parity-runner/internal/utils/nonce"
+	"github.com/theblitlabs/parity-runner/internal/utils"
 )
 
 type DefaultTaskHandler struct {
@@ -32,7 +32,7 @@ func (h *DefaultTaskHandler) IsProcessing() bool {
 }
 
 func (h *DefaultTaskHandler) verifyNonce(nonceStr string) error {
-	return nonce.VerifyDrandNonce(nonceStr)
+	return utils.VerifyDrandNonce(nonceStr)
 }
 
 func (h *DefaultTaskHandler) HandleTask(task *models.Task) error {

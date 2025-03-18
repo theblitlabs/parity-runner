@@ -1,4 +1,4 @@
-package errorutil
+package utils
 
 import (
 	"context"

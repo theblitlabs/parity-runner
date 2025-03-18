@@ -1,4 +1,4 @@
-package cliutil
+package utils
 
 import (
 	"github.com/rs/zerolog"

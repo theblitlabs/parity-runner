@@ -14,10 +14,7 @@ import (
 	"github.com/theblitlabs/gologger"
 
 	"github.com/theblitlabs/parity-runner/internal/runner"
-	"github.com/theblitlabs/parity-runner/internal/utils/cliutil"
-	"github.com/theblitlabs/parity-runner/internal/utils/configutil"
-	"github.com/theblitlabs/parity-runner/internal/utils/contextutil"
-	"github.com/theblitlabs/parity-runner/internal/utils/deviceidutil"
+	"github.com/theblitlabs/parity-runner/internal/utils"
 )
 
 func checkPortAvailable(port int) error {
@@ -54,7 +51,7 @@ func checkServerConnectivity(serverURL string) error {
 func RunRunner() {
 	logger := gologger.Get().With().Str("component", "cli").Logger()
 
-	cmd := cliutil.CreateCommand(cliutil.CommandConfig{
+	cmd := utils.CreateCommand(utils.CommandConfig{
 		Use:   "runner",
 		Short: "Start the task runner",
 		RunFunc: func(cmd *cobra.Command, args []string) error {
@@ -62,13 +59,13 @@ func RunRunner() {
 		},
 	}, logger)
 
-	cliutil.ExecuteCommand(cmd, logger)
+	utils.ExecuteCommand(cmd, logger)
 }
 
 func executeRunner() error {
 	logger := gologger.Get().With().Str("component", "cli").Logger()
 
-	cfg, err := configutil.GetConfig()
+	cfg, err := utils.GetConfig()
 	if err != nil {
 		logger.Fatal().Err(err).Msg("Failed to load config")
 		return err
@@ -99,7 +96,7 @@ func executeRunner() error {
 	runnerService.SetHeartbeatInterval(cfg.Runner.HeartbeatInterval)
 	logger.Info().Dur("interval", cfg.Runner.HeartbeatInterval).Msg("Configured heartbeat interval")
 
-	deviceID, err := deviceidutil.GetDeviceID()
+	deviceID, err := utils.GetDeviceID()
 	if err != nil {
 		logger.Fatal().Err(err).Msg("Failed to generate device ID")
 		return err
@@ -127,7 +124,7 @@ func executeRunner() error {
 
 		cancel()
 
-		shutdownCtx, shutdownCancel := contextutil.WithTimeout()
+		shutdownCtx, shutdownCancel := utils.WithTimeout()
 		defer shutdownCancel()
 
 		shutdownChan := make(chan struct{})
