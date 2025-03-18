@@ -7,21 +7,18 @@ import (
 	"github.com/rs/zerolog"
 )
 
-// HandleError is a utility function for handling errors with logging
 func HandleError(log zerolog.Logger, err error, msg string) {
 	if err != nil {
 		log.Error().Err(err).Msg(msg)
 	}
 }
 
-// HandleFatal logs a fatal error and panics
 func HandleFatal(log zerolog.Logger, err error, msg string) {
 	if err != nil {
 		log.Fatal().Err(err).Msg(msg)
 	}
 }
 
-// HandleContextError handles errors based on context status
 func HandleContextError(log zerolog.Logger, ctx context.Context, err error, timeoutMsg, errorMsg string) {
 	if err != nil {
 		select {
@@ -33,7 +30,6 @@ func HandleContextError(log zerolog.Logger, ctx context.Context, err error, time
 	}
 }
 
-// HandleContextFatal handles fatal errors based on context status
 func HandleContextFatal(log zerolog.Logger, ctx context.Context, err error, timeoutMsg, errorMsg string) {
 	if err != nil {
 		select {
@@ -45,7 +41,6 @@ func HandleContextFatal(log zerolog.Logger, ctx context.Context, err error, time
 	}
 }
 
-// WrapError wraps an error with additional context
 func WrapError(err error, format string, args ...interface{}) error {
 	if err == nil {
 		return nil

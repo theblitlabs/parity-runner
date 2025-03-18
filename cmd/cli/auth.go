@@ -70,10 +70,8 @@ func ExecuteAuth(privateKey string) error {
 		return fmt.Errorf("failed to save private key: %w", err)
 	}
 
-	// Reset the wallet client cache since we've updated the private key
 	walletutil.ResetClient()
 
-	// Create a new client with the specified private key
 	client, err := walletutil.GetClientWithPrivateKey(cfg, privateKey)
 	if err != nil {
 		return errorutil.WrapError(err, "invalid private key")

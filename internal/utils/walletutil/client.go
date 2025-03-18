@@ -10,24 +10,19 @@ import (
 	"github.com/theblitlabs/parity-runner/internal/utils/keystoreutil"
 )
 
-// Global client instance for caching
 var (
 	clientInstance *walletsdk.Client
 	clientMutex    sync.Mutex
 )
 
-// NewClient creates a new wallet client
 func NewClient(cfg *config.Config) (*walletsdk.Client, error) {
-	// Check if we already have a client instance
 	if clientInstance != nil {
 		return clientInstance, nil
 	}
 
-	// Lock to prevent concurrent initialization
 	clientMutex.Lock()
 	defer clientMutex.Unlock()
 
-	// Double-check after acquiring the lock
 	if clientInstance != nil {
 		return clientInstance, nil
 	}
@@ -53,19 +48,16 @@ func NewClient(cfg *config.Config) (*walletsdk.Client, error) {
 		return nil, fmt.Errorf("failed to create wallet client: %w", err)
 	}
 
-	// Cache the client instance
 	clientInstance = client
 	return client, nil
 }
 
-// ResetClient clears the cached client instance, forcing a new one to be created next time
 func ResetClient() {
 	clientMutex.Lock()
 	defer clientMutex.Unlock()
 	clientInstance = nil
 }
 
-// GetClientWithConfig creates a new wallet client with a specific configuration, bypassing the cache
 func GetClientWithConfig(config walletsdk.ClientConfig) (*walletsdk.Client, error) {
 	client, err := walletsdk.NewClient(config)
 	if err != nil {
@@ -74,7 +66,6 @@ func GetClientWithConfig(config walletsdk.ClientConfig) (*walletsdk.Client, erro
 	return client, nil
 }
 
-// GetClientWithPrivateKey creates a new wallet client with a specific private key
 func GetClientWithPrivateKey(cfg *config.Config, privateKeyHex string) (*walletsdk.Client, error) {
 	clientConfig := walletsdk.ClientConfig{
 		RPCURL:       cfg.Ethereum.RPC,

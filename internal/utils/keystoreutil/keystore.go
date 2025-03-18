@@ -16,7 +16,6 @@ const (
 	KeystoreFileName = "keystore.json"
 )
 
-// GetKeystore creates and returns a keystore instance
 func GetKeystore() (*keystore.Store, error) {
 	homeDir, err := os.UserHomeDir()
 	if err != nil {
@@ -34,7 +33,6 @@ func GetKeystore() (*keystore.Store, error) {
 	return ks, nil
 }
 
-// GetPrivateKey loads the private key from the keystore
 func GetPrivateKey() (*ecdsa.PrivateKey, error) {
 	ks, err := GetKeystore()
 	if err != nil {
@@ -49,7 +47,6 @@ func GetPrivateKey() (*ecdsa.PrivateKey, error) {
 	return privateKey, nil
 }
 
-// GetPrivateKeyHex returns the private key as a hex string
 func GetPrivateKeyHex() (string, error) {
 	privateKey, err := GetPrivateKey()
 	if err != nil {
@@ -59,7 +56,6 @@ func GetPrivateKeyHex() (string, error) {
 	return common.Bytes2Hex(crypto.FromECDSA(privateKey)), nil
 }
 
-// SavePrivateKey saves a private key to the keystore
 func SavePrivateKey(privateKeyHex string) error {
 	ks, err := GetKeystore()
 	if err != nil {

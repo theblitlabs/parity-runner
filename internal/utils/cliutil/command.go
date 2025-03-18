@@ -35,21 +35,15 @@ type Flag struct {
 	DefaultBool    bool
 }
 
-// FlagType defines the type of flag
 type FlagType int
 
 const (
-	// FlagTypeString is a string flag
 	FlagTypeString FlagType = iota
-	// FlagTypeInt is an integer flag
 	FlagTypeInt
-	// FlagTypeFloat64 is a float64 flag
 	FlagTypeFloat64
-	// FlagTypeBool is a boolean flag
 	FlagTypeBool
 )
 
-// CreateCommand creates a new cobra command with the given configuration
 func CreateCommand(config CommandConfig, log zerolog.Logger) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:     config.Use,
@@ -64,7 +58,6 @@ func CreateCommand(config CommandConfig, log zerolog.Logger) *cobra.Command {
 		},
 	}
 
-	// Add flags
 	for name, flag := range config.Flags {
 		switch flag.Type {
 		case FlagTypeString:
@@ -87,7 +80,6 @@ func CreateCommand(config CommandConfig, log zerolog.Logger) *cobra.Command {
 	return cmd
 }
 
-// ExecuteCommand executes a cobra command and handles errors
 func ExecuteCommand(cmd *cobra.Command, log zerolog.Logger) {
 	if err := cmd.Execute(); err != nil {
 		log.Fatal().Err(err).Msg("Command execution failed")

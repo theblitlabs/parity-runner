@@ -13,14 +13,11 @@ var (
 	configMutex       sync.RWMutex
 )
 
-// GetConfig loads the configuration, using a cached version if available
 func GetConfig() (*config.Config, error) {
 	return GetConfigWithPath(defaultConfigPath)
 }
 
-// GetConfigWithPath loads the configuration from a specific path
 func GetConfigWithPath(configPath string) (*config.Config, error) {
-	// First try to get from cache
 	configMutex.RLock()
 	if cachedConfig != nil {
 		defer configMutex.RUnlock()
@@ -28,11 +25,9 @@ func GetConfigWithPath(configPath string) (*config.Config, error) {
 	}
 	configMutex.RUnlock()
 
-	// Cache miss, load from file
 	configMutex.Lock()
 	defer configMutex.Unlock()
 
-	// Double-check after acquiring lock
 	if cachedConfig != nil {
 		return cachedConfig, nil
 	}
@@ -46,7 +41,6 @@ func GetConfigWithPath(configPath string) (*config.Config, error) {
 	return cfg, nil
 }
 
-// ClearCache clears the cached configuration
 func ClearCache() {
 	configMutex.Lock()
 	defer configMutex.Unlock()

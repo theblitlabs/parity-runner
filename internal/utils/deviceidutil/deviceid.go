@@ -6,10 +6,8 @@ import (
 	"github.com/theblitlabs/deviceid"
 )
 
-// singleton instance
 var manager *deviceid.Manager
 
-// GetDeviceID returns the device ID, creating a new manager if needed
 func GetDeviceID() (string, error) {
 	if manager == nil {
 		manager = deviceid.NewManager(deviceid.Config{})
