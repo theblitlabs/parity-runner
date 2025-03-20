@@ -1,88 +1,50 @@
-# Go parameters
-GOCMD=go
-GOBUILD=$(GOCMD) build
-GORUN=$(GOCMD) run
-GOTEST=$(GOCMD) test
-GOGET=$(GOCMD) get
-GOMOD=$(GOCMD) mod
-GOFMT=$(GOCMD) fmt
-BINARY_NAME=parity-runner
-MAIN_PATH=cmd/main.go
-AIR_VERSION=v1.49.0
-GOPATH=$(shell go env GOPATH)
-AIR=$(GOPATH)/bin/air
-GOFUMPT_PATH=$(GOPATH)/bin/gofumpt
-GOIMPORTS_PATH=$(GOPATH)/bin/goimports
+# Project configuration
+BINARY_NAME := parity-runner
+MAIN_PATH := cmd/main.go
+INSTALL_PATH := /usr/local/bin
 
-# Linting and formatting parameters
-GOLANGCI_LINT=$(shell which golangci-lint)
-LINT_FLAGS=--timeout=5m
-LINT_CONFIG=.golangci.yml
-LINT_OUTPUT_FORMAT=colored-line-number
-LINT_VERBOSE=false
+# Go commands
+GOCMD := go
+GOBUILD := $(GOCMD) build
+GORUN := $(GOCMD) run
+GOMOD := $(GOCMD) mod
+GOFMT := $(GOCMD) fmt
 
-# Test related variables
-COVERAGE_DIR=coverage
-COVERAGE_PROFILE=$(COVERAGE_DIR)/coverage.out
-COVERAGE_HTML=$(COVERAGE_DIR)/coverage.html
-TEST_FLAGS=-race -coverprofile=$(COVERAGE_PROFILE) -covermode=atomic
-TEST_PACKAGES=./...  # This will test all packages
-TEST_PATH=./test/...
+# Tool paths
+GOPATH := $(shell go env GOPATH)
+GOFUMPT_PATH := $(GOPATH)/bin/gofumpt
+GOIMPORTS_PATH := $(GOPATH)/bin/goimports
+GOLANGCI_LINT := $(shell which golangci-lint)
 
-# Build flags
-BUILD_FLAGS=-v
+# Build configuration
+BUILD_FLAGS := -v
 
-# Add these lines after the existing parameters
-INSTALL_PATH=/usr/local/bin
+# Lint configuration
+LINT_FLAGS := --timeout=5m
+LINT_CONFIG := .golangci.yml
+LINT_OUTPUT_FORMAT := colored-line-number
 
-.PHONY: all build test run clean deps fmt imports format lint format-lint check-format lint-report help docker-up docker-down docker-logs docker-build docker-clean install-air watch migrate-up migrate-down tools install uninstall install-lint-tools lint install-hooks
+# Define phony targets
+.PHONY: all build clean deps fmt imports format lint format-lint check-format help \
+        runner stake balance auth install uninstall install-lint-tools install-hooks
 
-all: clean build
+# Default target
+.DEFAULT_GOAL := help
+
+# Primary targets
+all: clean build ## Clean and build the project
 
 build: ## Build the application
 	$(GOBUILD) $(BUILD_FLAGS) -o $(BINARY_NAME) ./cmd
 	chmod +x $(BINARY_NAME)
 
-test: setup-coverage ## Run tests with coverage
-	$(GOTEST) $(TEST_FLAGS) -v $(TEST_PACKAGES)
-	@go tool cover -func=$(COVERAGE_PROFILE)
-	@go tool cover -html=$(COVERAGE_PROFILE) -o $(COVERAGE_HTML)
-
-setup-coverage: ## Create coverage directory
-	@mkdir -p $(COVERAGE_DIR)
-
-run:  ## Run the application
-	$(GOCMD) run $(MAIN_PATH)
-
-server:  ## Start the parity server
-	$(GOCMD) run $(MAIN_PATH) server
-
-runner:  ## Start the task runner
-	$(GOCMD) run $(MAIN_PATH) runner
-
-chain:  ## Start the chain proxy server
-	$(GOCMD) run $(MAIN_PATH) chain
-
-stake:  ## Stake tokens in the network
-	$(GOCMD) run $(MAIN_PATH) stake --amount 10
-
-balance:  ## Check token balances
-	$(GOCMD) run $(MAIN_PATH) balance
-
-auth:  ## Authenticate with the network
-	$(GOCMD) run $(MAIN_PATH) auth
-
-clean: ## Clean build files
+clean: ## Clean build files and test artifacts
 	rm -f $(BINARY_NAME)
 	find . -type f -name '*.test' -delete
 	find . -type f -name '*.out' -delete
-	rm -rf tmp/
+	rm -rf tmp/ $(COVERAGE_DIR)
 
-deps: ## Download dependencies
-	git submodule update --init --recursive
-	$(GOMOD) download
-	$(GOMOD) tidy
-
+# Development targets
 fmt: ## Format code using gofumpt (preferred) or gofmt
 	@echo "Formatting code..."
 	@if [ -x "$(GOFUMPT_PATH)" ]; then \
@@ -131,27 +93,24 @@ check-format: ## Check code formatting without applying changes (useful for CI)
 	@echo "Checking code formatting..."
 	@./scripts/check_format.sh
 
-lint-report: ## Generate a lint report without failing the build (make lint-report OUTPUT=json)
-	@echo "Generating lint report..."
-	@./scripts/lint_report.sh $(OUTPUT)
+runner: ## Start the task runner
+	$(GORUN) $(MAIN_PATH) runner
 
-install-air: ## Install air for hot reloading
-	@if ! command -v air > /dev/null; then \
-		echo "Installing air..." && \
-		go install github.com/air-verse/air@latest; \
-	fi
 
-watch: install-air ## Run the application with hot reload
-	$(AIR)
+stake: ## Stake tokens in the network
+	$(GORUN) $(MAIN_PATH) stake --amount 10
 
-migrate-up: ## Run database migrations up
-	$(GOCMD) run $(MAIN_PATH) migrate
+balance: ## Check token balances
+	$(GORUN) $(MAIN_PATH) balance
 
-migrate-down: ## Run database migrations down
-	$(GOCMD) run $(MAIN_PATH) migrate --down
+auth: ## Authenticate with the network
+	$(GORUN) $(MAIN_PATH) auth
 
-help: ## Display this help screen
-	@grep -h -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "\033[36m%-30s\033[0m %s\n", $$1, $$2}'
+# Installation targets
+deps: ## Download dependencies
+	git submodule update --init --recursive
+	$(GOMOD) download
+	$(GOMOD) tidy
 
 install: build ## Install parity command globally
 	@echo "Installing parity to $(INSTALL_PATH)..."
@@ -174,4 +133,6 @@ install-hooks: ## Install git hooks
 	@echo "Installing git hooks..."
 	@./scripts/hooks/install-hooks.sh
 
-.DEFAULT_GOAL := help
+
+help: ## Display this help screen
+	@grep -h -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "\033[36m%-30s\033[0m %s\n", $$1, $$2}'
