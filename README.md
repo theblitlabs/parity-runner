@@ -2,9 +2,38 @@
 
 Parity Protocol is a decentralized compute network where runners can execute compute tasks (e.g., running a Docker file) and earn incentives in the form of tokens. Task creators can add tasks to a pool, and the first runner to complete a task successfully receives a reward.
 
-## Quick Start
+## Get Started
 
-### Prerequisites
+1. Install the Parity Runner:
+
+```bash
+git clone https://github.com/theblitlabs/parity-runner.git
+cd parity-runner
+make deps
+make install
+```
+
+2. Authenticate with your private key:
+
+```bash
+parity-runner auth --private-key YOUR_PRIVATE_KEY
+```
+
+3. Stake tokens to participate in the network:
+
+```bash
+parity-runner stake --amount 10
+```
+
+4. Start running tasks:
+
+```bash
+parity-runner
+```
+
+That's it! You're now participating in the Parity Protocol network.
+
+## Prerequisites
 
 - Go 1.23.0 or higher (using Go toolchain 1.24.0)
 - PostgreSQL
@@ -42,29 +71,22 @@ The project includes several helpful Makefile commands for development:
 
 ```bash
 make build          # Build the application
-make run            # Run the application
 make clean          # Clean build files
 make deps           # Download dependencies
-make fmt            # Format code
-make lint           # Lint code
-make watch          # Run with hot reload (requires air)
-make install        # Install parity command globally
-make uninstall      # Remove parity command from system
-make runner         # Start the task runner
+make fmt            # Format code using gofumpt
+make imports        # Fix imports formatting
+make format         # Run all formatters (gofumpt + goimports)
+make lint           # Run linting
+make format-lint    # Format code and run linters
+make run         # Start the task runner
 make stake          # Stake tokens in the network
 make balance        # Check token balances
 make auth           # Authenticate with the network
+make install        # Install parity-runner command globally
+make uninstall      # Remove parity-runner command from system
+make install-lint-tools # Install formatting and linting tools
+make install-hooks  # Install git hooks
 make help           # Display all available commands
-```
-
-For hot reloading during development:
-
-```bash
-# Install air (required for hot reloading)
-make install-air
-
-# Run with hot reload
-make watch
 ```
 
 ### Configuration
@@ -99,20 +121,20 @@ runner:
 
 ### CLI Commands
 
-The CLI provides a unified interface through the `parity` command:
+The CLI provides a unified interface through the `parity-runner` command:
 
 ```bash
 # Show available commands and help
-parity help
+parity-runner help
 
 # Authenticate with your private key
 parity auth --private-key <private-key>
 
 # Start a runner
-parity runner
+parity-runner runner
 
 # Check balance
-parity balance
+parity-runner balance
 
 # Stake tokens
 parity stake --amount <amount>
@@ -121,7 +143,7 @@ parity stake --amount <amount>
 Each command supports the `--help` flag for detailed usage information:
 
 ```bash
-parity <command> --help
+parity-runner <command> --help
 ```
 
 ### API Documentation

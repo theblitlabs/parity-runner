@@ -26,7 +26,7 @@ LINT_OUTPUT_FORMAT := colored-line-number
 
 # Define phony targets
 .PHONY: all build clean deps fmt imports format lint format-lint check-format help \
-        runner stake balance auth install uninstall install-lint-tools install-hooks
+        run stake balance auth install uninstall install-lint-tools install-hooks
 
 # Default target
 .DEFAULT_GOAL := help
@@ -93,8 +93,8 @@ check-format: ## Check code formatting without applying changes (useful for CI)
 	@echo "Checking code formatting..."
 	@./scripts/check_format.sh
 
-runner: ## Start the task runner
-	$(GORUN) $(MAIN_PATH) runner
+run: ## Start the task runner
+	$(GORUN) $(MAIN_PATH)
 
 
 stake: ## Stake tokens in the network
