@@ -285,58 +285,54 @@ func (w *WebhookClient) handleWebhook(resp http.ResponseWriter, req *http.Reques
 
 	switch message.Type {
 	case "available_tasks":
-		var tasks []*models.Task
-		if err := json.Unmarshal(message.Payload, &tasks); err != nil {
-			log.Error().Err(err).Msg("Failed to parse tasks from webhook payload")
+		var task *models.Task
+		if err := json.Unmarshal(message.Payload, &task); err != nil {
+			log.Error().Err(err).Msg("Failed to parse task from webhook payload")
 			http.Error(resp, "Invalid task payload", http.StatusBadRequest)
 			return
 		}
 
-		if len(tasks) > 0 {
-			log.Info().Int("count", len(tasks)).Msg("Tasks received via webhook")
+		if task != nil {
+			log.Info().Int("count", 1).Msg("Task received via webhook")
 
-			for _, task := range tasks {
-				taskID := task.ID.String()
+			taskID := task.ID.String()
 
-				if w.isTaskCompleted(taskID) {
-					log.Debug().
-						Str("id", taskID).
-						Str("type", string(task.Type)).
-						Msg("Skipping already completed or in-progress task")
-					continue
-				}
-
-				if !w.markTaskStarted(taskID) {
-					log.Debug().
-						Str("id", taskID).
-						Str("type", string(task.Type)).
-						Msg("Task is already being processed")
-					continue
-				}
-
-				log.Info().
+			if w.isTaskCompleted(taskID) {
+				log.Debug().
 					Str("id", taskID).
-					Str("title", task.Title).
+					Str("type", string(task.Type)).
+					Msg("Skipping already completed or in-progress task")
+			}
+
+			if !w.markTaskStarted(taskID) {
+				log.Debug().
+					Str("id", taskID).
+					Str("type", string(task.Type)).
+					Msg("Task is already being processed")
+			}
+
+			log.Info().
+				Str("id", taskID).
+				Str("title", task.Title).
+				Str("type", string(task.Type)).
+				Float64("reward", task.Reward).
+				Msg("Processing task from webhook")
+
+			if err := w.handler.HandleTask(task); err != nil {
+				log.Error().Err(err).
+					Str("id", taskID).
 					Str("type", string(task.Type)).
 					Float64("reward", task.Reward).
-					Msg("Processing task from webhook")
+					Msg("Task processing failed")
 
-				if err := w.handler.HandleTask(task); err != nil {
-					log.Error().Err(err).
-						Str("id", taskID).
-						Str("type", string(task.Type)).
-						Float64("reward", task.Reward).
-						Msg("Task processing failed")
+				w.markTaskCompleted(taskID)
+			} else {
+				log.Info().
+					Str("id", taskID).
+					Str("type", string(task.Type)).
+					Msg("Task processed successfully")
 
-					w.markTaskCompleted(taskID)
-				} else {
-					log.Info().
-						Str("id", taskID).
-						Str("type", string(task.Type)).
-						Msg("Task processed successfully")
-
-					w.markTaskCompleted(taskID)
-				}
+				w.markTaskCompleted(taskID)
 			}
 		} else {
 			log.Warn().Msg("Received empty tasks array in webhook")
