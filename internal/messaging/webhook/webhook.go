@@ -139,6 +139,10 @@ func (w *WebhookClient) Stop() error {
 	defer cancel()
 
 	if w.heartbeat != nil {
+		if offlineErr := w.heartbeat.SendOfflineHeartbeat(ctx); offlineErr != nil {
+			log.Error().Err(offlineErr).Msg("Failed to send offline heartbeat")
+		}
+
 		w.heartbeat.Stop()
 		log.Info().Msg("Heartbeat service stopped")
 	}
@@ -405,9 +409,19 @@ func (w *WebhookClient) Register() error {
 		return fmt.Errorf("register request failed with status %d: %s", resp.StatusCode, string(body))
 	}
 
+	var response struct {
+		WebhookID string `json:"webhook_id"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&response); err != nil {
+		return fmt.Errorf("failed to decode register response: %w", err)
+	}
+
+	w.webhookID = response.WebhookID
+
 	log.Info().
 		Str("device_id", w.deviceID).
 		Str("webhook_url", w.webhookURL).
+		Str("webhook_id", w.webhookID).
 		Int("status_code", resp.StatusCode).
 		Msg("Runner registered successfully with server")
 

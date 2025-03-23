@@ -17,7 +17,6 @@ import (
 	"github.com/theblitlabs/parity-runner/internal/core/config"
 	"github.com/theblitlabs/parity-runner/internal/core/ports"
 	"github.com/theblitlabs/parity-runner/internal/execution/sandbox/docker"
-	"github.com/theblitlabs/parity-runner/internal/messaging/heartbeat"
 	"github.com/theblitlabs/parity-runner/internal/messaging/webhook"
 	"github.com/theblitlabs/parity-runner/internal/utils"
 )
@@ -31,7 +30,6 @@ type Service struct {
 	dockerClient      *client.Client
 	deviceID          string
 	heartbeatInterval time.Duration
-	heartbeatService  *heartbeat.HeartbeatService
 }
 
 func NewService(cfg *config.Config) (*Service, error) {
@@ -169,17 +167,10 @@ func (s *Service) Stop(ctx context.Context) error {
 	go func() {
 		var err error
 
-		if s.heartbeatService != nil {
-			s.heartbeatService.Stop()
-			log.Info().Msg("Heartbeat service stopped successfully")
-		}
-
 		if s.webhookClient != nil {
 			if stopErr := s.webhookClient.Stop(); stopErr != nil {
 				log.Error().Err(stopErr).Msg("Failed to stop webhook client")
 				err = stopErr
-			} else {
-				log.Info().Msg("Webhook client stopped successfully")
 			}
 		}
 
