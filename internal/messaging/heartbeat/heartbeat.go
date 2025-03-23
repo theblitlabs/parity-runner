@@ -275,3 +275,82 @@ func (h *HeartbeatService) SetInterval(interval time.Duration) {
 		h.job, _ = h.scheduler.Every(interval).Do(h.heartbeatTask)
 	}
 }
+
+func (h *HeartbeatService) SendOfflineHeartbeat(ctx context.Context) error {
+	log := gologger.WithComponent("heartbeat")
+	log.Info().Msg("Sending final offline heartbeat...")
+
+	type HeartbeatPayload struct {
+		DeviceID      string              `json:"device_id"`
+		WalletAddress string              `json:"wallet_address"`
+		Status        models.RunnerStatus `json:"status"`
+		Timestamp     int64               `json:"timestamp"`
+		Uptime        int64               `json:"uptime"`
+		Memory        int64               `json:"memory_usage"`
+		CPU           float64             `json:"cpu_usage"`
+	}
+
+	memory, cpu := h.metricsProvider.GetSystemMetrics()
+
+	payload := HeartbeatPayload{
+		DeviceID:      h.config.DeviceID,
+		WalletAddress: h.config.WalletAddress,
+		Status:        models.RunnerStatusOffline,
+		Timestamp:     time.Now().Unix(),
+		Uptime:        int64(time.Since(h.startTime).Seconds()),
+		Memory:        memory,
+		CPU:           cpu,
+	}
+
+	payloadBytes, err := json.Marshal(payload)
+	if err != nil {
+		return fmt.Errorf("failed to marshal offline heartbeat payload: %w", err)
+	}
+
+	message := struct {
+		Type    string          `json:"type"`
+		Payload json.RawMessage `json:"payload"`
+	}{
+		Type:    "heartbeat",
+		Payload: payloadBytes,
+	}
+
+	messageBytes, err := json.Marshal(message)
+	if err != nil {
+		return fmt.Errorf("failed to marshal offline heartbeat message: %w", err)
+	}
+
+	heartbeatURL := fmt.Sprintf("%s/api/runners/heartbeat", h.config.ServerURL)
+	req, err := http.NewRequest("POST", heartbeatURL, bytes.NewBuffer(messageBytes))
+	if err != nil {
+		return fmt.Errorf("failed to create offline heartbeat request: %w", err)
+	}
+
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("User-Agent", "ParityRunner/1.0")
+
+	client := &http.Client{
+		Timeout: 5 * time.Second,
+		Transport: &http.Transport{
+			MaxIdleConns:       100,
+			IdleConnTimeout:    90 * time.Second,
+			DisableCompression: true,
+		},
+	}
+
+	req = req.WithContext(ctx)
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return fmt.Errorf("failed to send offline heartbeat request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("offline heartbeat request failed with status %d: %s", resp.StatusCode, string(body))
+	}
+
+	log.Info().Msg("Final offline heartbeat sent successfully")
+	return nil
+}
