@@ -25,11 +25,12 @@ type ContainerMetrics struct {
 }
 
 type ResourceMonitor struct {
-	containerID string
-	stopCh      chan struct{}
-	wg          sync.WaitGroup
-	metricsLock sync.RWMutex
-	metrics     ContainerMetrics
+	containerID    string
+	stopCh         chan struct{}
+	wg             sync.WaitGroup
+	metricsLock    sync.RWMutex
+	metrics        ContainerMetrics
+	lastNonZeroCPU float64
 }
 
 func NewResourceMetrics(containerID string) (*ResourceMonitor, error) {
@@ -134,8 +135,6 @@ func (rc *ResourceMonitor) collectMetrics(startTime time.Time) {
 	rc.metricsLock.Lock()
 	defer rc.metricsLock.Unlock()
 
-	var lastNonZeroCPU float64
-
 	cpuStr := strings.TrimSuffix(stats.CPU, "%")
 
 	if cpuStr == "" || cpuStr == "0.00" {
@@ -151,8 +150,8 @@ func (rc *ResourceMonitor) collectMetrics(startTime time.Time) {
 			if !containerExists || containerStatus == "exited" || containerStatus == "dead" {
 				if rc.metrics.CPUSeconds > 0 {
 					elapsedSeconds := time.Since(startTime).Seconds()
-					lastNonZeroCPU = (rc.metrics.CPUSeconds / elapsedSeconds) * 100
-					cpuStr = fmt.Sprintf("%.2f", lastNonZeroCPU)
+					rc.lastNonZeroCPU = (rc.metrics.CPUSeconds / elapsedSeconds) * 100
+					cpuStr = fmt.Sprintf("%.2f", rc.lastNonZeroCPU)
 				}
 			} else {
 				cpuUsageCmd := exec.Command("docker", "exec", rc.containerID, "cat", "/sys/fs/cgroup/cpu/cpuacct.usage")
@@ -172,9 +171,9 @@ func (rc *ResourceMonitor) collectMetrics(startTime time.Time) {
 		cpuPerc = parsedCPU
 
 		if cpuPerc > 0.01 {
-			lastNonZeroCPU = cpuPerc
-		} else if lastNonZeroCPU > 0 && (containerStatus == "exited" || !containerExists) {
-			cpuPerc = lastNonZeroCPU
+			rc.lastNonZeroCPU = cpuPerc
+		} else if rc.lastNonZeroCPU > 0 && (containerStatus == "exited" || !containerExists) {
+			cpuPerc = rc.lastNonZeroCPU
 		} else if cpuPerc <= 0.01 && containerStatus == "running" {
 			cpuPerc = 0.01
 		}
