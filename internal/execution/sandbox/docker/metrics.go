@@ -101,6 +101,11 @@ func (rc *ResourceMonitor) GetMetrics() ContainerMetrics {
 func (rc *ResourceMonitor) collectMetrics(startTime time.Time) {
 	log := gologger.WithComponent("docker.metrics")
 
+	inspectCmd := exec.Command("docker", "inspect", "--format", "{{.State.Status}}", rc.containerID)
+	statusOut, err := inspectCmd.CombinedOutput()
+	containerExists := err == nil
+	containerStatus := strings.TrimSpace(string(statusOut))
+
 	statsCmd := fmt.Sprintf(`docker stats --no-stream --format `+
 		`'{"cpu":"{{.CPUPerc}}", "memory":"{{.MemUsage}}", "netIO":"{{.NetIO}}", "blockIO":"{{.BlockIO}}"}' %s`,
 		rc.containerID)
@@ -112,6 +117,8 @@ func (rc *ResourceMonitor) collectMetrics(startTime time.Time) {
 		return
 	}
 
+	cleanedOutput := strings.Trim(string(statsOutput), "'\n\r ")
+
 	var stats struct {
 		CPU     string `json:"cpu"`
 		Memory  string `json:"memory"`
@@ -119,22 +126,69 @@ func (rc *ResourceMonitor) collectMetrics(startTime time.Time) {
 		BlockIO string `json:"blockIO"`
 	}
 
-	if err := json.Unmarshal(statsOutput, &stats); err != nil {
-		log.Error().Err(err).Str("raw", string(statsOutput)).Msg("Failed to parse stats JSON")
+	if err := json.Unmarshal([]byte(cleanedOutput), &stats); err != nil {
+		log.Error().Err(err).Str("raw", cleanedOutput).Msg("Failed to parse stats JSON")
 		return
 	}
 
 	rc.metricsLock.Lock()
 	defer rc.metricsLock.Unlock()
 
+	var lastNonZeroCPU float64
+
 	cpuStr := strings.TrimSuffix(stats.CPU, "%")
-	if cpuPerc, err := strconv.ParseFloat(cpuStr, 64); err == nil {
+
+	if cpuStr == "" || cpuStr == "0.00" {
+
+		cpuCmd := exec.Command("docker", "stats", "--no-stream", "--format", "{{.CPUPerc}}", rc.containerID)
+		cpuOutput, err := cpuCmd.CombinedOutput()
+		if err == nil {
+			cpuStr = strings.TrimSuffix(strings.TrimSpace(string(cpuOutput)), "%")
+		}
+
+		if cpuStr == "" || cpuStr == "0.00" {
+
+			if !containerExists || containerStatus == "exited" || containerStatus == "dead" {
+				if rc.metrics.CPUSeconds > 0 {
+					elapsedSeconds := time.Since(startTime).Seconds()
+					lastNonZeroCPU = (rc.metrics.CPUSeconds / elapsedSeconds) * 100
+					cpuStr = fmt.Sprintf("%.2f", lastNonZeroCPU)
+				}
+			} else {
+				cpuUsageCmd := exec.Command("docker", "exec", rc.containerID, "cat", "/sys/fs/cgroup/cpu/cpuacct.usage")
+				if usageOutput, err := cpuUsageCmd.CombinedOutput(); err == nil {
+					usage := strings.TrimSpace(string(usageOutput))
+					if usageVal, err := strconv.ParseUint(usage, 10, 64); err == nil {
+						cpuUsagePerc := float64(usageVal) / 1e9 * 100.0 / float64(runtime.NumCPU())
+						cpuStr = fmt.Sprintf("%.2f", cpuUsagePerc)
+					}
+				}
+			}
+		}
+	}
+
+	var cpuPerc float64
+	if parsedCPU, err := strconv.ParseFloat(cpuStr, 64); err == nil {
+		cpuPerc = parsedCPU
+
+		if cpuPerc > 0.01 {
+			lastNonZeroCPU = cpuPerc
+		} else if lastNonZeroCPU > 0 && (containerStatus == "exited" || !containerExists) {
+			cpuPerc = lastNonZeroCPU
+		} else if cpuPerc <= 0.01 && containerStatus == "running" {
+			cpuPerc = 0.01
+		}
 
 		elapsedSeconds := time.Since(startTime).Seconds()
-		rc.metrics.CPUSeconds = (cpuPerc / 100.0) * elapsedSeconds
+
+		if containerExists && containerStatus == "running" {
+			rc.metrics.CPUSeconds = (cpuPerc / 100.0) * elapsedSeconds
+		}
 
 		cpuFreq := getSystemCPUFrequency()
 		rc.metrics.EstimatedCycles = uint64(rc.metrics.CPUSeconds * cpuFreq * 1e9)
+	} else {
+		log.Error().Err(err).Str("cpuStr", cpuStr).Msg("Failed to parse CPU percentage")
 	}
 
 	if parts := strings.Split(stats.Memory, " / "); len(parts) >= 1 {
