@@ -70,11 +70,6 @@ func (e *DockerExecutor) ExecuteTask(ctx context.Context, task *models.Task) (*m
 		return nil, fmt.Errorf("invalid config: %w", err)
 	}
 
-	if len(config.Command) == 0 {
-		log.Error().Str("id", task.ID.String()).Msg("Missing command")
-		return nil, fmt.Errorf("command required")
-	}
-
 	image := config.ImageName
 	if image == "" {
 		log.Error().Str("id", task.ID.String()).Msg("Missing image name")

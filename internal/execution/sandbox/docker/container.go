@@ -48,7 +48,9 @@ func (cm *ContainerManager) CreateContainer(ctx context.Context, image string, c
 	}
 
 	createArgs = append(createArgs, image)
-	createArgs = append(createArgs, command...)
+	if len(command) > 0 {
+		createArgs = append(createArgs, command...)
+	}
 
 	output, err := execCommand(ctx, "docker", createArgs...)
 	if err != nil {
