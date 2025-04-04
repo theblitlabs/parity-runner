@@ -2,45 +2,18 @@
 
 Parity Protocol is a decentralized compute network where runners can execute compute tasks (e.g., running a Docker file) and earn incentives in the form of tokens. Task creators can add tasks to a pool, and the first runner to complete a task successfully receives a reward.
 
-## Get Started
+## Setup & Installation
 
-1. Install the Parity Runner:
+### Prerequisites
 
-```bash
-git clone https://github.com/theblitlabs/parity-runner.git
-cd parity-runner
-make deps
-make install
-```
-
-2. Authenticate with your private key:
-
-```bash
-parity-runner auth --private-key YOUR_PRIVATE_KEY
-```
-
-3. Stake tokens to participate in the network:
-
-```bash
-parity-runner stake --amount 10
-```
-
-4. Start running tasks:
-
-```bash
-parity-runner
-```
-
-That's it! You're now participating in the Parity Protocol network.
-
-## Prerequisites
+Before you begin, ensure you have the following installed:
 
 - Go 1.23.0 or higher (using Go toolchain 1.24.0)
-- PostgreSQL
 - Make
-- Docker (optional, for containerized database)
+- Docker
+  - Make sure the Docker daemon is running (`docker ps` to verify)
 
-### Installation
+### Installation Steps
 
 1. Clone the repository:
 
@@ -49,23 +22,62 @@ git clone https://github.com/theblitlabs/parity-runner.git
 cd parity-runner
 ```
 
-2. Install dependencies:
+2. Install dependencies and development tools:
 
 ```bash
 make deps
+make install-lint-tools  # Install code quality tools
+make install-hooks      # Install git hooks for development
 ```
 
-3. Start PostgreSQL (if using Docker):
+4. Configure the application:
 
 ```bash
-# Remove existing container if it exists
-docker rm -f parity-db || true
+# Copy the example config file
+cp config/config.example.yaml config/config.yaml
 
-# Start new PostgreSQL container
-docker run --name parity-db -e POSTGRES_PASSWORD=postgres -p 5432:5432 -d postgres
+# Edit the config file with your settings
+# See Configuration section below for details
 ```
 
-### Development
+5. Install the Parity Runner globally:
+
+```bash
+make install
+```
+
+### Network Participation
+
+1. Authenticate with your private key:
+
+```bash
+parity-runner auth --private-key YOUR_PRIVATE_KEY
+```
+
+2. Stake tokens to participate in the network:
+
+```bash
+parity-runner stake --amount 10
+```
+
+3. Start running tasks:
+
+```bash
+parity-runner
+```
+
+That's it! You're now participating in the Parity Protocol network.
+
+### Verification (Optional)
+
+You can verify your setup with these commands:
+
+```bash
+parity-runner balance  # Check your token balance
+parity-runner help    # View all available commands
+```
+
+### Development Tools
 
 The project includes several helpful Makefile commands for development:
 
@@ -78,7 +90,7 @@ make imports        # Fix imports formatting
 make format         # Run all formatters (gofumpt + goimports)
 make lint           # Run linting
 make format-lint    # Format code and run linters
-make run         # Start the task runner
+make run            # Start the task runner
 make stake          # Stake tokens in the network
 make balance        # Check token balances
 make auth           # Authenticate with the network
@@ -89,7 +101,7 @@ make install-hooks  # Install git hooks
 make help           # Display all available commands
 ```
 
-### Configuration
+## Configuration
 
 Create a `config.yaml` file in the `config` directory using the example provided:
 
@@ -119,7 +131,7 @@ runner:
     timeout: 300s
 ```
 
-### CLI Commands
+## CLI Commands
 
 The CLI provides a unified interface through the `parity-runner` command:
 
@@ -131,13 +143,13 @@ parity-runner help
 parity auth --private-key <private-key>
 
 # Start a runner
-parity-runner runner
+parity-runner
 
 # Check balance
 parity-runner balance
 
 # Stake tokens
-parity stake --amount <amount>
+parity-runner stake --amount <amount>
 ```
 
 Each command supports the `--help` flag for detailed usage information:
@@ -146,7 +158,7 @@ Each command supports the `--help` flag for detailed usage information:
 parity-runner <command> --help
 ```
 
-### API Documentation
+## API Documentation
 
 #### Task Creator Endpoints
 
@@ -167,7 +179,7 @@ parity-runner <command> --help
 | POST   | /api/runners/webhooks            | Register webhook endpoint   |
 | DELETE | /api/runners/webhooks/{id}       | Unregister webhook endpoint |
 
-### Contributing
+## Contributing
 
 1. Fork the repository
 2. Create your feature branch (`git checkout -b feature/amazing-feature`)
@@ -193,6 +205,6 @@ parity-runner <command> --help
 5. Push to the branch (`git push origin feature/amazing-feature`)
 6. Open a Pull Request
 
-### License
+## License
 
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
