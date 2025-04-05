@@ -128,7 +128,7 @@ runner:
   docker:
     memory_limit: "2g"
     cpu_limit: "1.0"
-    timeout: 300s
+    timeout: 300
 ```
 
 ## CLI Commands
