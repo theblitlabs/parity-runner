@@ -97,7 +97,7 @@ func (c *HTTPTaskClient) StartTask(taskID string) error {
 		return fmt.Errorf("failed to create request: %w", err)
 	}
 
-	req.Header.Set("X-Runner-ID", deviceID)
+	req.Header.Set("X-Device-ID", deviceID)
 
 	client := &http.Client{
 		Timeout: 10 * time.Second,

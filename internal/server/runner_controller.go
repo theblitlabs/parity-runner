@@ -31,9 +31,7 @@ func (c *RunnerController) handleRunnerRequest(w http.ResponseWriter, r *http.Re
 	log := gologger.WithComponent("runner_controller")
 
 	if r.Method == http.MethodPost {
-
 		var req struct {
-			DeviceID      string              `json:"device_id"`
 			WalletAddress string              `json:"wallet_address"`
 			Status        models.RunnerStatus `json:"status"`
 			Webhook       string              `json:"webhook"`
@@ -46,7 +44,8 @@ func (c *RunnerController) handleRunnerRequest(w http.ResponseWriter, r *http.Re
 			return
 		}
 
-		if req.DeviceID == "" || req.WalletAddress == "" {
+		deviceID := r.Header.Get("X-Device-ID")
+		if deviceID == "" || req.WalletAddress == "" {
 			log.Error().Msg("Missing required fields in runner registration")
 			http.Error(w, "Missing required fields", http.StatusBadRequest)
 			return
@@ -67,6 +66,13 @@ func (c *RunnerController) handleHeartbeat(w http.ResponseWriter, r *http.Reques
 	log := gologger.WithComponent("runner_controller")
 
 	if r.Method == http.MethodPost {
+		deviceID := r.Header.Get("X-Device-ID")
+		if deviceID == "" {
+			log.Error().Msg("Missing X-Device-ID header")
+			http.Error(w, "Missing X-Device-ID header", http.StatusBadRequest)
+			return
+		}
+
 		var msg struct {
 			Type    string          `json:"type"`
 			Payload json.RawMessage `json:"payload"`
@@ -115,10 +121,10 @@ func (c *RunnerController) handleTaskRequest(w http.ResponseWriter, r *http.Requ
 		taskID := strings.TrimSuffix(strings.TrimPrefix(path, "/"), "/start")
 		log.Debug().Str("task_id", taskID).Msg("Start task request received")
 
-		deviceID := r.Header.Get("X-Runner-ID")
+		deviceID := r.Header.Get("X-Device-ID")
 		if deviceID == "" {
-			log.Error().Msg("Missing runner ID header")
-			http.Error(w, "Missing runner ID", http.StatusBadRequest)
+			log.Error().Msg("Missing X-Device-ID header")
+			http.Error(w, "Missing X-Device-ID header", http.StatusBadRequest)
 			return
 		}
 
@@ -148,6 +154,13 @@ func (c *RunnerController) handleTaskRequest(w http.ResponseWriter, r *http.Requ
 		taskID := strings.TrimSuffix(strings.TrimPrefix(path, "/"), "/result")
 		log.Debug().Str("task_id", taskID).Msg("Task result submission received")
 
+		deviceID := r.Header.Get("X-Device-ID")
+		if deviceID == "" {
+			log.Error().Msg("Missing X-Device-ID header")
+			http.Error(w, "Missing X-Device-ID header", http.StatusBadRequest)
+			return
+		}
+
 		var result models.TaskResult
 		decoder := json.NewDecoder(r.Body)
 		if err := decoder.Decode(&result); err != nil {
@@ -155,6 +168,8 @@ func (c *RunnerController) handleTaskRequest(w http.ResponseWriter, r *http.Requ
 			http.Error(w, "Invalid request body", http.StatusBadRequest)
 			return
 		}
+
+		result.DeviceID = deviceID
 
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
