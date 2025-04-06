@@ -95,8 +95,7 @@ func (w *WebhookClient) Start() error {
 
 	if err := w.Register(); err != nil {
 		log.Error().Err(err).Msg("Webhook registration failed")
-		log.Warn().Msg("Runner will operate in offline mode without webhook notifications")
-
+		return fmt.Errorf("webhook registration failed: %w", err)
 	}
 
 	mux := http.NewServeMux()
@@ -362,29 +361,30 @@ func (w *WebhookClient) Register() error {
 	log.Debug().Str("webhook_url", w.webhookURL).Msg("Generated webhook URL")
 
 	type RegisterPayload struct {
-		DeviceID      string              `json:"device_id"`
 		WalletAddress string              `json:"wallet_address"`
 		Status        models.RunnerStatus `json:"status"`
 		Webhook       string              `json:"webhook"`
 	}
 
 	payload := RegisterPayload{
-		DeviceID:      w.deviceID,
 		WalletAddress: w.walletAddress,
 		Status:        models.RunnerStatusOnline,
 		Webhook:       w.webhookURL,
 	}
 
+	registerURL := fmt.Sprintf("%s/api/runners", w.serverURL)
 	payloadBytes, err := json.Marshal(payload)
 	if err != nil {
 		return fmt.Errorf("failed to marshal register payload: %w", err)
 	}
 
-	registerURL := fmt.Sprintf("%s/api/runners", w.serverURL)
 	log.Debug().
 		Str("device_id", w.deviceID).
+		Str("wallet_address", w.walletAddress).
 		Str("url", registerURL).
-		Msg("Sending runner registration request")
+		Str("webhook_url", w.webhookURL).
+		RawJSON("payload", payloadBytes).
+		Msg("Registration payload")
 
 	req, err := http.NewRequest("POST", registerURL, bytes.NewBuffer(payloadBytes))
 	if err != nil {
@@ -392,6 +392,7 @@ func (w *WebhookClient) Register() error {
 	}
 
 	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Device-ID", w.deviceID)
 
 	client := &http.Client{
 		Timeout: 10 * time.Second,
