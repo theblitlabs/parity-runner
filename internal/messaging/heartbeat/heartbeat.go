@@ -1,20 +1,21 @@
 package heartbeat
 
 import (
-	"bytes"
-	"context"
-	"encoding/json"
-	"fmt"
-	"io"
-	"net/http"
-	"sync"
-	"time"
+    "bytes"
+    "context"
+    "encoding/json"
+    "fmt"
+    "io"
+    "net/http"
+    "sync"
+    "time"
 
-	"github.com/go-co-op/gocron"
-	"github.com/theblitlabs/gologger"
+    "github.com/go-co-op/gocron"
+    "github.com/theblitlabs/gologger"
 
-	"github.com/theblitlabs/parity-runner/internal/core/models"
-	"github.com/theblitlabs/parity-runner/internal/core/ports"
+    "github.com/theblitlabs/parity-runner/internal/core/models"
+    "github.com/theblitlabs/parity-runner/internal/core/ports"
+    "github.com/theblitlabs/parity-runner/internal/utils"
 )
 
 type HeartbeatConfig struct {
@@ -37,17 +38,26 @@ type HeartbeatService struct {
 	metricsProvider     ports.MetricsProvider
 	job                 *gocron.Job
 	consecutiveFailures int
+	ipMonitor           *utils.IPMonitor
 }
 
 func NewHeartbeatService(config HeartbeatConfig, statusProvider ports.TaskHandler, metricsProvider ports.MetricsProvider) *HeartbeatService {
-	return &HeartbeatService{
+	service := &HeartbeatService{
 		config:              config,
-		scheduler:           gocron.NewScheduler(time.UTC),
-		startTime:           time.Now(),
 		statusProvider:      statusProvider,
 		metricsProvider:     metricsProvider,
+		scheduler:           gocron.NewScheduler(time.UTC),
 		consecutiveFailures: 0,
 	}
+
+	service.ipMonitor = utils.NewIPMonitor(15*time.Minute, func() {
+		if err := service.sendHeartbeatWithRetry(); err != nil {
+			log := gologger.WithComponent("heartbeat")
+			log.Error().Err(err).Msg("Failed to send heartbeat after IP change")
+		}
+	})
+
+	return service
 }
 
 func (h *HeartbeatService) Start() error {
@@ -80,6 +90,8 @@ func (h *HeartbeatService) Start() error {
 
 	h.job = job
 	h.scheduler.StartAsync()
+
+	h.ipMonitor.Start()
 
 	return nil
 }
@@ -159,6 +171,8 @@ func (h *HeartbeatService) sendHeartbeatWithRetry() error {
 func (h *HeartbeatService) sendHeartbeat() error {
 	log := gologger.WithComponent("heartbeat")
 
+	log.Debug().Msg("Preparing to send heartbeat")
+
 	type HeartbeatPayload struct {
 		DeviceID      string              `json:"device_id"`
 		WalletAddress string              `json:"wallet_address"`
@@ -167,6 +181,7 @@ func (h *HeartbeatService) sendHeartbeat() error {
 		Uptime        int64               `json:"uptime"`
 		Memory        int64               `json:"memory_usage"`
 		CPU           float64             `json:"cpu_usage"`
+		PublicIP      string              `json:"public_ip,omitempty"`
 	}
 
 	status := models.RunnerStatusOnline
@@ -185,6 +200,20 @@ func (h *HeartbeatService) sendHeartbeat() error {
 		Memory:        memory,
 		CPU:           cpu,
 	}
+
+	if h.ipMonitor != nil {
+		currentIP := h.ipMonitor.GetCurrentIP()
+		if (currentIP != "") {
+			payload.PublicIP = currentIP
+			log.Debug().Str("public_ip", currentIP).Msg("Including public IP in heartbeat")
+		}
+	}
+
+	payloadBytes, _ := json.Marshal(payload)
+	log.Debug().
+		Str("url", h.config.ServerURL).
+		RawJSON("payload", payloadBytes).
+		Msg("Sending heartbeat")
 
 	payloadBytes, err := json.Marshal(payload)
 	if err != nil {
@@ -237,11 +266,9 @@ func (h *HeartbeatService) sendHeartbeat() error {
 		return fmt.Errorf("heartbeat request failed with status %d: %s", resp.StatusCode, string(body))
 	}
 
-	log.Debug().
-		Str("device_id", h.config.DeviceID).
-		Str("status", string(status)).
-		Float64("cpu", cpu).
-		Int64("memory", memory).
+	log.Info().
+		Str("url", h.config.ServerURL).
+		Int("status", resp.StatusCode).
 		Msg("Heartbeat sent successfully")
 
 	return nil
@@ -249,7 +276,7 @@ func (h *HeartbeatService) sendHeartbeat() error {
 
 func (h *HeartbeatService) Stop() {
 	h.mu.Lock()
-	if !h.started {
+	if (!h.started) {
 		h.mu.Unlock()
 		return
 	}
@@ -258,6 +285,10 @@ func (h *HeartbeatService) Stop() {
 	log.Info().Msg("Stopping heartbeat service...")
 
 	h.scheduler.Stop()
+
+	if h.ipMonitor != nil {
+		h.ipMonitor.Stop()
+	}
 
 	h.started = false
 	h.mu.Unlock()
