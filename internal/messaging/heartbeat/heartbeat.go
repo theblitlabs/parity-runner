@@ -174,7 +174,6 @@ func (h *HeartbeatService) sendHeartbeat() error {
 	log.Debug().Msg("Preparing to send heartbeat")
 
 	type HeartbeatPayload struct {
-		DeviceID      string              `json:"device_id"`
 		WalletAddress string              `json:"wallet_address"`
 		Status        models.RunnerStatus `json:"status"`
 		Timestamp     int64               `json:"timestamp"`
@@ -192,7 +191,6 @@ func (h *HeartbeatService) sendHeartbeat() error {
 	memory, cpu := h.metricsProvider.GetSystemMetrics()
 
 	payload := HeartbeatPayload{
-		DeviceID:      h.config.DeviceID,
 		WalletAddress: h.config.WalletAddress,
 		Status:        status,
 		Timestamp:     time.Now().Unix(),
@@ -241,6 +239,7 @@ func (h *HeartbeatService) sendHeartbeat() error {
 
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("User-Agent", "ParityRunner/1.0")
+	req.Header.Set("X-Device-ID", h.config.DeviceID)
 
 	client := &http.Client{
 		Timeout: 5 * time.Second,
@@ -312,7 +311,6 @@ func (h *HeartbeatService) SendOfflineHeartbeat(ctx context.Context) error {
 	log.Info().Msg("Sending final offline heartbeat...")
 
 	type HeartbeatPayload struct {
-		DeviceID      string              `json:"device_id"`
 		WalletAddress string              `json:"wallet_address"`
 		Status        models.RunnerStatus `json:"status"`
 		Timestamp     int64               `json:"timestamp"`
@@ -324,7 +322,6 @@ func (h *HeartbeatService) SendOfflineHeartbeat(ctx context.Context) error {
 	memory, cpu := h.metricsProvider.GetSystemMetrics()
 
 	payload := HeartbeatPayload{
-		DeviceID:      h.config.DeviceID,
 		WalletAddress: h.config.WalletAddress,
 		Status:        models.RunnerStatusOffline,
 		Timestamp:     time.Now().Unix(),
@@ -359,6 +356,7 @@ func (h *HeartbeatService) SendOfflineHeartbeat(ctx context.Context) error {
 
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("User-Agent", "ParityRunner/1.0")
+	req.Header.Set("X-Device-ID", h.config.DeviceID)
 
 	client := &http.Client{
 		Timeout: 5 * time.Second,

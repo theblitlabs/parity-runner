@@ -153,7 +153,8 @@ func (s *Service) Start(ctx context.Context) error {
 
 		log.Info().Msg("Runner service started with webhook and heartbeat system")
 	} else {
-		log.Warn().Msg("Webhook client not initialized, running in offline mode")
+		log.Error().Msg("Webhook client not initialized")
+		return fmt.Errorf("webhook client not initialized, cannot start service")
 	}
 
 	return nil
