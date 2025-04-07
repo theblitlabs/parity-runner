@@ -1,21 +1,21 @@
 package heartbeat
 
 import (
-    "bytes"
-    "context"
-    "encoding/json"
-    "fmt"
-    "io"
-    "net/http"
-    "sync"
-    "time"
+	"bytes"
+	"context"
+	"encoding/json"
+	"fmt"
+	"io"
+	"net/http"
+	"sync"
+	"time"
 
-    "github.com/go-co-op/gocron"
-    "github.com/theblitlabs/gologger"
+	"github.com/go-co-op/gocron"
+	"github.com/theblitlabs/gologger"
 
-    "github.com/theblitlabs/parity-runner/internal/core/models"
-    "github.com/theblitlabs/parity-runner/internal/core/ports"
-    "github.com/theblitlabs/parity-runner/internal/utils"
+	"github.com/theblitlabs/parity-runner/internal/core/models"
+	"github.com/theblitlabs/parity-runner/internal/core/ports"
+	"github.com/theblitlabs/parity-runner/internal/utils"
 )
 
 type HeartbeatConfig struct {
@@ -201,7 +201,7 @@ func (h *HeartbeatService) sendHeartbeat() error {
 
 	if h.ipMonitor != nil {
 		currentIP := h.ipMonitor.GetCurrentIP()
-		if (currentIP != "") {
+		if currentIP != "" {
 			payload.PublicIP = currentIP
 			log.Debug().Str("public_ip", currentIP).Msg("Including public IP in heartbeat")
 		}
@@ -275,7 +275,7 @@ func (h *HeartbeatService) sendHeartbeat() error {
 
 func (h *HeartbeatService) Stop() {
 	h.mu.Lock()
-	if (!h.started) {
+	if !h.started {
 		h.mu.Unlock()
 		return
 	}
