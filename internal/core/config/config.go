@@ -95,15 +95,6 @@ func (cm *ConfigManager) GetConfig() (*Config, error) {
 	return cm.config, err
 }
 
-func (cm *ConfigManager) ReloadConfig() (*Config, error) {
-	cm.mutex.Lock()
-	defer cm.mutex.Unlock()
-
-	var err error
-	cm.config, err = loadConfigFile(cm.configPath)
-	return cm.config, err
-}
-
 func loadConfigFile(path string) (*Config, error) {
 	v := viper.New()
 

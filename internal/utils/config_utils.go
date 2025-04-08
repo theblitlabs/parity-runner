@@ -39,10 +39,6 @@ func GetConfigWithPath(configPath string) (*config.Config, error) {
 	return cfg, nil
 }
 
-func ReloadConfig() (*config.Config, error) {
-	return configManager.ReloadConfig()
-}
-
 func GetConfigPath() string {
 	return configManager.GetConfigPath()
 }
