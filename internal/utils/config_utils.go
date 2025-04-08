@@ -2,47 +2,47 @@ package utils
 
 import (
 	"fmt"
-	"sync"
+	"os"
 
 	"github.com/theblitlabs/parity-runner/internal/core/config"
 )
 
-var (
-	defaultConfigPath = "config/config.yaml"
-	cachedConfig      *config.Config
-	configMutex       sync.RWMutex
+const (
+	DefaultConfigPath = ".env"
+	EnvConfigPath     = "PARITY_CONFIG_PATH"
 )
 
-func GetConfig() (*config.Config, error) {
-	return GetConfigWithPath(defaultConfigPath)
+var configManager = config.GetConfigManager()
+
+func init() {
+	if envPath := os.Getenv(EnvConfigPath); envPath != "" {
+		configManager.SetConfigPath(envPath)
+	} else {
+		configManager.SetConfigPath(DefaultConfigPath)
+	}
 }
 
-func GetConfigWithPath(configPath string) (*config.Config, error) {
-	configMutex.RLock()
-	if cachedConfig != nil {
-		defer configMutex.RUnlock()
-		return cachedConfig, nil
-	}
-	configMutex.RUnlock()
-
-	configMutex.Lock()
-	defer configMutex.Unlock()
-
-	if cachedConfig != nil {
-		return cachedConfig, nil
-	}
-
-	cfg, err := config.LoadConfig(configPath)
+func GetConfig() (*config.Config, error) {
+	cfg, err := configManager.GetConfig()
 	if err != nil {
-		return nil, fmt.Errorf("failed to load config from %s: %w", configPath, err)
+		return nil, fmt.Errorf("failed to load config: %w", err)
 	}
-
-	cachedConfig = cfg
 	return cfg, nil
 }
 
-func ClearCache() {
-	configMutex.Lock()
-	defer configMutex.Unlock()
-	cachedConfig = nil
+func GetConfigWithPath(configPath string) (*config.Config, error) {
+	configManager.SetConfigPath(configPath)
+	cfg, err := configManager.GetConfig()
+	if err != nil {
+		return nil, fmt.Errorf("failed to load config from %s: %w", configPath, err)
+	}
+	return cfg, nil
+}
+
+func ReloadConfig() (*config.Config, error) {
+	return configManager.ReloadConfig()
+}
+
+func GetConfigPath() string {
+	return configManager.GetConfigPath()
 }

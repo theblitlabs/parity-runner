@@ -10,20 +10,32 @@ import (
 	"github.com/theblitlabs/gologger"
 
 	"github.com/theblitlabs/parity-runner/cmd/cli"
+	"github.com/theblitlabs/parity-runner/internal/utils"
 )
 
-var logMode string
+var (
+	logMode    string
+	configPath string
+)
 
 var rootCmd = &cobra.Command{
 	Use:   "parity-runner",
 	Short: "Parity Runner",
 	Long:  `A decentralized computing network powered by blockchain and secure enclaves`,
 	PersistentPreRun: func(cmd *cobra.Command, args []string) {
+		// Initialize logging
 		switch logMode {
 		case "debug", "pretty", "info", "prod", "test":
 			gologger.InitWithMode(gologger.LogMode(logMode))
 		default:
 			gologger.InitWithMode(gologger.LogModePretty)
+		}
+
+		// Load configuration
+		if configPath != "" {
+			if _, err := utils.GetConfigWithPath(configPath); err != nil {
+				log.Fatal().Err(err).Str("path", configPath).Msg("Failed to load configuration")
+			}
 		}
 	},
 	Run: func(cmd *cobra.Command, args []string) {
@@ -61,6 +73,7 @@ var balanceCmd = &cobra.Command{
 
 func init() {
 	rootCmd.PersistentFlags().StringVar(&logMode, "log", "pretty", "Log mode: debug, pretty, info, prod, test")
+	rootCmd.PersistentFlags().StringVar(&configPath, "config-path", "", "Path to configuration file")
 
 	authCmd.Flags().String("private-key", "", "Private key in hex format")
 	if err := authCmd.MarkFlagRequired("private-key"); err != nil {
