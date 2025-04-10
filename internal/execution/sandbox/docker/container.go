@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/theblitlabs/gologger"
 )
@@ -74,22 +75,75 @@ func (cm *ContainerManager) StartContainer(ctx context.Context, containerID stri
 	return nil
 }
 
+func (cm *ContainerManager) StopContainer(ctx context.Context, containerID string, timeout time.Duration) error {
+	log := gologger.WithComponent("docker.container")
+
+	timeoutSecs := int(timeout.Seconds())
+	if timeoutSecs < 1 {
+		timeoutSecs = 1
+	}
+
+	if _, err := execCommand(ctx, "docker", "stop", "-t", strconv.Itoa(timeoutSecs), containerID); err != nil {
+		log.Warn().Err(err).Str("container", containerID).Msg("Container stop failed")
+		return fmt.Errorf("container stop failed: %w", err)
+	}
+
+	return nil
+}
+
 func (cm *ContainerManager) WaitForContainer(ctx context.Context, containerID string) (int, error) {
 	log := gologger.WithComponent("docker.container")
 
-	waitOutput, err := execCommand(ctx, "docker", "wait", containerID)
-	if err != nil {
-		log.Error().Err(err).Str("container", containerID).Msg("Container wait failed")
-		return -1, fmt.Errorf("container wait failed: %w", err)
-	}
+	// Create a channel to receive the exit code
+	exitCodeChan := make(chan int, 1)
+	errChan := make(chan error, 1)
 
-	exitCode, err := strconv.Atoi(strings.TrimSpace(string(waitOutput)))
-	if err != nil {
-		log.Error().Err(err).Msg("Failed to parse exit code")
-		return -1, fmt.Errorf("failed to parse exit code: %w", err)
-	}
+	go func() {
+		waitOutput, err := execCommand(context.Background(), "docker", "wait", containerID)
+		if err != nil {
+			errChan <- fmt.Errorf("container wait failed: %w", err)
+			return
+		}
 
-	return exitCode, nil
+		exitCode, err := strconv.Atoi(strings.TrimSpace(string(waitOutput)))
+		if err != nil {
+			errChan <- fmt.Errorf("failed to parse exit code: %w", err)
+			return
+		}
+
+		exitCodeChan <- exitCode
+	}()
+
+	select {
+	case <-ctx.Done():
+		// Context was cancelled (timeout) - attempt graceful shutdown
+		log.Info().
+			Str("container", containerID).
+			Msg("Context cancelled, attempting graceful shutdown")
+
+		// timeout for graceful shutdown
+		stopCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+
+		if err := cm.StopContainer(stopCtx, containerID, 9*time.Second); err != nil {
+			log.Warn().
+				Err(err).
+				Str("container", containerID).
+				Msg("Graceful shutdown failed, container will be killed")
+		} else {
+			log.Info().
+				Str("container", containerID).
+				Msg("Container stopped gracefully")
+		}
+
+		return -1, ctx.Err()
+
+	case err := <-errChan:
+		return -1, err
+
+	case exitCode := <-exitCodeChan:
+		return exitCode, nil
+	}
 }
 
 func (cm *ContainerManager) GetContainerLogs(ctx context.Context, containerID string) (string, error) {
