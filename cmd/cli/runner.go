@@ -109,7 +109,7 @@ func executeRunner() error {
 		return err
 	}
 
-	if err := runnerService.Start(); err != nil {
+	if err := runnerService.Start(context.Background()); err != nil {
 		logger.Fatal().Err(err).Msg("Failed to start runner service")
 		return err
 	}
