@@ -33,8 +33,8 @@ make install-hooks      # Install git hooks for development
 4. Configure the application:
 
 ```bash
-# Copy the example environment file
-cp .env.example .env
+# Copy the sample environment file
+cp .env.sample .env
 
 # Edit the .env file with your settings
 # See Configuration section below for details
@@ -103,7 +103,7 @@ make help           # Display all available commands
 
 ## Configuration
 
-Create a `.env` file in the root directory using the example provided (`.env.example`):
+Create a `.env` file in the root directory using the sample provided (`.env.sample`):
 
 ```env
 # Ethereum config
