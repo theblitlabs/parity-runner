@@ -146,7 +146,6 @@ func (rc *ResourceMonitor) collectMetrics(startTime time.Time) {
 		}
 
 		if cpuStr == "" || cpuStr == "0.00" {
-
 			if !containerExists || containerStatus == "exited" || containerStatus == "dead" {
 				if rc.metrics.CPUSeconds > 0 {
 					elapsedSeconds := time.Since(startTime).Seconds()
