@@ -134,7 +134,7 @@ func (e *DockerExecutor) ExecuteTask(ctx context.Context, task *models.Task) (*m
 
 	defer func() {
 		if err := e.containerMgr.RemoveContainer(context.Background(), containerID); err != nil {
-			log.Debug().
+			log.Error().
 				Err(err).
 				Str("task_id", task.ID.String()).
 				Str("container_id", containerID).
@@ -164,7 +164,7 @@ func (e *DockerExecutor) ExecuteTask(ctx context.Context, task *models.Task) (*m
 	metrics, err = NewResourceMetrics(containerID)
 	if err == nil {
 		if err := metrics.Start(execCtx); err != nil {
-			log.Debug().
+			log.Error().
 				Err(err).
 				Str("task_id", task.ID.String()).
 				Str("container_id", containerID).
@@ -173,7 +173,7 @@ func (e *DockerExecutor) ExecuteTask(ctx context.Context, task *models.Task) (*m
 			defer metrics.Stop()
 		}
 	} else {
-		log.Debug().
+		log.Error().
 			Err(err).
 			Str("task_id", task.ID.String()).
 			Str("container_id", containerID).
@@ -214,7 +214,7 @@ func (e *DockerExecutor) ExecuteTask(ctx context.Context, task *models.Task) (*m
 
 	logs, logsErr := e.containerMgr.GetContainerLogs(cleanupCtx, containerID)
 	if logsErr != nil {
-		log.Debug().
+		log.Error().
 			Err(logsErr).
 			Str("task_id", task.ID.String()).
 			Str("container_id", containerID).

@@ -99,7 +99,7 @@ func (cm *ContainerManager) WaitForContainer(ctx context.Context, containerID st
 	errChan := make(chan error, 1)
 
 	go func() {
-		waitOutput, err := execCommand(context.Background(), "docker", "wait", containerID)
+		waitOutput, err := execCommand(ctx, "docker", "wait", containerID)
 		if err != nil {
 			errChan <- fmt.Errorf("container wait failed: %w", err)
 			return
