@@ -33,8 +33,8 @@ make install-hooks      # Install git hooks for development
 4. Configure the application:
 
 ```bash
-# Copy the example environment file
-cp .env.example .env
+# Copy the sample environment file
+cp .env.sample .env
 
 # Edit the .env file with your settings
 # See Configuration section below for details
@@ -103,7 +103,7 @@ make help           # Display all available commands
 
 ## Configuration
 
-Create a `.env` file in the root directory using the example provided (`.env.example`):
+Create a `.env` file in the root directory using the sample provided (`.env.sample`):
 
 ```env
 # Ethereum config
@@ -116,6 +116,7 @@ ETHEREUM_TOKEN_ADDRESS=
 RUNNER_DOCKER_CPU_LIMIT=
 RUNNER_DOCKER_MEMORY_LIMIT=
 RUNNER_DOCKER_TIMEOUT=
+RUNNER_EXECUTION_TIMEOUT=
 RUNNER_HEARTBEAT_INTERVAL=
 RUNNER_SERVER_URL=
 RUNNER_WEBHOOK_PORT=
@@ -141,7 +142,8 @@ ETHEREUM_TOKEN_ADDRESS=0x844303bcC1a347bE6B409Ae159b4040d84876024       # Deploy
 # Runner config
 RUNNER_DOCKER_CPU_LIMIT=1.0
 RUNNER_DOCKER_MEMORY_LIMIT=2g
-RUNNER_DOCKER_TIMEOUT=300s
+RUNNER_DOCKER_TIMEOUT=60s        # Timeout for Docker operations (create/start/stop)
+RUNNER_EXECUTION_TIMEOUT=15m     # Maximum time allowed for task execution
 RUNNER_HEARTBEAT_INTERVAL=30s
 RUNNER_SERVER_URL=http://localhost:8080
 RUNNER_WEBHOOK_PORT=8081
