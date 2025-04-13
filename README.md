@@ -33,10 +33,10 @@ make install-hooks      # Install git hooks for development
 4. Configure the application:
 
 ```bash
-# Copy the example config file
-cp config/config.example.yaml config/config.yaml
+# Copy the example environment file
+cp .env.example .env
 
-# Edit the config file with your settings
+# Edit the .env file with your settings
 # See Configuration section below for details
 ```
 
@@ -103,33 +103,86 @@ make help           # Display all available commands
 
 ## Configuration
 
-Create a `config.yaml` file in the `config` directory using the example provided:
+Create a `.env` file in the root directory using the example provided (`.env.example`):
 
-```yaml
-server:
-  port: "8080"
-  host: "localhost"
-  endpoint: "/api"
-  websocket:
-    write_wait: 10s
-    pong_wait: 60s
-    max_message_size: 512
+```env
+# Ethereum config
+ETHEREUM_CHAIN_ID=
+ETHEREUM_RPC=
+ETHEREUM_STAKE_WALLET_ADDRESS=
+ETHEREUM_TOKEN_ADDRESS=
 
-ethereum:
-  rpc: "http://localhost:8545"
-  chain_id: 1337
-  token_address: "0x..."
-  stake_wallet_address: "0x..."
+# Runner config
+RUNNER_DOCKER_CPU_LIMIT=
+RUNNER_DOCKER_MEMORY_LIMIT=
+RUNNER_DOCKER_TIMEOUT=
+RUNNER_HEARTBEAT_INTERVAL=
+RUNNER_SERVER_URL=
+RUNNER_WEBHOOK_PORT=
 
-runner:
-  server_url: "http://localhost:8080"
-  webhook_port: "8081"
-  heartbeat_interval: 30s
-  docker:
-    memory_limit: "2g"
-    cpu_limit: "1.0"
-    timeout: 300
+# Server config
+SERVER_ENDPOINT=
+SERVER_HOST=
+SERVER_PORT=
+SERVER_WEBSOCKET_MAX_MESSAGE_SIZE=
+SERVER_WEBSOCKET_PONG_WAIT=
+SERVER_WEBSOCKET_WRITE_WAIT=
 ```
+
+Example values for a local development setup:
+
+```env
+# Ethereum config
+ETHEREUM_CHAIN_ID=11155111  # Sepolia testnet
+ETHEREUM_RPC=https://eth-sepolia.g.alchemy.com/v2/YOUR-API-KEY  # Replace with your Alchemy/Infura API key
+ETHEREUM_STAKE_WALLET_ADDRESS=0x261259e9467E042DBBF372906e17b94fC06942f2  # Deployed stake wallet contract
+ETHEREUM_TOKEN_ADDRESS=0x844303bcC1a347bE6B409Ae159b4040d84876024       # Deployed PRTY token contract
+
+# Runner config
+RUNNER_DOCKER_CPU_LIMIT=1.0
+RUNNER_DOCKER_MEMORY_LIMIT=2g
+RUNNER_DOCKER_TIMEOUT=300s
+RUNNER_HEARTBEAT_INTERVAL=30s
+RUNNER_SERVER_URL=http://localhost:8080
+RUNNER_WEBHOOK_PORT=8081
+
+# Server config
+SERVER_ENDPOINT=/api
+SERVER_HOST=localhost
+SERVER_PORT=8080
+SERVER_WEBSOCKET_MAX_MESSAGE_SIZE=512
+SERVER_WEBSOCKET_PONG_WAIT=60s
+SERVER_WEBSOCKET_WRITE_WAIT=10s
+```
+
+### Contract Addresses (Sepolia Testnet)
+
+- Stake Wallet Contract: [0x261259e9467E042DBBF372906e17b94fC06942f2](https://sepolia.etherscan.io/address/0x261259e9467E042DBBF372906e17b94fC06942f2)
+- PRTY Token Contract: [0x844303bcC1a347bE6B409Ae159b4040d84876024](https://sepolia.etherscan.io/address/0x844303bcC1a347bE6B409Ae159b4040d84876024)
+
+You can get a free RPC endpoint for Sepolia from:
+
+- [Alchemy](https://www.alchemy.com/)
+- [Infura](https://www.infura.io/)
+- [QuickNode](https://www.quicknode.com/)
+
+You can specify a custom configuration path in three ways (in order of precedence):
+
+1. Command line flag:
+
+```bash
+parity-runner --config-path=/path/to/.env
+```
+
+2. Environment variable:
+
+```bash
+export PARITY_CONFIG_PATH=/path/to/.env
+parity-runner
+```
+
+3. Default path:
+   If neither the flag nor environment variable is set, it will use `.env` in the current directory.
 
 ## CLI Commands
 
@@ -142,14 +195,15 @@ parity-runner help
 # Authenticate with your private key
 parity auth --private-key <private-key>
 
-# Start a runner
-parity-runner
-
 # Check balance
 parity-runner balance
 
 # Stake tokens
 parity-runner stake --amount <amount>
+
+# Start a runner
+parity-runner
+
 ```
 
 Each command supports the `--help` flag for detailed usage information:
