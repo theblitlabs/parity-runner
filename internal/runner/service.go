@@ -140,7 +140,7 @@ func (s *Service) SetupWithDeviceID(deviceID string) error {
 	return nil
 }
 
-func (s *Service) Start(ctx context.Context) error {
+func (s *Service) Start() error {
 	log := gologger.WithComponent("runner")
 
 	if s.webhookClient != nil {
