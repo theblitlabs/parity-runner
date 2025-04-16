@@ -39,6 +39,7 @@ type RunnerConfig struct {
 	ServerURL         string        `mapstructure:"SERVER_URL"`
 	WebhookPort       int           `mapstructure:"WEBHOOK_PORT"`
 	HeartbeatInterval time.Duration `mapstructure:"HEARTBEAT_INTERVAL"`
+	ExecutionTimeout  time.Duration `mapstructure:"EXECUTION_TIMEOUT"`
 	Docker            DockerConfig  `mapstructure:"DOCKER"`
 }
 
@@ -129,6 +130,7 @@ func loadConfigFile(path string) (*Config, error) {
 		"SERVER_URL":         v.GetString("RUNNER_SERVER_URL"),
 		"WEBHOOK_PORT":       v.GetInt("RUNNER_WEBHOOK_PORT"),
 		"HEARTBEAT_INTERVAL": v.GetDuration("RUNNER_HEARTBEAT_INTERVAL"),
+		"EXECUTION_TIMEOUT":  v.GetDuration("RUNNER_EXECUTION_TIMEOUT"),
 		"DOCKER": map[string]interface{}{
 			"MEMORY_LIMIT": v.GetString("RUNNER_DOCKER_MEMORY_LIMIT"),
 			"CPU_LIMIT":    v.GetString("RUNNER_DOCKER_CPU_LIMIT"),
