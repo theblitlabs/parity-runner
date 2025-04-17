@@ -4,6 +4,7 @@ import (
     "io"
     "net/http"
     "strings"
+    "sync"
     "time"
     
     "github.com/theblitlabs/gologger"
@@ -11,77 +12,125 @@ import (
 
 var (
     lastKnownIP string
+    ipMutex     sync.RWMutex
+    httpClient  *http.Client
 )
 
-func GetPublicIP() (string, error) {
-    client := &http.Client{
-        Timeout: 5 * time.Second,
+func init() {
+    httpClient = &http.Client{
+        Timeout: 2 * time.Second,
+        Transport: &http.Transport{
+            DisableKeepAlives: true,
+            IdleConnTimeout: 1 * time.Second,
+        },
     }
+}
 
+func GetPublicIP() (string, error) {
     services := []string{
         "https://api.ipify.org",
         "https://checkip.amazonaws.com",
         "https://ipv4.icanhazip.com",
     }
 
-    var lastErr error
+    resultChan := make(chan string, len(services))
+    errorChan := make(chan error, len(services))
+
+    var wg sync.WaitGroup
     for _, service := range services {
-        resp, err := client.Get(service)
-        if (err != nil) {
-            lastErr = err
-            continue
-        }
-        defer resp.Body.Close()
+        wg.Add(1)
+        go func(url string) {
+            defer wg.Done()
+            
+            req, err := http.NewRequest("GET", url, nil)
+            if err != nil {
+                errorChan <- err
+                return
+            }
 
-        if resp.StatusCode != http.StatusOK {
-            lastErr = fmt.Errorf("HTTP Error: %s returned status %s", service, http.StatusText(resp.StatusCode))
-            continue
-        }
+            req.Header.Set("User-Agent", "parity-runner")
+            req.Header.Set("Accept", "text/plain")
+            
+            resp, err := httpClient.Do(req)
+            if err != nil {
+                errorChan <- err
+                return
+            }
+            defer resp.Body.Close()
 
-        ipBytes, err := io.ReadAll(resp.Body)
-        if err != nil {
-            lastErr = err
-            continue
-        }
+            if resp.StatusCode != http.StatusOK {
+                errorChan <- fmt.Errorf("HTTP Error: %s returned status %s", url, http.StatusText(resp.StatusCode))
+                return
+            }
 
-        ip := strings.TrimSpace(string(ipBytes))
-        if ip != "" {
+            ipBytes, err := io.ReadAll(io.LimitReader(resp.Body, 64))
+            if err != nil {
+                errorChan <- err
+                return
+            }
+
+            ip := strings.TrimSpace(string(ipBytes))
+            if ip != "" {
+                resultChan <- ip
+            } else {
+                errorChan <- fmt.Errorf("empty response from %s", url)
+            }
+        }(service)
+    }
+    
+    go func() {
+        wg.Wait()
+        close(resultChan)
+        close(errorChan)
+    }()
+
+    select {
+    case ip := <-resultChan:
+        return ip, nil
+    case err := <-errorChan:
+        select {
+        case ip := <-resultChan:
             return ip, nil
+        default:
+            return "", err
         }
     }
-
-    return "", lastErr
 }
 
 func CheckIPChanged() (string, bool, error) {
     log := gologger.WithComponent("ip_monitor")
     
-    log.Debug().Msg("Checking for IP changes...")
+    // log.Debug().Msg("Checking for IP changes...")
     
     currentIP, err := GetPublicIP()
     if err != nil {
         log.Error().Err(err).Msg("Failed to get public IP")
         return "", false, err
     }
+
+    ipMutex.RLock()
+    lastIP := lastKnownIP
+    ipMutex.RUnlock()
     
-    log.Debug().
-        Str("current_ip", currentIP).
-        Str("last_known_ip", lastKnownIP).
-        Msg("Checking IP change status")
+    // log.Debug().
+    //     Str("current_ip", currentIP).
+    //     Str("last_known_ip", lastIP).
+    //     Msg("Checking IP change status")
     
-    hasChanged := lastKnownIP != "" && lastKnownIP != currentIP
+    hasChanged := lastIP != "" && lastIP != currentIP
     
-    if hasChanged {
-        log.Info().
-            Str("old_ip", lastKnownIP).
-            Str("new_ip", currentIP).
-            Msg("Public IP changed")
-    } else if lastKnownIP == "" {
-        log.Info().Str("ip", currentIP).Msg("Initial IP detected")
-    }
-    
-    // Update the last known IP
+    // if hasChanged {
+    //     log.Info().
+    //         Str("old_ip", lastIP).
+    //         Str("new_ip", currentIP).
+    //         Msg("Public IP changed")
+    // } else if lastIP == "" {
+    //     log.Info().Str("ip", currentIP).Msg("Initial IP detected")
+    // }
+
+    ipMutex.Lock()
     lastKnownIP = currentIP
+    ipMutex.Unlock()
     
     return currentIP, hasChanged, nil
 }
