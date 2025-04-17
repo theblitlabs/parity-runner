@@ -73,9 +73,10 @@ func NewService(cfg *config.Config) (*Service, error) {
 	}
 
 	executor, err := docker.NewDockerExecutor(&docker.ExecutorConfig{
-		MemoryLimit: cfg.Runner.Docker.MemoryLimit,
-		CPULimit:    cfg.Runner.Docker.CPULimit,
-		Timeout:     cfg.Runner.Docker.Timeout,
+		MemoryLimit:      cfg.Runner.Docker.MemoryLimit,
+		CPULimit:         cfg.Runner.Docker.CPULimit,
+		Timeout:          cfg.Runner.Docker.Timeout,
+		ExecutionTimeout: cfg.Runner.ExecutionTimeout,
 	})
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to create Docker executor")
