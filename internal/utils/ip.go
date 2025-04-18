@@ -101,8 +101,6 @@ func GetPublicIP() (string, error) {
 func CheckIPChanged() (string, bool, error) {
 	log := gologger.WithComponent("ip_monitor")
 
-	// log.Debug().Msg("Checking for IP changes...")
-
 	currentIP, err := GetPublicIP()
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to get public IP")
@@ -113,21 +111,7 @@ func CheckIPChanged() (string, bool, error) {
 	lastIP := lastKnownIP
 	ipMutex.RUnlock()
 
-	// log.Debug().
-	//     Str("current_ip", currentIP).
-	//     Str("last_known_ip", lastIP).
-	//     Msg("Checking IP change status")
-
 	hasChanged := lastIP != "" && lastIP != currentIP
-
-	// if hasChanged {
-	//     log.Info().
-	//         Str("old_ip", lastIP).
-	//         Str("new_ip", currentIP).
-	//         Msg("Public IP changed")
-	// } else if lastIP == "" {
-	//     log.Info().Str("ip", currentIP).Msg("Initial IP detected")
-	// }
 
 	ipMutex.Lock()
 	lastKnownIP = currentIP
