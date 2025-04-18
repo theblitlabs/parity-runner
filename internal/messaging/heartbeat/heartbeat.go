@@ -15,6 +15,7 @@ import (
 
 	"github.com/theblitlabs/parity-runner/internal/core/models"
 	"github.com/theblitlabs/parity-runner/internal/core/ports"
+	"github.com/theblitlabs/parity-runner/internal/utils"
 )
 
 type HeartbeatConfig struct {
@@ -159,6 +160,16 @@ func (h *HeartbeatService) sendHeartbeatWithRetry() error {
 func (h *HeartbeatService) sendHeartbeat() error {
 	log := gologger.WithComponent("heartbeat")
 
+	// Check if IP has changed
+	currentIP, ipChanged, err := utils.CheckIPChanged()
+	if err != nil {
+		log.Warn().Err(err).Msg("Failed to check IP, heartbeat will continue without IP info")
+	} else if ipChanged {
+		log.Info().
+			Str("new_ip", currentIP).
+			Msg("Public IP changed, updating heartbeat payload")
+	}
+
 	type HeartbeatPayload struct {
 		WalletAddress string              `json:"wallet_address"`
 		Status        models.RunnerStatus `json:"status"`
@@ -166,6 +177,7 @@ func (h *HeartbeatService) sendHeartbeat() error {
 		Uptime        int64               `json:"uptime"`
 		Memory        int64               `json:"memory_usage"`
 		CPU           float64             `json:"cpu_usage"`
+		PublicIP      string              `json:"public_ip,omitempty"`
 	}
 
 	status := models.RunnerStatusOnline
@@ -182,6 +194,10 @@ func (h *HeartbeatService) sendHeartbeat() error {
 		Uptime:        int64(time.Since(h.startTime).Seconds()),
 		Memory:        memory,
 		CPU:           cpu,
+	}
+
+	if currentIP != "" {
+		payload.PublicIP = currentIP
 	}
 
 	payloadBytes, err := json.Marshal(payload)
