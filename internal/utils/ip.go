@@ -3,6 +3,7 @@ package utils
 import (
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"strings"
 	"sync"
@@ -85,21 +86,55 @@ func GetPublicIP() (string, error) {
 		close(errorChan)
 	}()
 
-	select {
-	case ip := <-resultChan:
-		return ip, nil
-	case err := <-errorChan:
+	var numErrors int
+	totalServices := len(services)
+	var lastErr error
+
+	for {
 		select {
-		case ip := <-resultChan:
+		case ip, ok := <-resultChan:
+			if !ok {
+				continue
+			}
 			return ip, nil
-		default:
-			return "", err
+		case err, ok := <-errorChan:
+			if !ok {
+				continue
+			}
+			numErrors++
+			lastErr = err
+
+			if numErrors >= totalServices {
+
+				ipMutex.RLock()
+				if lastKnownIP != "" {
+					ip := lastKnownIP
+					ipMutex.RUnlock()
+					return ip, nil
+				}
+				ipMutex.RUnlock()
+
+				return "", fmt.Errorf("network transition: %w", lastErr)
+			}
 		}
 	}
 }
 
 func CheckIPChanged() (string, bool, error) {
 	log := gologger.WithComponent("ip_monitor")
+
+	if !hasNetworkConnectivity() {
+
+		ipMutex.RLock()
+		if lastKnownIP != "" {
+			ip := lastKnownIP
+			ipMutex.RUnlock()
+			return ip, false, nil
+		}
+		ipMutex.RUnlock()
+
+		return "", false, fmt.Errorf("no network connectivity")
+	}
 
 	currentIP, err := GetPublicIP()
 	if err != nil {
@@ -118,4 +153,28 @@ func CheckIPChanged() (string, bool, error) {
 	ipMutex.Unlock()
 
 	return currentIP, hasChanged, nil
+}
+
+func hasNetworkConnectivity() bool {
+	ifaces, err := net.Interfaces()
+	if err != nil {
+		return false
+	}
+
+	for _, iface := range ifaces {
+		if iface.Flags&net.FlagUp != 0 && iface.Flags&net.FlagLoopback == 0 {
+			addrs, err := iface.Addrs()
+			if err != nil {
+				continue
+			}
+
+			for _, addr := range addrs {
+				if ipnet, ok := addr.(*net.IPNet); ok && !ipnet.IP.IsLoopback() && ipnet.IP.To4() != nil {
+					return true
+				}
+			}
+		}
+	}
+
+	return false
 }

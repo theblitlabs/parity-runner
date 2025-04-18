@@ -167,7 +167,7 @@ func (h *HeartbeatService) sendHeartbeat() error {
 	} else if ipChanged {
 		log.Info().
 			Str("new_ip", currentIP).
-			Msg("Public IP changed, triggering additional heartbeat")
+			Msg("Public IP changed, updating heartbeat payload")
 	}
 
 	type HeartbeatPayload struct {
