@@ -160,16 +160,6 @@ func (h *HeartbeatService) sendHeartbeatWithRetry() error {
 func (h *HeartbeatService) sendHeartbeat() error {
 	log := gologger.WithComponent("heartbeat")
 
-	// Check if IP has changed
-	currentIP, ipChanged, err := utils.CheckIPChanged()
-	if err != nil {
-		log.Warn().Err(err).Msg("Failed to check IP, heartbeat will continue without IP info")
-	} else if ipChanged {
-		log.Info().
-			Str("new_ip", currentIP).
-			Msg("Public IP changed, updating heartbeat payload")
-	}
-
 	type HeartbeatPayload struct {
 		WalletAddress string              `json:"wallet_address"`
 		Status        models.RunnerStatus `json:"status"`
@@ -194,10 +184,7 @@ func (h *HeartbeatService) sendHeartbeat() error {
 		Uptime:        int64(time.Since(h.startTime).Seconds()),
 		Memory:        memory,
 		CPU:           cpu,
-	}
-
-	if currentIP != "" {
-		payload.PublicIP = currentIP
+		PublicIP:      utils.GetWebhookURL(),
 	}
 
 	payloadBytes, err := json.Marshal(payload)

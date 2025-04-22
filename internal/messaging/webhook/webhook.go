@@ -349,16 +349,8 @@ func (w *WebhookClient) handleWebhook(resp http.ResponseWriter, req *http.Reques
 
 func (w *WebhookClient) Register() error {
 	log := gologger.WithComponent("webhook")
-
-	publicIP, err := utils.GetPublicIP()
-	if err != nil {
-		return fmt.Errorf("failed to get public IP: %w", err)
-	}
-
-	// Use local IP Directly for testing
-	// localIP := "127.0.0.1"
-
-	w.webhookURL = fmt.Sprintf("http://%s:%d/webhook", publicIP, w.serverPort)
+	
+	w.webhookURL = utils.GetWebhookURL()
 	log.Debug().Str("webhook_url", w.webhookURL).Msg("Generated webhook URL")
 
 	type RegisterPayload struct {
