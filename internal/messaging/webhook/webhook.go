@@ -429,17 +429,6 @@ func (w *WebhookClient) Register() error {
 	return nil
 }
 
-func getOutboundIP() (net.IP, error) {
-	conn, err := net.Dial("udp", "8.8.8.8:80")
-	if err != nil {
-		return nil, err
-	}
-	defer conn.Close()
-
-	localAddr := conn.LocalAddr().(*net.UDPAddr)
-	return localAddr.IP, nil
-}
-
 type defaultMetricsProvider struct{}
 
 func (p *defaultMetricsProvider) GetSystemMetrics() (int64, float64) {
