@@ -16,6 +16,7 @@ import (
 	"github.com/theblitlabs/parity-runner/internal/core/models"
 	"github.com/theblitlabs/parity-runner/internal/core/ports"
 	"github.com/theblitlabs/parity-runner/internal/messaging/heartbeat"
+	"github.com/theblitlabs/parity-runner/internal/utils"
 )
 
 type WebhookMessage struct {
@@ -348,16 +349,8 @@ func (w *WebhookClient) handleWebhook(resp http.ResponseWriter, req *http.Reques
 
 func (w *WebhookClient) Register() error {
 	log := gologger.WithComponent("webhook")
-
-	localIP, err := getOutboundIP()
-	if err != nil {
-		return fmt.Errorf("failed to get outbound IP: %w", err)
-	}
-
-	// Use local IP Directly for testing
-	// localIP := "127.0.0.1"
-
-	w.webhookURL = fmt.Sprintf("http://%s:%d/webhook", localIP, w.serverPort)
+	
+	w.webhookURL = utils.GetWebhookURL()
 	log.Debug().Str("webhook_url", w.webhookURL).Msg("Generated webhook URL")
 
 	type RegisterPayload struct {
@@ -426,17 +419,6 @@ func (w *WebhookClient) Register() error {
 		Msg("Runner registered successfully with server")
 
 	return nil
-}
-
-func getOutboundIP() (net.IP, error) {
-	conn, err := net.Dial("udp", "8.8.8.8:80")
-	if err != nil {
-		return nil, err
-	}
-	defer conn.Close()
-
-	localAddr := conn.LocalAddr().(*net.UDPAddr)
-	return localAddr.IP, nil
 }
 
 type defaultMetricsProvider struct{}
