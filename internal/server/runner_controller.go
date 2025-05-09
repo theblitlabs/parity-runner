@@ -1,10 +1,9 @@
 package server
 
 import (
-	"encoding/json"
 	"net/http"
-	"strings"
 
+	"github.com/gin-gonic/gin"
 	"github.com/theblitlabs/gologger"
 
 	"github.com/theblitlabs/parity-runner/internal/core/models"
@@ -21,163 +20,129 @@ func NewRunnerController(runnerService services.RunnerService) *RunnerController
 	}
 }
 
-func (c *RunnerController) RegisterRoutes(mux *http.ServeMux) {
-	mux.HandleFunc("/api/runners", c.handleRunnerRequest)
-	mux.HandleFunc("/api/runners/heartbeat", c.handleHeartbeat)
-	mux.HandleFunc("/api/runners/tasks/", c.handleTaskRequest)
-}
-
-func (c *RunnerController) handleRunnerRequest(w http.ResponseWriter, r *http.Request) {
+func (c *RunnerController) RequireDeviceID(ctx *gin.Context) {
 	log := gologger.WithComponent("runner_controller")
 
-	if r.Method == http.MethodPost {
-		var req struct {
-			WalletAddress string              `json:"wallet_address"`
-			Status        models.RunnerStatus `json:"status"`
-			Webhook       string              `json:"webhook"`
-		}
-
-		decoder := json.NewDecoder(r.Body)
-		if err := decoder.Decode(&req); err != nil {
-			log.Error().Err(err).Msg("Failed to parse runner registration request")
-			http.Error(w, "Invalid request body", http.StatusBadRequest)
-			return
-		}
-
-		deviceID := r.Header.Get("X-Device-ID")
-		if deviceID == "" || req.WalletAddress == "" {
-			log.Error().Msg("Missing required fields in runner registration")
-			http.Error(w, "Missing required fields", http.StatusBadRequest)
-			return
-		}
-
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusOK)
-		if _, err := w.Write([]byte(`{"status":"registered"}`)); err != nil {
-			log.Error().Err(err).Msg("Failed to write response")
-		}
+	deviceID := ctx.GetHeader("X-Device-ID")
+	if deviceID == "" {
+		log.Error().Msg("Missing X-Device-ID header")
+		ctx.JSON(http.StatusBadRequest, gin.H{"error": "Missing X-Device-ID header"})
+		ctx.Abort()
 		return
 	}
 
-	http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+	ctx.Next()
 }
 
-func (c *RunnerController) handleHeartbeat(w http.ResponseWriter, r *http.Request) {
-	log := gologger.WithComponent("runner_controller")
+func (c *RunnerController) RegisterRoutes(router *gin.Engine) {
+	api := router.Group("/api")
+	{
+		runners := api.Group("/runners")
+		{
+			runners.POST("", c.handleRunnerRegistration)
+			runners.POST("/heartbeat", c.handleHeartbeat)
 
-	if r.Method == http.MethodPost {
-		deviceID := r.Header.Get("X-Device-ID")
-		if deviceID == "" {
-			log.Error().Msg("Missing X-Device-ID header")
-			http.Error(w, "Missing X-Device-ID header", http.StatusBadRequest)
-			return
+			tasks := runners.Group("/tasks")
+			{
+				tasks.GET("/available", c.handleAvailableTasks)
+				tasks.POST("/:taskID/start", c.RequireDeviceID, c.handleTaskStart)
+				tasks.POST("/:taskID/complete", c.handleTaskComplete)
+				tasks.POST("/:taskID/result", c.RequireDeviceID, c.handleTaskResult)
+			}
 		}
-
-		var msg struct {
-			Type    string          `json:"type"`
-			Payload json.RawMessage `json:"payload"`
-		}
-
-		decoder := json.NewDecoder(r.Body)
-		if err := decoder.Decode(&msg); err != nil {
-			log.Error().Err(err).Msg("Failed to parse heartbeat message")
-			http.Error(w, "Invalid request body", http.StatusBadRequest)
-			return
-		}
-
-		if msg.Type != "heartbeat" {
-			log.Error().Str("type", msg.Type).Msg("Invalid message type")
-			http.Error(w, "Invalid message type", http.StatusBadRequest)
-			return
-		}
-
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusOK)
-		if _, err := w.Write([]byte(`{"status":"ok"}`)); err != nil {
-			log.Error().Err(err).Msg("Failed to write response")
-		}
-		return
 	}
-
-	http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 }
 
-func (c *RunnerController) handleTaskRequest(w http.ResponseWriter, r *http.Request) {
+func (c *RunnerController) handleRunnerRegistration(ctx *gin.Context) {
 	log := gologger.WithComponent("runner_controller")
-	path := strings.TrimPrefix(r.URL.Path, "/api/runners/tasks")
 
-	if path == "/available" && r.Method == http.MethodGet {
+	var req struct {
+		WalletAddress string              `json:"wallet_address"`
+		Status        models.RunnerStatus `json:"status"`
+		Webhook       string              `json:"webhook"`
+	}
 
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusOK)
-		if _, err := w.Write([]byte(`[]`)); err != nil {
-			log.Error().Err(err).Msg("Failed to write response")
-		}
+	if err := ctx.BindJSON(&req); err != nil {
+		log.Error().Err(err).Msg("Failed to parse runner registration request")
+		ctx.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request body"})
 		return
 	}
 
-	if strings.HasSuffix(path, "/start") && r.Method == http.MethodPost {
-
-		taskID := strings.TrimSuffix(strings.TrimPrefix(path, "/"), "/start")
-		log.Debug().Str("task_id", taskID).Msg("Start task request received")
-
-		deviceID := r.Header.Get("X-Device-ID")
-		if deviceID == "" {
-			log.Error().Msg("Missing X-Device-ID header")
-			http.Error(w, "Missing X-Device-ID header", http.StatusBadRequest)
-			return
-		}
-
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusOK)
-		if _, err := w.Write([]byte(`{"status":"ok"}`)); err != nil {
-			log.Error().Err(err).Msg("Failed to write response")
-		}
+	deviceID := ctx.GetHeader("X-Device-ID")
+	if deviceID == "" || req.WalletAddress == "" {
+		log.Error().Msg("Missing required fields in runner registration")
+		ctx.JSON(http.StatusBadRequest, gin.H{"error": "Missing required fields"})
 		return
 	}
 
-	if strings.HasSuffix(path, "/complete") && r.Method == http.MethodPost {
+	ctx.JSON(http.StatusOK, gin.H{"status": "registered"})
+}
 
-		taskID := strings.TrimSuffix(strings.TrimPrefix(path, "/"), "/complete")
-		log.Debug().Str("task_id", taskID).Msg("Complete task request received")
+func (c *RunnerController) handleHeartbeat(ctx *gin.Context) {
+	log := gologger.WithComponent("runner_controller")
 
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusOK)
-		if _, err := w.Write([]byte(`{"status":"ok"}`)); err != nil {
-			log.Error().Err(err).Msg("Failed to write response")
-		}
+	deviceID := ctx.GetHeader("X-Device-ID")
+	if deviceID == "" {
+		log.Error().Msg("Missing X-Device-ID header")
+		ctx.JSON(http.StatusBadRequest, gin.H{"error": "Missing X-Device-ID header"})
 		return
 	}
 
-	if strings.HasSuffix(path, "/result") && r.Method == http.MethodPost {
+	var msg struct {
+		Type    string          `json:"type"`
+		Payload gin.H           `json:"payload"`
+	}
 
-		taskID := strings.TrimSuffix(strings.TrimPrefix(path, "/"), "/result")
-		log.Debug().Str("task_id", taskID).Msg("Task result submission received")
-
-		deviceID := r.Header.Get("X-Device-ID")
-		if deviceID == "" {
-			log.Error().Msg("Missing X-Device-ID header")
-			http.Error(w, "Missing X-Device-ID header", http.StatusBadRequest)
-			return
-		}
-
-		var result models.TaskResult
-		decoder := json.NewDecoder(r.Body)
-		if err := decoder.Decode(&result); err != nil {
-			log.Error().Err(err).Msg("Failed to parse task result")
-			http.Error(w, "Invalid request body", http.StatusBadRequest)
-			return
-		}
-
-		result.DeviceID = deviceID
-
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusOK)
-		if _, err := w.Write([]byte(`{"status":"ok"}`)); err != nil {
-			log.Error().Err(err).Msg("Failed to write response")
-		}
+	if err := ctx.BindJSON(&msg); err != nil {
+		log.Error().Err(err).Msg("Failed to parse heartbeat message")
+		ctx.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request body"})
 		return
 	}
 
-	http.Error(w, "Not found", http.StatusNotFound)
+	if msg.Type != "heartbeat" {
+		log.Error().Str("type", msg.Type).Msg("Invalid message type")
+		ctx.JSON(http.StatusBadRequest, gin.H{"error": "Invalid message type"})
+		return
+	}
+
+	ctx.JSON(http.StatusOK, gin.H{"status": "ok"})
+}
+
+// TODO: Implement the logic to handle available tasks
+func (c *RunnerController) handleAvailableTasks(ctx *gin.Context) {
+	ctx.JSON(http.StatusOK, []interface{}{})
+}
+
+func (c *RunnerController) handleTaskStart(ctx *gin.Context) {
+	log := gologger.WithComponent("runner_controller")
+
+	taskID := ctx.Param("taskID")
+	log.Debug().Str("task_id", taskID).Msg("Start task request received")
+
+	ctx.JSON(http.StatusOK, gin.H{"status": "ok"})
+}
+
+func (c *RunnerController) handleTaskComplete(ctx *gin.Context) {
+	log := gologger.WithComponent("runner_controller")
+
+	taskID := ctx.Param("taskID")
+	log.Debug().Str("task_id", taskID).Msg("Complete task request received")
+
+	ctx.JSON(http.StatusOK, gin.H{"status": "ok"})
+}
+
+func (c *RunnerController) handleTaskResult(ctx *gin.Context) {
+	log := gologger.WithComponent("runner_controller")
+
+	taskID := ctx.Param("taskID")
+	log.Debug().Str("task_id", taskID).Msg("Task result submission received")
+
+	var result models.TaskResult
+	if err := ctx.BindJSON(&result); err != nil {
+		log.Error().Err(err).Msg("Failed to parse task result")
+		ctx.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request body"})
+		return
+	}
+	
+	ctx.JSON(http.StatusOK, gin.H{"status": "ok"})
 }
