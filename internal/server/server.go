@@ -24,15 +24,12 @@ type Controller interface {
 }
 
 func NewServer(cfg *config.Config) *Server {
-	// Set Gin mode based on configuration
-	gin.SetMode(gin.ReleaseMode) // Set to gin.DebugMode for development
+	gin.SetMode(gin.ReleaseMode)
 
 	router := gin.New()
 	
-	// Add middleware
 	router.Use(gin.Recovery())
 	
-	// Add a custom logger middleware using your existing logger
 	router.Use(func(c *gin.Context) {
 		start := time.Now()
 		path := c.Request.URL.Path
@@ -78,7 +75,6 @@ func (s *Server) Start() error {
 		controller.RegisterRoutes(s.router)
 	}
 
-	// Add health check endpoint
 	s.router.GET("/health", func(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"status": "ok"})
 	})

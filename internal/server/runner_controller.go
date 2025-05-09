@@ -20,6 +20,20 @@ func NewRunnerController(runnerService services.RunnerService) *RunnerController
 	}
 }
 
+func (c *RunnerController) RequireDeviceID(ctx *gin.Context) {
+	log := gologger.WithComponent("runner_controller")
+
+	deviceID := ctx.GetHeader("X-Device-ID")
+	if deviceID == "" {
+		log.Error().Msg("Missing X-Device-ID header")
+		ctx.JSON(http.StatusBadRequest, gin.H{"error": "Missing X-Device-ID header"})
+		ctx.Abort()
+		return
+	}
+
+	ctx.Next()
+}
+
 func (c *RunnerController) RegisterRoutes(router *gin.Engine) {
 	api := router.Group("/api")
 	{
@@ -31,9 +45,9 @@ func (c *RunnerController) RegisterRoutes(router *gin.Engine) {
 			tasks := runners.Group("/tasks")
 			{
 				tasks.GET("/available", c.handleAvailableTasks)
-				tasks.POST("/:taskID/start", c.handleTaskStart)
+				tasks.POST("/:taskID/start", c.RequireDeviceID, c.handleTaskStart)
 				tasks.POST("/:taskID/complete", c.handleTaskComplete)
-				tasks.POST("/:taskID/result", c.handleTaskResult)
+				tasks.POST("/:taskID/result", c.RequireDeviceID, c.handleTaskResult)
 			}
 		}
 	}
@@ -94,8 +108,9 @@ func (c *RunnerController) handleHeartbeat(ctx *gin.Context) {
 	ctx.JSON(http.StatusOK, gin.H{"status": "ok"})
 }
 
+// TODO: Implement the logic to handle available tasks
 func (c *RunnerController) handleAvailableTasks(ctx *gin.Context) {
-	ctx.JSON(http.StatusOK, []interface{}{}) // Return empty array
+	ctx.JSON(http.StatusOK, []interface{}{})
 }
 
 func (c *RunnerController) handleTaskStart(ctx *gin.Context) {
@@ -103,13 +118,6 @@ func (c *RunnerController) handleTaskStart(ctx *gin.Context) {
 
 	taskID := ctx.Param("taskID")
 	log.Debug().Str("task_id", taskID).Msg("Start task request received")
-
-	deviceID := ctx.GetHeader("X-Device-ID")
-	if deviceID == "" {
-		log.Error().Msg("Missing X-Device-ID header")
-		ctx.JSON(http.StatusBadRequest, gin.H{"error": "Missing X-Device-ID header"})
-		return
-	}
 
 	ctx.JSON(http.StatusOK, gin.H{"status": "ok"})
 }
@@ -129,20 +137,12 @@ func (c *RunnerController) handleTaskResult(ctx *gin.Context) {
 	taskID := ctx.Param("taskID")
 	log.Debug().Str("task_id", taskID).Msg("Task result submission received")
 
-	deviceID := ctx.GetHeader("X-Device-ID")
-	if deviceID == "" {
-		log.Error().Msg("Missing X-Device-ID header")
-		ctx.JSON(http.StatusBadRequest, gin.H{"error": "Missing X-Device-ID header"})
-		return
-	}
-
 	var result models.TaskResult
 	if err := ctx.BindJSON(&result); err != nil {
 		log.Error().Err(err).Msg("Failed to parse task result")
 		ctx.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request body"})
 		return
 	}
-
-	result.DeviceID = deviceID
+	
 	ctx.JSON(http.StatusOK, gin.H{"status": "ok"})
 }
