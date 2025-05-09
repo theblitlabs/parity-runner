@@ -38,16 +38,10 @@ type TaskConfig struct {
 func (c *TaskConfig) Validate(taskType TaskType) error {
 	switch taskType {
 	case TaskTypeDocker:
-		if len(c.Command) == 0 {
-			return errors.New("command is required for Docker tasks")
-		}
 		if c.ImageName == "" {
 			return errors.New("image name is required for Docker tasks")
 		}
 	case TaskTypeCommand:
-		if len(c.Command) == 0 {
-			return errors.New("command is required for Command tasks")
-		}
 	default:
 		return fmt.Errorf("unsupported task type: %s", taskType)
 	}
