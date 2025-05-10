@@ -122,6 +122,13 @@ func (e *DockerExecutor) ExecuteTask(ctx context.Context, task *models.Task) (*m
 		}
 	}
 
+	if len(config.Command) == 0 {
+		log.Debug().
+			Str("task_id", task.ID.String()).
+			Str("image", image).
+			Msg("No command specified, using default command from image")
+	}
+
 	containerID, err := e.containerMgr.CreateContainer(setupCtx, image, config.Command, workdir, envVars)
 	if err != nil {
 		log.Error().
