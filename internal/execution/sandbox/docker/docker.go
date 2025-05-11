@@ -185,13 +185,9 @@ func (e *DockerExecutor) ExecuteTask(ctx context.Context, task *models.Task) (*m
 		Str("task_id", task.ID.String()).
 		Str("container_id", containerID).
 		Msg("Container started successfully")
-
-	// Create a separate context for security verification with a generous timeout
-	// This needs to be sufficient for the container to start and initialize properly
 	securityCtx, securityCancel := context.WithTimeout(context.Background(), 120*time.Second)
 	defer securityCancel()
 
-	// Security verification is required - container must meet all security requirements
 	log.Info().
 		Str("task_id", task.ID.String()).
 		Str("container_id", containerID).
@@ -199,15 +195,11 @@ func (e *DockerExecutor) ExecuteTask(ctx context.Context, task *models.Task) (*m
 
 	isSecure, securityMsg, securityErr := e.containerMgr.TestSeccompProfile(securityCtx, containerID)
 	if securityErr != nil && (securityErr == context.DeadlineExceeded || strings.Contains(securityErr.Error(), "context")) {
-		// Handle timeout specifically
 		log.Warn().
 			Str("task_id", task.ID.String()).
 			Str("container_id", containerID).
 			Msg("Security verification timed out, but continuing with execution")
 
-		// Continue execution despite the timeout - the container is likely just slow to start
-		// We'll trust that our security settings are applied because Docker would have rejected them
-		// if they were improperly specified
 	} else if !isSecure || securityErr != nil {
 		log.Error().
 			Err(securityErr).
@@ -216,7 +208,6 @@ func (e *DockerExecutor) ExecuteTask(ctx context.Context, task *models.Task) (*m
 			Str("security_status", securityMsg).
 			Msg("Container security verification failed - task execution will be aborted")
 
-		// Attempt to clean up the container before returning
 		cleanupCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 		_ = e.containerMgr.RemoveContainer(cleanupCtx, containerID)
@@ -224,7 +215,6 @@ func (e *DockerExecutor) ExecuteTask(ctx context.Context, task *models.Task) (*m
 		return nil, fmt.Errorf("security verification failed: %s", securityMsg)
 	}
 
-	// Log successful security verification
 	log.Info().
 		Str("task_id", task.ID.String()).
 		Str("container_id", containerID).

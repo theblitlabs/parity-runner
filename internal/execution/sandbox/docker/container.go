@@ -15,7 +15,6 @@ import (
 	"github.com/theblitlabs/parity-runner/internal/execution/sandbox/docker/executils"
 )
 
-// SeccompProfile represents the JSON structure for a Docker seccomp profile
 type SeccompProfile struct {
 	DefaultAction string   `json:"defaultAction"`
 	Architectures []string `json:"architectures"`
@@ -102,7 +101,6 @@ func writeSeccompProfileToTempFile() (string, error) {
 		return "", err
 	}
 
-	// Verify the file was written correctly
 	if _, err := os.Stat(seccompPath); os.IsNotExist(err) {
 		log.Error().Err(err).Str("path", seccompPath).Msg("Seccomp profile file not found after writing")
 		return "", fmt.Errorf("seccomp profile creation failed: file not found after writing")
@@ -115,14 +113,12 @@ func writeSeccompProfileToTempFile() (string, error) {
 func NewContainerManager(memoryLimit, cpuLimit string) (*ContainerManager, error) {
 	log := gologger.WithComponent("docker.container")
 
-	// Create the seccomp profile - this is required for secure operation
 	seccompPath, err := writeSeccompProfileToTempFile()
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to create seccomp profile file")
 		return nil, fmt.Errorf("failed to create required seccomp profile: %w", err)
 	}
 
-	// Verify the file is accessible before returning
 	if _, err := os.Stat(seccompPath); err != nil {
 		log.Error().Err(err).Str("path", seccompPath).Msg("Unable to access seccomp profile after creation")
 		return nil, fmt.Errorf("seccomp profile inaccessible after creation: %w", err)
@@ -159,12 +155,10 @@ func (cm *ContainerManager) CreateContainer(ctx context.Context, image string, c
 		"--security-opt", "no-new-privileges", // Prevent privilege escalation
 	}
 
-	// Apply seccomp profile - this is required
 	if cm.seccompProfile == "" {
 		return "", fmt.Errorf("missing required seccomp profile")
 	}
 
-	// Verify the seccomp profile file exists before using it
 	if _, err := os.Stat(cm.seccompProfile); os.IsNotExist(err) {
 		log.Error().Str("path", cm.seccompProfile).Msg("Seccomp profile file does not exist")
 		return "", fmt.Errorf("seccomp profile file not found: %w", err)
@@ -223,7 +217,6 @@ func (cm *ContainerManager) StopContainer(ctx context.Context, containerID strin
 func (cm *ContainerManager) WaitForContainer(ctx context.Context, containerID string) (int, error) {
 	log := gologger.WithComponent("docker.container")
 
-	// Create a channel to receive the exit code
 	exitCodeChan := make(chan int, 1)
 	errChan := make(chan error, 1)
 
@@ -245,12 +238,10 @@ func (cm *ContainerManager) WaitForContainer(ctx context.Context, containerID st
 
 	select {
 	case <-ctx.Done():
-		// Context was cancelled (timeout) - attempt graceful shutdown
 		log.Info().
 			Str("container", containerID).
 			Msg("Context cancelled, attempting graceful shutdown")
 
-		// timeout for graceful shutdown
 		stopCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 
@@ -298,30 +289,6 @@ func (cm *ContainerManager) RemoveContainer(ctx context.Context, containerID str
 	return nil
 }
 
-func (cm *ContainerManager) Cleanup() error {
-	// No longer need the logger as we're not logging anything
-	// log := gologger.WithComponent("docker.container")
-
-	// We no longer delete the seccomp profile file after each execution
-	// This prevents issues with concurrent or sequential container executions
-	// The file will remain in the temp directory but this is a small price to pay for reliability
-	// Comment out or remove the profile deletion code:
-	/*
-		if cm.seccompProfile != "" {
-			if err := os.Remove(cm.seccompProfile); err != nil {
-				if !os.IsNotExist(err) {
-					log.Warn().Err(err).Str("path", cm.seccompProfile).Msg("Failed to remove temporary seccomp profile")
-					return fmt.Errorf("failed to clean up seccomp profile: %w", err)
-				}
-			} else {
-				log.Debug().Str("path", cm.seccompProfile).Msg("Removed temporary seccomp profile")
-			}
-		}
-	*/
-
-	return nil
-}
-
 func (cm *ContainerManager) VerifyNonceInOutput(output, nonce string) bool {
 	return strings.Contains(output, nonce)
 }
@@ -331,7 +298,6 @@ func (cm *ContainerManager) VerifyNonceInOutput(output, nonce string) bool {
 func (cm *ContainerManager) preVerifyContainer(ctx context.Context, containerID string) bool {
 	log := gologger.WithComponent("docker.container")
 
-	// First, let's check if the container exists and has been created
 	inspectCmd := []string{"inspect", "--format={{.State.Status}}", containerID}
 	statusOutput, err := executils.ExecCommand(ctx, "docker", inspectCmd...)
 	if err != nil {
@@ -344,7 +310,6 @@ func (cm *ContainerManager) preVerifyContainer(ctx context.Context, containerID 
 	log.Debug().Str("container", containerID).Str("status", containerStatus).
 		Msg("Container status in pre-verification")
 
-	// If container is in created state, give it a gentle nudge
 	if containerStatus == "created" {
 		log.Debug().Str("container", containerID).
 			Msg("Container in 'created' state, attempting to start")
@@ -355,15 +320,12 @@ func (cm *ContainerManager) preVerifyContainer(ctx context.Context, containerID 
 		}
 	}
 
-	// Active polling for container status with short intervals
 	maxAttempts := 10
 	for i := 0; i < maxAttempts; i++ {
-		// Check if context is done
 		if ctx.Err() != nil {
 			return false
 		}
 
-		// Check container running state
 		statusOutput, err := executils.ExecCommand(ctx, "docker", "inspect", "--format={{.State.Running}}", containerID)
 		if err == nil && strings.TrimSpace(string(statusOutput)) == "true" {
 			log.Debug().Str("container", containerID).Int("attempts", i+1).
@@ -377,12 +339,11 @@ func (cm *ContainerManager) preVerifyContainer(ctx context.Context, containerID 
 				Msg("Container not yet running in pre-verification")
 		}
 
-		// Short sleep between checks (100ms initially, increasing slightly)
 		sleepTime := time.Duration(100+i*50) * time.Millisecond
 		time.Sleep(sleepTime)
 	}
 
-	// One final check before giving up
+	// final check before giving up
 	statusOutput, err = executils.ExecCommand(ctx, "docker", "inspect", "--format={{.State.Running}}", containerID)
 	isRunning := err == nil && strings.TrimSpace(string(statusOutput)) == "true"
 
@@ -391,8 +352,6 @@ func (cm *ContainerManager) preVerifyContainer(ctx context.Context, containerID 
 		return true
 	}
 
-	// If we reach here, the container is still not running
-	// Let's check if there are any issues with the container
 	inspectOutput, inspectErr := executils.ExecCommand(ctx, "docker", "inspect", containerID)
 	if inspectErr == nil {
 		log.Debug().Str("container", containerID).Str("inspect_output", string(inspectOutput)).
@@ -407,12 +366,10 @@ func (cm *ContainerManager) preVerifyContainer(ctx context.Context, containerID 
 func (cm *ContainerManager) TestSeccompProfile(ctx context.Context, containerID string) (bool, string, error) {
 	log := gologger.WithComponent("docker.container")
 
-	// Retry mechanism for container status checks
-	maxRetries := 15                  // Increased to allow more time for container to start
-	retryDelay := 2 * time.Second     // Base delay before exponential backoff
-	maxRetryDelay := 15 * time.Second // Cap on maximum delay to prevent excessive waiting
+	maxRetries := 15
+	retryDelay := 2 * time.Second
+	maxRetryDelay := 15 * time.Second
 
-	// Seccomp profile is required
 	if cm.seccompProfile == "" {
 		log.Error().Str("container", containerID).Msg("Container running without seccomp profile")
 		return false, "Missing required seccomp profile", fmt.Errorf("missing seccomp profile")
@@ -426,31 +383,25 @@ func (cm *ContainerManager) TestSeccompProfile(ctx context.Context, containerID 
 		Dur("max_delay", maxRetryDelay).
 		Msg("Starting container security verification")
 
-	// Check if context is already done before we even start
 	if ctx.Err() != nil {
 		log.Warn().Err(ctx.Err()).Str("container", containerID).Msg("Context already terminated before security verification")
 		return false, "Context already terminated", ctx.Err()
 	}
 
-	// Run pre-verification to potentially speed up container startup detection
 	if cm.preVerifyContainer(ctx, containerID) {
 		log.Debug().Str("container", containerID).Msg("Container pre-verification successful, container is already running")
 		return true, "Container security verified (pre-verification)", nil
 	}
 
-	// Give the container time to start and initialize with exponential backoff
 	for i := 0; i < maxRetries; i++ {
-		// Check if context is done before making a new call
 		if ctx.Err() != nil {
 			log.Warn().Err(ctx.Err()).Str("container", containerID).
 				Int("attempt", i+1).Msg("Context terminated during security verification")
 			return false, "Context terminated", ctx.Err()
 		}
 
-		// Verify the container is running
 		statusOutput, statusErr := executils.ExecCommand(ctx, "docker", "inspect", "--format={{.State.Running}}", containerID)
 		if statusErr != nil {
-			// Get more detailed information about why inspection fails
 			inspectOutput, inspectErr := executils.ExecCommand(ctx, "docker", "inspect", containerID)
 			if inspectErr == nil {
 				log.Debug().Str("container", containerID).Str("inspect_output", string(inspectOutput)).
@@ -460,7 +411,6 @@ func (cm *ContainerManager) TestSeccompProfile(ctx context.Context, containerID 
 					Msg("Failed to get detailed container inspection")
 			}
 
-			// Check container status to get more details
 			stateOutput, stateErr := executils.ExecCommand(ctx, "docker", "inspect", "--format={{.State.Status}}", containerID)
 			if stateErr == nil {
 				containerState := strings.TrimSpace(string(stateOutput))
@@ -489,19 +439,16 @@ func (cm *ContainerManager) TestSeccompProfile(ctx context.Context, containerID 
 			return false, "Failed to verify container status", statusErr
 		}
 
-		// If the container is running, proceed with security checks
 		if strings.TrimSpace(string(statusOutput)) == "true" {
 			log.Debug().Str("container", containerID).Int("attempt", i+1).Msg("Container is running, proceeding with security checks")
 			break
 		}
 
-		// If container is not running and we've exhausted retries, fail
 		if i == maxRetries-1 {
 			log.Error().Str("container", containerID).Msg("Container is not running after maximum retries")
 			return false, "Container is not running", fmt.Errorf("container not running after %d retries", maxRetries)
 		}
 
-		// Container not running yet, retry
 		log.Warn().Str("container", containerID).
 			Int("attempt", i+1).Int("max_retries", maxRetries).Dur("retry_delay", retryDelay).
 			Msg("Container not running yet, retrying")
@@ -512,23 +459,17 @@ func (cm *ContainerManager) TestSeccompProfile(ctx context.Context, containerID 
 		}
 	}
 
-	// If context is already timed out before tests, report it
 	if ctx.Err() != nil {
 		log.Warn().Err(ctx.Err()).Str("container", containerID).Msg("Context timeout after container started running")
 		return false, "Timeout after container started", ctx.Err()
 	}
 
-	// We'll skip detailed security tests if we're close to timeout
-	// This helps us avoid getting stuck in tests when the container is working but just slow
 	select {
 	case <-ctx.Done():
 		log.Warn().Str("container", containerID).Msg("Context already done, skipping detailed security tests")
 		return true, "Basic security verification completed (tests skipped due to timeout)", nil
 	default:
-		// Continue with tests if we have time
 	}
 
-	// Basic security tests are complete if we reach here - container is running with seccomp profile
-	// We consider this a successful verification
 	return true, "Container security verified", nil
 }

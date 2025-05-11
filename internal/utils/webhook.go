@@ -10,8 +10,8 @@ func GetWebhookURL() string {
 		return ""
 	}
 
-	// publicIP, err := GetPublicIP()
-	publicIP := "localhost"
+	publicIP, err := GetPublicIP()
+	// publicIP := "localhost"
 	if err != nil {
 		return ""
 	}
