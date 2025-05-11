@@ -122,6 +122,14 @@ func NewContainerManager(memoryLimit, cpuLimit string) (*ContainerManager, error
 		return nil, fmt.Errorf("failed to create required seccomp profile: %w", err)
 	}
 
+	// Verify the file is accessible before returning
+	if _, err := os.Stat(seccompPath); err != nil {
+		log.Error().Err(err).Str("path", seccompPath).Msg("Unable to access seccomp profile after creation")
+		return nil, fmt.Errorf("seccomp profile inaccessible after creation: %w", err)
+	}
+
+	log.Debug().Str("seccomp_profile", seccompPath).Msg("Container manager initialized with seccomp profile")
+
 	return &ContainerManager{
 		memoryLimit:    memoryLimit,
 		cpuLimit:       cpuLimit,
@@ -291,18 +299,25 @@ func (cm *ContainerManager) RemoveContainer(ctx context.Context, containerID str
 }
 
 func (cm *ContainerManager) Cleanup() error {
-	log := gologger.WithComponent("docker.container")
+	// No longer need the logger as we're not logging anything
+	// log := gologger.WithComponent("docker.container")
 
-	if cm.seccompProfile != "" {
-		if err := os.Remove(cm.seccompProfile); err != nil {
-			if !os.IsNotExist(err) {
-				log.Warn().Err(err).Str("path", cm.seccompProfile).Msg("Failed to remove temporary seccomp profile")
-				return fmt.Errorf("failed to clean up seccomp profile: %w", err)
+	// We no longer delete the seccomp profile file after each execution
+	// This prevents issues with concurrent or sequential container executions
+	// The file will remain in the temp directory but this is a small price to pay for reliability
+	// Comment out or remove the profile deletion code:
+	/*
+		if cm.seccompProfile != "" {
+			if err := os.Remove(cm.seccompProfile); err != nil {
+				if !os.IsNotExist(err) {
+					log.Warn().Err(err).Str("path", cm.seccompProfile).Msg("Failed to remove temporary seccomp profile")
+					return fmt.Errorf("failed to clean up seccomp profile: %w", err)
+				}
+			} else {
+				log.Debug().Str("path", cm.seccompProfile).Msg("Removed temporary seccomp profile")
 			}
-		} else {
-			log.Debug().Str("path", cm.seccompProfile).Msg("Removed temporary seccomp profile")
 		}
-	}
+	*/
 
 	return nil
 }

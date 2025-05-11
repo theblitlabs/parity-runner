@@ -56,8 +56,6 @@ func NewDockerExecutor(config *ExecutorConfig) (*DockerExecutor, error) {
 }
 
 func (e *DockerExecutor) ExecuteTask(ctx context.Context, task *models.Task) (*models.TaskResult, error) {
-	// Ensure we clean up any temporary resources when the task is done
-	defer e.containerMgr.Cleanup()
 	log := gologger.WithComponent("docker")
 	startTime := time.Now()
 	result := models.NewTaskResult()
