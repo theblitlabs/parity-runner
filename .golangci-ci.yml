@@ -4,9 +4,6 @@ linters:
     - govet
     - ineffassign
     - unused
-  disable:
-    - errcheck
-    - staticcheck
 
 run:
   timeout: 5m
@@ -36,5 +33,3 @@ linters-settings:
     simplify: true
   goimports:
     local-prefixes: "github.com/theblitlabs/parity-runner"
-
-version: "2"
