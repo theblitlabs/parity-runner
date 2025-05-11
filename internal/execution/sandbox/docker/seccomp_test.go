@@ -93,7 +93,7 @@ func TestContainerSecurityCheck(t *testing.T) {
 	// Try to execute a command inside the container
 	// This should be blocked by the seccomp profile
 	cmdTest := `sh -c "bash -c 'echo inside nested shell'" || echo "EXEC_BLOCKED"`
-	output, err := executils.ExecCommand(context.Background(), "docker", "exec", containerID, "sh", "-c", cmdTest)
+	output, _ := executils.ExecCommand(context.Background(), "docker", "exec", containerID, "sh", "-c", cmdTest)
 
 	t.Logf("Command execution test output: %s", string(output))
 
