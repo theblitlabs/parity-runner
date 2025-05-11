@@ -22,12 +22,16 @@ issues:
     - path: _test\.go
       linters:
         - errcheck
+    - text: "could not import sync/atomic"
+      linters:
+        - typecheck
+    - text: "unsupported version: 2"
+      linters:
+        - typecheck
 
-# Default is 3 lines of context, which is often insufficient
 output:
   sort-results: true
 
-# Settings for specific linters
 linters-settings:
   gofmt:
     simplify: true
