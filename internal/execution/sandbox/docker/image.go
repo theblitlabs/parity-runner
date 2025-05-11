@@ -8,6 +8,7 @@ import (
 	"os"
 
 	"github.com/theblitlabs/gologger"
+	"github.com/theblitlabs/parity-runner/internal/execution/sandbox/docker/executils"
 )
 
 type ImageManager struct{}
@@ -20,7 +21,7 @@ func (im *ImageManager) PullImage(ctx context.Context, imageName string) error {
 	log := gologger.WithComponent("docker.image")
 
 	log.Info().Str("image", imageName).Msg("Pulling image from registry")
-	if _, err := execCommand(ctx, "docker", "pull", imageName); err != nil {
+	if _, err := executils.ExecCommand(ctx, "docker", "pull", imageName); err != nil {
 		log.Error().Err(err).Str("image", imageName).Msg("Pull failed")
 		return fmt.Errorf("image pull failed: %w", err)
 	}
@@ -58,7 +59,7 @@ func (im *ImageManager) DownloadAndLoadImage(ctx context.Context, imageURL, imag
 	}
 
 	log.Info().Str("image", imageName).Msg("Loading Docker image")
-	if _, err := execCommand(ctx, "docker", "load", "-i", tmpFile.Name()); err != nil {
+	if _, err := executils.ExecCommand(ctx, "docker", "load", "-i", tmpFile.Name()); err != nil {
 		log.Error().Err(err).Msg("Failed to load Docker image")
 		return fmt.Errorf("failed to load Docker image: %w", err)
 	}
