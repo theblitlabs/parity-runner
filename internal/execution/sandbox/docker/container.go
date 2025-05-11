@@ -361,37 +361,31 @@ func (cm *ContainerManager) preVerifyContainer(ctx context.Context, containerID 
 	return false
 }
 
-// TestSeccompProfile verifies that the container security is enforced
-// Returns false if security requirements are not met
-func (cm *ContainerManager) TestSeccompProfile(ctx context.Context, containerID string) (bool, string, error) {
+func (cm *ContainerManager) validateSeccompProfile(containerID string) (bool, string, error) {
 	log := gologger.WithComponent("docker.container")
-
-	maxRetries := 15
-	retryDelay := 2 * time.Second
-	maxRetryDelay := 15 * time.Second
 
 	if cm.seccompProfile == "" {
 		log.Error().Str("container", containerID).Msg("Container running without seccomp profile")
 		return false, "Missing required seccomp profile", fmt.Errorf("missing seccomp profile")
 	}
 
-	log.Debug().
-		Str("container", containerID).
-		Str("seccomp_profile", cm.seccompProfile).
-		Int("max_retries", maxRetries).
-		Dur("initial_delay", retryDelay).
-		Dur("max_delay", maxRetryDelay).
-		Msg("Starting container security verification")
+	return true, "", nil
+}
+
+func (cm *ContainerManager) checkContextTermination(ctx context.Context, containerID string) (bool, string, error) {
+	log := gologger.WithComponent("docker.container")
 
 	if ctx.Err() != nil {
 		log.Warn().Err(ctx.Err()).Str("container", containerID).Msg("Context already terminated before security verification")
 		return false, "Context already terminated", ctx.Err()
 	}
 
-	if cm.preVerifyContainer(ctx, containerID) {
-		log.Debug().Str("container", containerID).Msg("Container pre-verification successful, container is already running")
-		return true, "Container security verified (pre-verification)", nil
-	}
+	return true, "", nil
+}
+
+func (cm *ContainerManager) waitForContainerRunning(ctx context.Context, containerID string, maxRetries int, initialDelay time.Duration, maxDelay time.Duration) (bool, string, error) {
+	log := gologger.WithComponent("docker.container")
+	retryDelay := initialDelay
 
 	for i := 0; i < maxRetries; i++ {
 		if ctx.Err() != nil {
@@ -402,46 +396,24 @@ func (cm *ContainerManager) TestSeccompProfile(ctx context.Context, containerID 
 
 		statusOutput, statusErr := executils.ExecCommand(ctx, "docker", "inspect", "--format={{.State.Running}}", containerID)
 		if statusErr != nil {
-			inspectOutput, inspectErr := executils.ExecCommand(ctx, "docker", "inspect", containerID)
-			if inspectErr == nil {
-				log.Debug().Str("container", containerID).Str("inspect_output", string(inspectOutput)).
-					Msg("Container inspection details")
-			} else {
-				log.Debug().Str("container", containerID).Err(inspectErr).
-					Msg("Failed to get detailed container inspection")
+
+			isLastAttempt := i == maxRetries-1
+			continueRetrying := cm.handleStatusError(ctx, containerID, statusErr, i, maxRetries, retryDelay, isLastAttempt)
+			if !continueRetrying {
+				return false, "Failed to verify container status", statusErr
 			}
 
-			stateOutput, stateErr := executils.ExecCommand(ctx, "docker", "inspect", "--format={{.State.Status}}", containerID)
-			if stateErr == nil {
-				containerState := strings.TrimSpace(string(stateOutput))
-				log.Debug().Str("container", containerID).Str("container_state", containerState).
-					Msg("Container state detected")
+			retryDelay = retryDelay * 2 // Exponential backoff
+			if retryDelay > maxDelay {
+				retryDelay = maxDelay // Cap the delay
 			}
-
-			if i < maxRetries-1 && ctx.Err() == nil {
-				log.Warn().Err(statusErr).Str("container", containerID).
-					Int("attempt", i+1).Int("max_retries", maxRetries).Dur("retry_delay", retryDelay).
-					Msg("Container not ready yet, retrying")
-				time.Sleep(retryDelay)
-				retryDelay = retryDelay * 2 // Exponential backoff
-				if retryDelay > maxRetryDelay {
-					retryDelay = maxRetryDelay // Cap the delay
-				}
-				continue
-			}
-
-			if ctx.Err() != nil {
-				log.Warn().Err(ctx.Err()).Str("container", containerID).Msg("Context timeout during container status check")
-				return false, "Timeout during verification", ctx.Err()
-			}
-
-			log.Error().Err(statusErr).Str("container", containerID).Msg("Failed to verify container status")
-			return false, "Failed to verify container status", statusErr
+			time.Sleep(retryDelay)
+			continue
 		}
 
 		if strings.TrimSpace(string(statusOutput)) == "true" {
 			log.Debug().Str("container", containerID).Int("attempt", i+1).Msg("Container is running, proceeding with security checks")
-			break
+			return true, "", nil
 		}
 
 		if i == maxRetries-1 {
@@ -454,10 +426,51 @@ func (cm *ContainerManager) TestSeccompProfile(ctx context.Context, containerID 
 			Msg("Container not running yet, retrying")
 		time.Sleep(retryDelay)
 		retryDelay = retryDelay * 2 // Exponential backoff
-		if retryDelay > maxRetryDelay {
-			retryDelay = maxRetryDelay // Cap the delay
+		if retryDelay > maxDelay {
+			retryDelay = maxDelay // Cap the delay
 		}
 	}
+
+	return false, "Container did not reach running state", fmt.Errorf("container not running after %d retries", maxRetries)
+}
+
+func (cm *ContainerManager) handleStatusError(ctx context.Context, containerID string, statusErr error, attempt int, maxRetries int, retryDelay time.Duration, isLastAttempt bool) bool {
+	log := gologger.WithComponent("docker.container")
+
+	inspectOutput, inspectErr := executils.ExecCommand(ctx, "docker", "inspect", containerID)
+	if inspectErr == nil {
+		log.Debug().Str("container", containerID).Str("inspect_output", string(inspectOutput)).
+			Msg("Container inspection details")
+	} else {
+		log.Debug().Str("container", containerID).Err(inspectErr).
+			Msg("Failed to get detailed container inspection")
+	}
+
+	stateOutput, stateErr := executils.ExecCommand(ctx, "docker", "inspect", "--format={{.State.Status}}", containerID)
+	if stateErr == nil {
+		containerState := strings.TrimSpace(string(stateOutput))
+		log.Debug().Str("container", containerID).Str("container_state", containerState).
+			Msg("Container state detected")
+	}
+
+	if isLastAttempt || ctx.Err() != nil {
+		if ctx.Err() != nil {
+			log.Warn().Err(ctx.Err()).Str("container", containerID).Msg("Context timeout during container status check")
+			return false
+		}
+
+		log.Error().Err(statusErr).Str("container", containerID).Msg("Failed to verify container status")
+		return false
+	}
+
+	log.Warn().Err(statusErr).Str("container", containerID).
+		Int("attempt", attempt+1).Int("max_retries", maxRetries).Dur("retry_delay", retryDelay).
+		Msg("Container not ready yet, retrying")
+	return true
+}
+
+func (cm *ContainerManager) checkTimeoutAfterStart(ctx context.Context, containerID string) (bool, string, error) {
+	log := gologger.WithComponent("docker.container")
 
 	if ctx.Err() != nil {
 		log.Warn().Err(ctx.Err()).Str("container", containerID).Msg("Context timeout after container started running")
@@ -469,6 +482,48 @@ func (cm *ContainerManager) TestSeccompProfile(ctx context.Context, containerID 
 		log.Warn().Str("container", containerID).Msg("Context already done, skipping detailed security tests")
 		return true, "Basic security verification completed (tests skipped due to timeout)", nil
 	default:
+		return true, "", nil
+	}
+}
+
+func (cm *ContainerManager) TestSeccompProfile(ctx context.Context, containerID string) (bool, string, error) {
+	log := gologger.WithComponent("docker.container")
+
+	maxRetries := 15
+	retryDelay := 2 * time.Second
+	maxRetryDelay := 15 * time.Second
+
+	ok, msg, err := cm.validateSeccompProfile(containerID)
+	if !ok {
+		return false, msg, err
+	}
+
+	log.Debug().
+		Str("container", containerID).
+		Str("seccomp_profile", cm.seccompProfile).
+		Int("max_retries", maxRetries).
+		Dur("initial_delay", retryDelay).
+		Dur("max_delay", maxRetryDelay).
+		Msg("Starting container security verification")
+
+	ok, msg, err = cm.checkContextTermination(ctx, containerID)
+	if !ok {
+		return false, msg, err
+	}
+
+	if cm.preVerifyContainer(ctx, containerID) {
+		log.Debug().Str("container", containerID).Msg("Container pre-verification successful, container is already running")
+		return true, "Container security verified (pre-verification)", nil
+	}
+
+	ok, msg, err = cm.waitForContainerRunning(ctx, containerID, maxRetries, retryDelay, maxRetryDelay)
+	if !ok {
+		return false, msg, err
+	}
+
+	ok, msg, err = cm.checkTimeoutAfterStart(ctx, containerID)
+	if !ok || msg != "" {
+		return ok, msg, err
 	}
 
 	return true, "Container security verified", nil
