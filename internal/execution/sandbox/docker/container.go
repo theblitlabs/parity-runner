@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/theblitlabs/gologger"
+
 	"github.com/theblitlabs/parity-runner/internal/execution/sandbox/docker/executils"
 )
 
@@ -96,7 +97,7 @@ func writeSeccompProfileToTempFile() (string, error) {
 		return "", err
 	}
 
-	if err := os.WriteFile(seccompPath, profileData, 0600); err != nil {
+	if err := os.WriteFile(seccompPath, profileData, 0o600); err != nil {
 		log.Error().Err(err).Msg("Failed to write seccomp profile to temporary file")
 		return "", err
 	}

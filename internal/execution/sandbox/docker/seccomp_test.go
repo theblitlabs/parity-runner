@@ -63,7 +63,6 @@ func TestContainerSecurityCheck(t *testing.T) {
 	containerID, err := cm.CreateContainer(
 		context.Background(),
 		"alpine:latest",
-		[]string{"sleep", "60"},
 		"/",
 		[]string{"TEST=true"},
 	)

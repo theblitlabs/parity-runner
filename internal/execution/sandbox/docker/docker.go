@@ -191,7 +191,6 @@ func (e *DockerExecutor) ExecuteTask(ctx context.Context, task *models.Task) (*m
 			Str("task_id", task.ID.String()).
 			Str("container_id", containerID).
 			Msg("Security verification timed out, but continuing with execution")
-
 	} else if !isSecure || securityErr != nil {
 		log.Error().
 			Err(securityErr).
