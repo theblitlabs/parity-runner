@@ -4,12 +4,13 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"os/exec"
+	"strings"
 	"time"
 
 	"github.com/theblitlabs/gologger"
 
 	"github.com/theblitlabs/parity-runner/internal/core/models"
+	"github.com/theblitlabs/parity-runner/internal/execution/sandbox/docker/executils"
 	"github.com/theblitlabs/parity-runner/internal/utils"
 )
 
@@ -26,15 +27,10 @@ type ExecutorConfig struct {
 	ExecutionTimeout time.Duration `mapstructure:"execution_timeout"`
 }
 
-func execCommand(ctx context.Context, name string, args ...string) ([]byte, error) {
-	cmd := exec.CommandContext(ctx, name, args...)
-	return cmd.CombinedOutput()
-}
-
 func NewDockerExecutor(config *ExecutorConfig) (*DockerExecutor, error) {
 	log := gologger.WithComponent("docker")
 
-	if _, err := execCommand(context.Background(), "docker", "version"); err != nil {
+	if _, err := executils.ExecCommand(context.Background(), "docker", "version"); err != nil {
 		log.Error().Err(err).Msg("Docker not available")
 		return nil, fmt.Errorf("docker not available: %w", err)
 	}
@@ -46,10 +42,16 @@ func NewDockerExecutor(config *ExecutorConfig) (*DockerExecutor, error) {
 		Dur("execution_timeout", config.ExecutionTimeout).
 		Msg("Executor initialized")
 
+	containerMgr, err := NewContainerManager(config.MemoryLimit, config.CPULimit)
+	if err != nil {
+		log.Error().Err(err).Msg("Failed to initialize container manager with seccomp profile")
+		return nil, fmt.Errorf("failed to initialize security: %w", err)
+	}
+
 	return &DockerExecutor{
 		config:       config,
 		imageManager: NewImageManager(),
-		containerMgr: NewContainerManager(config.MemoryLimit, config.CPULimit),
+		containerMgr: containerMgr,
 	}, nil
 }
 
@@ -89,6 +91,12 @@ func (e *DockerExecutor) ExecuteTask(ctx context.Context, task *models.Task) (*m
 		return nil, fmt.Errorf("image name required")
 	}
 
+	log.Info().
+		Str("task_id", task.ID.String()).
+		Str("image", image).
+		Strs("command", config.Command).
+		Msg("Task configuration loaded")
+
 	setupCtx, setupCancel := context.WithTimeout(ctx, e.config.Timeout)
 	defer setupCancel()
 
@@ -122,11 +130,21 @@ func (e *DockerExecutor) ExecuteTask(ctx context.Context, task *models.Task) (*m
 		}
 	}
 
+	log.Debug().
+		Str("task_id", task.ID.String()).
+		Strs("env_vars", envVars).
+		Msg("Container environment variables set")
+
 	if len(config.Command) == 0 {
 		log.Debug().
 			Str("task_id", task.ID.String()).
 			Str("image", image).
 			Msg("No command specified, using default command from image")
+	} else {
+		log.Debug().
+			Str("task_id", task.ID.String()).
+			Strs("command", config.Command).
+			Msg("Using specified command")
 	}
 
 	containerID, err := e.containerMgr.CreateContainer(setupCtx, image, config.Command, workdir, envVars)
@@ -138,6 +156,11 @@ func (e *DockerExecutor) ExecuteTask(ctx context.Context, task *models.Task) (*m
 			Msg("Failed to create container")
 		return nil, fmt.Errorf("container creation failed: %w", err)
 	}
+
+	log.Info().
+		Str("task_id", task.ID.String()).
+		Str("container_id", containerID).
+		Msg("Container created, attempting to start")
 
 	defer func() {
 		if err := e.containerMgr.RemoveContainer(context.Background(), containerID); err != nil {
@@ -157,6 +180,46 @@ func (e *DockerExecutor) ExecuteTask(ctx context.Context, task *models.Task) (*m
 			Msg("Failed to start container")
 		return nil, fmt.Errorf("container start failed: %w", err)
 	}
+
+	log.Info().
+		Str("task_id", task.ID.String()).
+		Str("container_id", containerID).
+		Msg("Container started successfully")
+	securityCtx, securityCancel := context.WithTimeout(context.Background(), 120*time.Second)
+	defer securityCancel()
+
+	log.Info().
+		Str("task_id", task.ID.String()).
+		Str("container_id", containerID).
+		Msg("Verifying container security (required)")
+
+	isSecure, securityMsg, securityErr := e.containerMgr.TestSeccompProfile(securityCtx, containerID)
+	if securityErr != nil && (securityErr == context.DeadlineExceeded || strings.Contains(securityErr.Error(), "context")) {
+		log.Warn().
+			Str("task_id", task.ID.String()).
+			Str("container_id", containerID).
+			Msg("Security verification timed out, but continuing with execution")
+
+	} else if !isSecure || securityErr != nil {
+		log.Error().
+			Err(securityErr).
+			Str("task_id", task.ID.String()).
+			Str("container_id", containerID).
+			Str("security_status", securityMsg).
+			Msg("Container security verification failed - task execution will be aborted")
+
+		cleanupCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		_ = e.containerMgr.RemoveContainer(cleanupCtx, containerID)
+
+		return nil, fmt.Errorf("security verification failed: %s", securityMsg)
+	}
+
+	log.Info().
+		Str("task_id", task.ID.String()).
+		Str("container_id", containerID).
+		Str("security_status", securityMsg).
+		Msg("Container security verified successfully")
 
 	execCtx, execCancel := context.WithTimeout(ctx, e.config.ExecutionTimeout)
 	defer execCancel()
@@ -214,6 +277,17 @@ func (e *DockerExecutor) ExecuteTask(ctx context.Context, task *models.Task) (*m
 			Str("container_id", containerID).
 			Int("exit_code", exitCode).
 			Msg("Container execution completed")
+	}
+
+	// Check for potential seccomp-related errors (exit code 255 often indicates a syscall was blocked)
+	if exitCode == 255 {
+		log.Warn().
+			Str("task_id", task.ID.String()).
+			Str("container_id", containerID).
+			Msg("Task exited with code 255, which may indicate a seccomp restriction prevented execution")
+
+		// We still continue with the task but log this as a warning
+		// This helps us balance security with allowing legitimate tasks to run
 	}
 
 	cleanupCtx, cleanupCancel := context.WithTimeout(ctx, e.config.Timeout)

@@ -78,7 +78,7 @@ lint: ## Run linting with options (make lint VERBOSE=true CONFIG=custom.yml OUTP
 	@if [ -n "$(CONFIG)" ]; then \
 		FINAL_LINT_FLAGS="$(FINAL_LINT_FLAGS) --config=$(CONFIG)"; \
 	else \
-		FINAL_LINT_FLAGS="$(FINAL_LINT_FLAGS) --config=$(LINT_CONFIG)"; \
+		FINAL_LINT_FLAGS="$(FINAL_LINT_FLAGS)"; \
 	fi
 	@if [ -n "$(OUTPUT)" ]; then \
 		FINAL_LINT_FLAGS="$(FINAL_LINT_FLAGS) --out-format=$(OUTPUT)"; \

@@ -1,4 +1,3 @@
-
 package utils
 
 import (
@@ -12,6 +11,7 @@ func GetWebhookURL() string {
 	}
 
 	publicIP, err := GetPublicIP()
+	// publicIP := "localhost"
 	if err != nil {
 		return ""
 	}

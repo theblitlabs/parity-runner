@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"os/exec"
 	"runtime"
 	"strconv"
 	"strings"
@@ -14,6 +13,7 @@ import (
 	"github.com/theblitlabs/gologger"
 
 	"github.com/theblitlabs/parity-runner/internal/core/ports"
+	"github.com/theblitlabs/parity-runner/internal/execution/sandbox/docker/executils"
 )
 
 type ContainerMetrics struct {
@@ -59,8 +59,7 @@ func (rc *ResourceMonitor) Start(ctx context.Context) error {
 		`'{"cpu":"{{.CPUPerc}}", "memory":"{{.MemUsage}}", "netIO":"{{.NetIO}}", "blockIO":"{{.BlockIO}}"}' %s`,
 		rc.containerID)
 
-	cmd := exec.Command("sh", "-c", statsCmd)
-	_, err := cmd.CombinedOutput()
+	_, err := executils.ExecCommand(ctx, "sh", "-c", statsCmd)
 	if err != nil {
 		return fmt.Errorf("cannot access container stats: %w", err)
 	}
@@ -102,8 +101,7 @@ func (rc *ResourceMonitor) GetMetrics() ContainerMetrics {
 func (rc *ResourceMonitor) collectMetrics(startTime time.Time) {
 	log := gologger.WithComponent("docker.metrics")
 
-	inspectCmd := exec.Command("docker", "inspect", "--format", "{{.State.Status}}", rc.containerID)
-	statusOut, err := inspectCmd.CombinedOutput()
+	statusOut, err := executils.ExecCommand(context.Background(), "docker", "inspect", "--format", "{{.State.Status}}", rc.containerID)
 	containerExists := err == nil
 	containerStatus := strings.TrimSpace(string(statusOut))
 
@@ -111,8 +109,7 @@ func (rc *ResourceMonitor) collectMetrics(startTime time.Time) {
 		`'{"cpu":"{{.CPUPerc}}", "memory":"{{.MemUsage}}", "netIO":"{{.NetIO}}", "blockIO":"{{.BlockIO}}"}' %s`,
 		rc.containerID)
 
-	cmd := exec.Command("sh", "-c", statsCmd)
-	statsOutput, err := cmd.CombinedOutput()
+	statsOutput, err := executils.ExecCommand(context.Background(), "sh", "-c", statsCmd)
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to collect container stats")
 		return
@@ -138,9 +135,7 @@ func (rc *ResourceMonitor) collectMetrics(startTime time.Time) {
 	cpuStr := strings.TrimSuffix(stats.CPU, "%")
 
 	if cpuStr == "" || cpuStr == "0.00" {
-
-		cpuCmd := exec.Command("docker", "stats", "--no-stream", "--format", "{{.CPUPerc}}", rc.containerID)
-		cpuOutput, err := cpuCmd.CombinedOutput()
+		cpuOutput, err := executils.ExecCommand(context.Background(), "docker", "stats", "--no-stream", "--format", "{{.CPUPerc}}", rc.containerID)
 		if err == nil {
 			cpuStr = strings.TrimSuffix(strings.TrimSpace(string(cpuOutput)), "%")
 		}
@@ -153,8 +148,8 @@ func (rc *ResourceMonitor) collectMetrics(startTime time.Time) {
 					cpuStr = fmt.Sprintf("%.2f", rc.lastNonZeroCPU)
 				}
 			} else {
-				cpuUsageCmd := exec.Command("docker", "exec", rc.containerID, "cat", "/sys/fs/cgroup/cpu/cpuacct.usage")
-				if usageOutput, err := cpuUsageCmd.CombinedOutput(); err == nil {
+				usageOutput, err := executils.ExecCommand(context.Background(), "docker", "exec", rc.containerID, "cat", "/sys/fs/cgroup/cpu/cpuacct.usage")
+				if err == nil {
 					usage := strings.TrimSpace(string(usageOutput))
 					if usageVal, err := strconv.ParseUint(usage, 10, 64); err == nil {
 						cpuUsagePerc := float64(usageVal) / 1e9 * 100.0 / float64(runtime.NumCPU())
@@ -289,14 +284,14 @@ func getSystemCPUFrequency() float64 {
 }
 
 func getMacCPUFrequency() float64 {
-	out, err := exec.Command("sysctl", "-n", "hw.cpufrequency").Output()
+	out, err := executils.ExecCommand(context.Background(), "sysctl", "-n", "hw.cpufrequency")
 	if err == nil {
 		if freq, err := strconv.ParseFloat(strings.TrimSpace(string(out)), 64); err == nil {
 			return freq / 1e9
 		}
 	}
 
-	out, err = exec.Command("sysctl", "-n", "machdep.cpu.brand_string").Output()
+	out, err = executils.ExecCommand(context.Background(), "sysctl", "-n", "machdep.cpu.brand_string")
 	if err == nil {
 		if strings.Contains(string(out), "Apple") {
 			return 3.0
@@ -318,14 +313,14 @@ func getMacCPUFrequency() float64 {
 }
 
 func getLinuxCPUFrequency() float64 {
-	out, err := exec.Command("cat", "/sys/devices/system/cpu/cpu0/cpufreq/cpuinfo_max_freq").Output()
+	out, err := executils.ExecCommand(context.Background(), "cat", "/sys/devices/system/cpu/cpu0/cpufreq/cpuinfo_max_freq")
 	if err == nil {
 		if freq, err := strconv.ParseFloat(strings.TrimSpace(string(out)), 64); err == nil {
 			return freq / 1e6
 		}
 	}
 
-	out, err = exec.Command("lscpu").Output()
+	out, err = executils.ExecCommand(context.Background(), "lscpu")
 	if err == nil {
 		lines := strings.Split(string(out), "\n")
 		for _, line := range lines {
@@ -340,7 +335,7 @@ func getLinuxCPUFrequency() float64 {
 		}
 	}
 
-	out, err = exec.Command("cat", "/proc/cpuinfo").Output()
+	out, err = executils.ExecCommand(context.Background(), "cat", "/proc/cpuinfo")
 	if err == nil {
 		lines := strings.Split(string(out), "\n")
 		for _, line := range lines {
@@ -371,8 +366,8 @@ func getLinuxCPUFrequency() float64 {
 }
 
 func getWindowsCPUFrequency() float64 {
-	out, err := exec.Command("powershell", "-Command",
-		"Get-WmiObject Win32_Processor | Select-Object MaxClockSpeed | Format-Table -HideTableHeaders").Output()
+	out, err := executils.ExecCommand(context.Background(), "powershell", "-Command",
+		"Get-WmiObject Win32_Processor | Select-Object MaxClockSpeed | Format-Table -HideTableHeaders")
 	if err == nil {
 		freqStr := strings.TrimSpace(string(out))
 		if freq, err := strconv.ParseFloat(freqStr, 64); err == nil {
@@ -380,7 +375,7 @@ func getWindowsCPUFrequency() float64 {
 		}
 	}
 
-	out, err = exec.Command("wmic", "cpu", "get", "maxclockspeed").Output()
+	out, err = executils.ExecCommand(context.Background(), "wmic", "cpu", "get", "maxclockspeed")
 	if err == nil {
 		lines := strings.Split(string(out), "\n")
 		if len(lines) >= 2 {
@@ -391,7 +386,7 @@ func getWindowsCPUFrequency() float64 {
 		}
 	}
 
-	out, err = exec.Command("wmic", "cpu", "get", "name").Output()
+	out, err = executils.ExecCommand(context.Background(), "wmic", "cpu", "get", "name")
 	if err == nil {
 		if strings.Contains(string(out), "@") {
 			parts := strings.Split(string(out), "@")
