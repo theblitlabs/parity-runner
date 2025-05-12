@@ -89,8 +89,8 @@ func (c *RunnerController) handleHeartbeat(ctx *gin.Context) {
 	}
 
 	var msg struct {
-		Type    string          `json:"type"`
-		Payload gin.H           `json:"payload"`
+		Type    string `json:"type"`
+		Payload gin.H  `json:"payload"`
 	}
 
 	if err := ctx.BindJSON(&msg); err != nil {
@@ -143,6 +143,6 @@ func (c *RunnerController) handleTaskResult(ctx *gin.Context) {
 		ctx.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request body"})
 		return
 	}
-	
+
 	ctx.JSON(http.StatusOK, gin.H{"status": "ok"})
 }

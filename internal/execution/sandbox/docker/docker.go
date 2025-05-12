@@ -94,7 +94,6 @@ func (e *DockerExecutor) ExecuteTask(ctx context.Context, task *models.Task) (*m
 	log.Info().
 		Str("task_id", task.ID.String()).
 		Str("image", image).
-		Strs("command", config.Command).
 		Msg("Task configuration loaded")
 
 	setupCtx, setupCancel := context.WithTimeout(ctx, e.config.Timeout)
@@ -135,19 +134,12 @@ func (e *DockerExecutor) ExecuteTask(ctx context.Context, task *models.Task) (*m
 		Strs("env_vars", envVars).
 		Msg("Container environment variables set")
 
-	if len(config.Command) == 0 {
-		log.Debug().
-			Str("task_id", task.ID.String()).
-			Str("image", image).
-			Msg("No command specified, using default command from image")
-	} else {
-		log.Debug().
-			Str("task_id", task.ID.String()).
-			Strs("command", config.Command).
-			Msg("Using specified command")
-	}
+	log.Debug().
+		Str("task_id", task.ID.String()).
+		Str("image", image).
+		Msg("Using default command from image")
 
-	containerID, err := e.containerMgr.CreateContainer(setupCtx, image, config.Command, workdir, envVars)
+	containerID, err := e.containerMgr.CreateContainer(setupCtx, image, workdir, envVars)
 	if err != nil {
 		log.Error().
 			Err(err).
@@ -199,7 +191,6 @@ func (e *DockerExecutor) ExecuteTask(ctx context.Context, task *models.Task) (*m
 			Str("task_id", task.ID.String()).
 			Str("container_id", containerID).
 			Msg("Security verification timed out, but continuing with execution")
-
 	} else if !isSecure || securityErr != nil {
 		log.Error().
 			Err(securityErr).

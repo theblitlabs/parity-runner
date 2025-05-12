@@ -349,7 +349,7 @@ func (w *WebhookClient) handleWebhook(resp http.ResponseWriter, req *http.Reques
 
 func (w *WebhookClient) Register() error {
 	log := gologger.WithComponent("webhook")
-	
+
 	w.webhookURL = utils.GetWebhookURL()
 	log.Debug().Str("webhook_url", w.webhookURL).Msg("Generated webhook URL")
 

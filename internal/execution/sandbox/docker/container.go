@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/theblitlabs/gologger"
+
 	"github.com/theblitlabs/parity-runner/internal/execution/sandbox/docker/executils"
 )
 
@@ -96,7 +97,7 @@ func writeSeccompProfileToTempFile() (string, error) {
 		return "", err
 	}
 
-	if err := os.WriteFile(seccompPath, profileData, 0600); err != nil {
+	if err := os.WriteFile(seccompPath, profileData, 0o600); err != nil {
 		log.Error().Err(err).Msg("Failed to write seccomp profile to temporary file")
 		return "", err
 	}
@@ -144,7 +145,7 @@ func formatContainerOutput(output []byte) string {
 	return strings.TrimSpace(string(cleaned))
 }
 
-func (cm *ContainerManager) CreateContainer(ctx context.Context, image string, command []string, workdir string, envVars []string) (string, error) {
+func (cm *ContainerManager) CreateContainer(ctx context.Context, image string, workdir string, envVars []string) (string, error) {
 	log := gologger.WithComponent("docker.container")
 
 	createArgs := []string{
@@ -172,9 +173,6 @@ func (cm *ContainerManager) CreateContainer(ctx context.Context, image string, c
 	}
 
 	createArgs = append(createArgs, image)
-	if len(command) > 0 {
-		createArgs = append(createArgs, command...)
-	}
 
 	output, err := executils.ExecCommand(ctx, "docker", createArgs...)
 	if err != nil {

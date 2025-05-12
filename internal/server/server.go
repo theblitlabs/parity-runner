@@ -27,18 +27,18 @@ func NewServer(cfg *config.Config) *Server {
 	gin.SetMode(gin.ReleaseMode)
 
 	router := gin.New()
-	
+
 	router.Use(gin.Recovery())
-	
+
 	router.Use(func(c *gin.Context) {
 		start := time.Now()
 		path := c.Request.URL.Path
-		
+
 		c.Next()
-		
+
 		end := time.Now()
 		latency := end.Sub(start)
-		
+
 		log := gologger.WithComponent("gin")
 		log.Info().
 			Str("method", c.Request.Method).
