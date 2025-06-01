@@ -108,6 +108,40 @@ func (e *DockerExecutor) ExecuteTask(ctx context.Context, task *models.Task) (*m
 		return nil, fmt.Errorf("image preparation failed: %w", err)
 	}
 
+	// Verify image hash
+	imageHashVerified, err := utils.VerifyImageHash(image)
+	if err != nil {
+		log.Error().
+			Err(err).
+			Str("task_id", task.ID.String()).
+			Str("image", image).
+			Msg("Failed to verify image hash")
+		return nil, fmt.Errorf("image hash verification failed: %w", err)
+	}
+	result.ImageHashVerified = imageHashVerified
+
+	// Verify command hash if task has command
+	var commandHashVerified string
+	if task.Environment != nil && task.Environment.Config != nil {
+		if cmd, ok := task.Environment.Config["command"].([]interface{}); ok {
+			commandSlice := make([]string, len(cmd))
+			for i, v := range cmd {
+				if str, ok := v.(string); ok {
+					commandSlice[i] = str
+				}
+			}
+			commandHashVerified = utils.ComputeCommandHash(commandSlice)
+			result.CommandHashVerified = commandHashVerified
+		}
+	}
+
+	log.Info().
+		Str("task_id", task.ID.String()).
+		Str("image", image).
+		Str("image_hash_verified", imageHashVerified).
+		Str("command_hash_verified", commandHashVerified).
+		Msg("Hash verification completed")
+
 	workdir, ok := task.Environment.Config["workdir"].(string)
 	if !ok || workdir == "" {
 		workdir = "/"
@@ -340,6 +374,18 @@ func (e *DockerExecutor) ExecuteTask(ctx context.Context, task *models.Task) (*m
 	if err != nil && !isGracefulTimeout {
 		return result, fmt.Errorf("container wait failed: %w", err)
 	}
+
+	// Compute result hash
+	stderr := ""
+	if result.Error != "" {
+		stderr = result.Error
+	}
+	result.ResultHash = utils.ComputeResultHash(result.Output, stderr, result.ExitCode)
+
+	log.Info().
+		Str("task_id", task.ID.String()).
+		Str("result_hash", result.ResultHash).
+		Msg("Result hash computed")
 
 	return result, nil
 }
