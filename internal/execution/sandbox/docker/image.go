@@ -5,7 +5,9 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
+	"strings"
 
 	"github.com/theblitlabs/gologger"
 
@@ -33,7 +35,17 @@ func (im *ImageManager) PullImage(ctx context.Context, imageName string) error {
 func (im *ImageManager) DownloadAndLoadImage(ctx context.Context, imageURL, imageName string) error {
 	log := gologger.WithComponent("docker.image")
 
-	log.Info().Str("url", imageURL).Msg("Downloading Docker image")
+	parsedURL, err := url.Parse(imageURL)
+	if err != nil {
+		log.Error().Err(err).Str("url", imageURL).Msg("Failed to parse image URL")
+		return fmt.Errorf("failed to parse image URL: %w", err)
+	}
+
+	if strings.Contains(parsedURL.Path, "/ipfs/") {
+		log.Info().Str("url", imageURL).Msg("Downloading Docker image from IPFS/Filecoin")
+	} else {
+		log.Info().Str("url", imageURL).Msg("Downloading Docker image from HTTP")
+	}
 
 	resp, err := http.Get(imageURL)
 	if err != nil {
@@ -41,6 +53,11 @@ func (im *ImageManager) DownloadAndLoadImage(ctx context.Context, imageURL, imag
 		return fmt.Errorf("failed to download Docker image: %w", err)
 	}
 	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		log.Error().Int("status_code", resp.StatusCode).Msg("Failed to download Docker image")
+		return fmt.Errorf("failed to download Docker image: status code %d", resp.StatusCode)
+	}
 
 	tmpFile, err := os.CreateTemp("", "docker-image-*.tar")
 	if err != nil {
