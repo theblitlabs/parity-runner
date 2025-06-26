@@ -193,7 +193,7 @@ func (h *HeartbeatService) sendHeartbeat() error {
 	}
 	log.Info().Msgf("Heartbeat payload: %s", string(payloadBytes))
 
-	heartbeatURL := fmt.Sprintf("%s/api/runners/heartbeat", h.config.ServerURL)
+	heartbeatURL := fmt.Sprintf("%s/api/v1/runners/heartbeat", h.config.ServerURL)
 	req, err := http.NewRequest("POST", heartbeatURL, bytes.NewBuffer(payloadBytes))
 	if err != nil {
 		return fmt.Errorf("failed to create heartbeat request: %w", err)
@@ -308,7 +308,7 @@ func (h *HeartbeatService) SendOfflineHeartbeat(ctx context.Context) error {
 		return fmt.Errorf("failed to marshal offline heartbeat message: %w", err)
 	}
 
-	heartbeatURL := fmt.Sprintf("%s/api/runners/heartbeat", h.config.ServerURL)
+	heartbeatURL := fmt.Sprintf("%s/api/v1/runners/heartbeat", h.config.ServerURL)
 	req, err := http.NewRequest("POST", heartbeatURL, bytes.NewBuffer(messageBytes))
 	if err != nil {
 		return fmt.Errorf("failed to create offline heartbeat request: %w", err)
