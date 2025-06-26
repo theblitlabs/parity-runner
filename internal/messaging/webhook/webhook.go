@@ -41,6 +41,13 @@ type WebhookClient struct {
 	lastCleanupTime    time.Time
 	completedTasksLock sync.RWMutex
 	heartbeat          *heartbeat.HeartbeatService
+	modelCapabilities  []ModelCapabilityInfo
+}
+
+type ModelCapabilityInfo struct {
+	ModelName string `json:"model_name"`
+	IsLoaded  bool   `json:"is_loaded"`
+	MaxTokens int    `json:"max_tokens"`
 }
 
 func NewWebhookClient(serverURL string, serverPort int, handler ports.TaskHandler, runnerID, deviceID, walletAddress string) *WebhookClient {
@@ -302,6 +309,11 @@ func (w *WebhookClient) handleWebhook(resp http.ResponseWriter, req *http.Reques
 					Str("id", taskID).
 					Str("type", string(task.Type)).
 					Msg("Skipping already completed or in-progress task")
+				resp.WriteHeader(http.StatusOK)
+				if _, err := resp.Write([]byte(`{"status":"skipped"}`)); err != nil {
+					log.Error().Err(err).Msg("Failed to write response")
+				}
+				return
 			}
 
 			if !w.markTaskStarted(taskID) {
@@ -347,6 +359,12 @@ func (w *WebhookClient) handleWebhook(resp http.ResponseWriter, req *http.Reques
 	}
 }
 
+func (w *WebhookClient) SetModelCapabilities(capabilities []ModelCapabilityInfo) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.modelCapabilities = capabilities
+}
+
 func (w *WebhookClient) Register() error {
 	log := gologger.WithComponent("webhook")
 
@@ -354,15 +372,22 @@ func (w *WebhookClient) Register() error {
 	log.Debug().Str("webhook_url", w.webhookURL).Msg("Generated webhook URL")
 
 	type RegisterPayload struct {
-		WalletAddress string              `json:"wallet_address"`
-		Status        models.RunnerStatus `json:"status"`
-		Webhook       string              `json:"webhook"`
+		WalletAddress     string                `json:"wallet_address"`
+		Status            models.RunnerStatus   `json:"status"`
+		Webhook           string                `json:"webhook"`
+		ModelCapabilities []ModelCapabilityInfo `json:"model_capabilities,omitempty"`
 	}
 
+	w.mu.Lock()
+	capabilities := make([]ModelCapabilityInfo, len(w.modelCapabilities))
+	copy(capabilities, w.modelCapabilities)
+	w.mu.Unlock()
+
 	payload := RegisterPayload{
-		WalletAddress: w.walletAddress,
-		Status:        models.RunnerStatusOnline,
-		Webhook:       w.webhookURL,
+		WalletAddress:     w.walletAddress,
+		Status:            models.RunnerStatusOnline,
+		Webhook:           w.webhookURL,
+		ModelCapabilities: capabilities,
 	}
 
 	registerURL := fmt.Sprintf("%s/api/runners", w.serverURL)
@@ -376,6 +401,7 @@ func (w *WebhookClient) Register() error {
 		Str("wallet_address", w.walletAddress).
 		Str("url", registerURL).
 		Str("webhook_url", w.webhookURL).
+		Int("model_count", len(capabilities)).
 		RawJSON("payload", payloadBytes).
 		Msg("Registration payload")
 
@@ -416,6 +442,7 @@ func (w *WebhookClient) Register() error {
 		Str("webhook_url", w.webhookURL).
 		Str("webhook_id", w.webhookID).
 		Int("status_code", resp.StatusCode).
+		Int("model_count", len(capabilities)).
 		Msg("Runner registered successfully with server")
 
 	return nil
