@@ -83,8 +83,8 @@ func executeStake(amount float64) error {
 		Str("wallet", client.Address().Hex()).
 		Msg("Device verified successfully")
 
-	tokenAddr := common.HexToAddress(cfg.Ethereum.TokenAddress)
-	stakeWalletAddr := common.HexToAddress(cfg.Ethereum.StakeWalletAddress)
+	tokenAddr := common.HexToAddress(cfg.FilecoinNetwork.TokenAddress)
+	stakeWalletAddr := common.HexToAddress(cfg.FilecoinNetwork.StakeWalletAddress)
 
 	token, err := walletsdk.NewParityToken(tokenAddr, client)
 	if err != nil {

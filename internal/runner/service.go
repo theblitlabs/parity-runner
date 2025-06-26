@@ -16,7 +16,9 @@ import (
 
 	"github.com/theblitlabs/parity-runner/internal/core/config"
 	"github.com/theblitlabs/parity-runner/internal/core/ports"
+	"github.com/theblitlabs/parity-runner/internal/execution/llm"
 	"github.com/theblitlabs/parity-runner/internal/execution/sandbox/docker"
+	"github.com/theblitlabs/parity-runner/internal/execution/task"
 	"github.com/theblitlabs/parity-runner/internal/messaging/webhook"
 	"github.com/theblitlabs/parity-runner/internal/utils"
 )
@@ -72,7 +74,7 @@ func NewService(cfg *config.Config) (*Service, error) {
 		return nil, fmt.Errorf("no private key found - please authenticate first using 'parity auth': %w", err)
 	}
 
-	executor, err := docker.NewDockerExecutor(&docker.ExecutorConfig{
+	dockerExecutor, err := docker.NewDockerExecutor(&docker.ExecutorConfig{
 		MemoryLimit:      cfg.Runner.Docker.MemoryLimit,
 		CPULimit:         cfg.Runner.Docker.CPULimit,
 		Timeout:          cfg.Runner.Docker.Timeout,
@@ -82,6 +84,9 @@ func NewService(cfg *config.Config) (*Service, error) {
 		log.Error().Err(err).Msg("Failed to create Docker executor")
 		return nil, fmt.Errorf("failed to create Docker executor: %w", err)
 	}
+
+	// Create the enhanced task executor that supports LLM routing
+	executor := task.NewExecutor(dockerExecutor)
 
 	taskClient := NewHTTPTaskClient(cfg.Runner.ServerURL)
 	taskHandler := NewTaskHandler(executor, taskClient)
@@ -113,7 +118,7 @@ func NewService(cfg *config.Config) (*Service, error) {
 	svc.webhookClient = webhookClient
 	svc.taskHandler = taskHandler
 	svc.taskClient = taskClient
-	svc.dockerExecutor = executor
+	svc.dockerExecutor = dockerExecutor
 
 	log.Info().
 		Str("server_url", cfg.Runner.ServerURL).
@@ -127,6 +132,25 @@ func (s *Service) SetHeartbeatInterval(interval time.Duration) {
 	if s.webhookClient != nil {
 		s.webhookClient.SetHeartbeatInterval(interval)
 	}
+}
+
+func (s *Service) SetModelCapabilities(models []llm.ModelInfo) error {
+	if s.webhookClient == nil {
+		return fmt.Errorf("webhook client not initialized")
+	}
+
+	// Convert llm.ModelInfo to webhook.ModelCapabilityInfo
+	capabilities := make([]webhook.ModelCapabilityInfo, len(models))
+	for i, model := range models {
+		capabilities[i] = webhook.ModelCapabilityInfo{
+			ModelName: model.Name,
+			IsLoaded:  model.IsLoaded,
+			MaxTokens: model.MaxTokens,
+		}
+	}
+
+	s.webhookClient.SetModelCapabilities(capabilities)
+	return nil
 }
 
 func (s *Service) SetupWithDeviceID(deviceID string) error {

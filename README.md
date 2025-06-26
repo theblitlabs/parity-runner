@@ -1,6 +1,31 @@
-# Parity Protocol
+# Parity Runner
 
-Parity Protocol is a decentralized compute network where runners can execute compute tasks (e.g., running a Docker file) and earn incentives in the form of tokens. Task creators can add tasks to a pool, and the first runner to complete a task successfully receives a reward.
+Parity Runner is a compute execution node for the PLGenesis decentralized AI and compute network. Runners execute tasks, run LLM inference, and earn token rewards for their computational contributions. This component includes built-in support for Docker containers, shell commands, and Large Language Model inference via Ollama.
+
+## 🚀 Features
+
+### 🤖 LLM Inference Capabilities
+
+- **Multi-Model Support**: Supports various LLM models (Qwen, LLaMA, Mistral, etc.)
+- **Ollama Integration**: Seamless integration with Ollama for local LLM execution
+- **Automatic Model Management**: Downloads and manages models automatically
+- **Performance Optimization**: Efficient GPU/CPU utilization for inference
+- **Token Counting**: Accurate tracking of prompt and response tokens for billing
+
+### ⚡ Compute Task Execution
+
+- **Docker Support**: Execute arbitrary containers with resource limits
+- **Shell Commands**: Run native shell scripts and commands
+- **Resource Management**: CPU, memory, and timeout controls
+- **Async Processing**: Non-blocking task execution with status reporting
+- **Error Recovery**: Robust error handling and reporting
+
+### 🔒 Network Integration
+
+- **Secure Registration**: Authenticate and register with the network
+- **Heartbeat Monitoring**: Regular status updates to maintain online presence
+- **Webhook Processing**: Real-time task notifications from the server
+- **Capability Reporting**: Automatic detection and reporting of available models
 
 ## Setup & Installation
 
@@ -60,13 +85,20 @@ parity-runner auth --private-key YOUR_PRIVATE_KEY
 parity-runner stake --amount 10
 ```
 
-3. Start running tasks:
+3. Start the runner with LLM capabilities:
 
 ```bash
-parity-runner
+parity-runner runner --config-path .env
 ```
 
-That's it! You're now participating in the Parity Protocol network.
+This will automatically:
+
+- Set up Ollama with default models
+- Register with the server
+- Start processing tasks and LLM requests
+- Begin earning rewards for completed work
+
+That's it! You're now participating in the PLGenesis network.
 
 ### Verification (Optional)
 
@@ -134,10 +166,10 @@ Example values for a local development setup:
 
 ```env
 # Ethereum config
-ETHEREUM_CHAIN_ID=11155111  # Sepolia testnet
-ETHEREUM_RPC=https://eth-sepolia.g.alchemy.com/v2/YOUR-API-KEY  # Replace with your Alchemy/Infura API key
-ETHEREUM_STAKE_WALLET_ADDRESS=0x261259e9467E042DBBF372906e17b94fC06942f2  # Deployed stake wallet contract
-ETHEREUM_TOKEN_ADDRESS=0x844303bcC1a347bE6B409Ae159b4040d84876024       # Deployed PRTY token contract
+ETHEREUM_CHAIN_ID=314159  # Filecoin Calibration testnet
+ETHEREUM_RPC=https://api.calibration.node.glif.io/rpc/v1  # Filecoin Calibration RPC
+ETHEREUM_STAKE_WALLET_ADDRESS=0x7465e7a637f66cb7b294b856a25bc84abff1d247  # Deployed stake wallet contract
+ETHEREUM_TOKEN_ADDRESS=0xb3042734b608a1B16e9e86B374A3f3e389B4cDf0       # Deployed PRTY token contract
 
 # Runner config
 RUNNER_DOCKER_CPU_LIMIT=1.0
@@ -157,16 +189,16 @@ SERVER_WEBSOCKET_PONG_WAIT=60s
 SERVER_WEBSOCKET_WRITE_WAIT=10s
 ```
 
-### Contract Addresses (Sepolia Testnet)
+### Contract Addresses (Filecoin Calibration Testnet)
 
-- Stake Wallet Contract: [0x261259e9467E042DBBF372906e17b94fC06942f2](https://sepolia.etherscan.io/address/0x261259e9467E042DBBF372906e17b94fC06942f2)
-- PRTY Token Contract: [0x844303bcC1a347bE6B409Ae159b4040d84876024](https://sepolia.etherscan.io/address/0x844303bcC1a347bE6B409Ae159b4040d84876024)
+- Stake Wallet Contract: [0x7465e7a637f66cb7b294b856a25bc84abff1d247](https://filfox.info/en/address/0x7465e7a637f66cb7b294b856a25bc84abff1d247)
+- PRTY Token Contract: [0xb3042734b608a1B16e9e86B374A3f3e389B4cDf0](https://filfox.info/en/address/0xb3042734b608a1B16e9e86B374A3f3e389B4cDf0)
 
-You can get a free RPC endpoint for Sepolia from:
+You can get a free RPC endpoint for Filecoin Calibration from:
 
-- [Alchemy](https://www.alchemy.com/)
-- [Infura](https://www.infura.io/)
-- [QuickNode](https://www.quicknode.com/)
+- [Glif.io](https://api.calibration.node.glif.io/rpc/v1) (Official)
+- [ChainStack](https://chainstack.com/)
+- [Ankr](https://ankr.com/)
 
 You can specify a custom configuration path in three ways (in order of precedence):
 

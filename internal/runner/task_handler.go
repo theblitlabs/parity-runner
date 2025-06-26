@@ -20,6 +20,10 @@ type DefaultTaskHandler struct {
 	isProcessing atomic.Bool
 }
 
+type LLMTaskClient interface {
+	CompletePrompt(promptID string, response string, promptTokens, responseTokens int, inferenceTime int64) error
+}
+
 func NewTaskHandler(executor ports.TaskExecutor, taskClient ports.TaskClient) *DefaultTaskHandler {
 	return &DefaultTaskHandler{
 		executor:   executor,
@@ -50,11 +54,15 @@ func (h *DefaultTaskHandler) HandleTask(task *models.Task) error {
 	h.isProcessing.Store(true)
 	defer h.isProcessing.Store(false)
 
+	if task.Type == models.TaskTypeLLM {
+		return h.handleLLMTask(task)
+	}
+
 	if err := h.taskClient.UpdateTaskStatus(task.ID.String(), models.TaskStatusRunning, nil); err != nil {
 		log.Error().Err(err).Str("id", task.ID.String()).Msg("Failed to update task status to running")
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Minute)
 	defer cancel()
 
 	if err := h.verifyNonce(task.Nonce); err != nil {
@@ -102,4 +110,62 @@ func (h *DefaultTaskHandler) HandleTask(task *models.Task) error {
 		Msg("Task execution completed")
 
 	return nil
+}
+
+func (h *DefaultTaskHandler) handleLLMTask(task *models.Task) error {
+	log := gologger.WithComponent("task_handler")
+
+	// Update task status to running when we start processing
+	if err := h.taskClient.UpdateTaskStatus(task.ID.String(), models.TaskStatusRunning, nil); err != nil {
+		log.Error().Err(err).Str("id", task.ID.String()).Msg("Failed to update LLM task status to running")
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+	defer cancel()
+
+	log.Info().
+		Str("id", task.ID.String()).
+		Str("type", string(task.Type)).
+		Msg("Executing LLM task")
+
+	result, err := h.executor.ExecuteTask(ctx, task)
+	if err != nil {
+		log.Error().Err(err).Str("id", task.ID.String()).Msg("LLM task execution failed")
+		return err
+	}
+
+	if result.ExitCode != 0 {
+		log.Error().
+			Str("id", task.ID.String()).
+			Str("error", result.Error).
+			Msg("LLM task failed")
+		return fmt.Errorf("LLM task failed: %s", result.Error)
+	}
+
+	// For LLM tasks, we call CompletePrompt instead of the regular task completion
+	if llmClient, ok := h.taskClient.(*HTTPTaskClient); ok {
+		err = llmClient.CompletePrompt(
+			task.ID,
+			result.Output,
+			result.PromptTokens,
+			result.ResponseTokens,
+			result.InferenceTime,
+		)
+		if err != nil {
+			log.Error().Err(err).Str("id", task.ID.String()).Msg("Failed to complete LLM prompt")
+			return fmt.Errorf("failed to complete LLM prompt: %w", err)
+		}
+
+		log.Info().
+			Str("id", task.ID.String()).
+			Int("prompt_tokens", result.PromptTokens).
+			Int("response_tokens", result.ResponseTokens).
+			Int64("inference_time_ms", result.InferenceTime).
+			Msg("LLM task completed successfully")
+
+		return nil
+	}
+
+	log.Error().Str("id", task.ID.String()).Msg("Task client does not support LLM completion")
+	return fmt.Errorf("task client does not support LLM completion")
 }

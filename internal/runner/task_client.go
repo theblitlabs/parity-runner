@@ -193,3 +193,49 @@ func (c *HTTPTaskClient) SaveTaskResult(taskID string, result *models.TaskResult
 
 	return nil
 }
+
+func (c *HTTPTaskClient) CompletePrompt(promptID uuid.UUID, response string, promptTokens, responseTokens int, inferenceTime int64) error {
+	baseURL := strings.TrimSuffix(c.baseURL, "/api")
+	url := fmt.Sprintf("%s/api/llm/prompts/%s/complete", baseURL, promptID.String())
+
+	payload := map[string]interface{}{
+		"response":          response,
+		"prompt_tokens":     promptTokens,
+		"response_tokens":   responseTokens,
+		"inference_time_ms": inferenceTime,
+	}
+
+	body, err := json.Marshal(payload)
+	if err != nil {
+		return fmt.Errorf("failed to marshal completion payload: %w", err)
+	}
+
+	req, err := http.NewRequest("POST", url, bytes.NewBuffer(body))
+	if err != nil {
+		return fmt.Errorf("failed to create request: %w", err)
+	}
+
+	req.Header.Set("Content-Type", "application/json")
+
+	client := &http.Client{
+		Timeout: 10 * time.Second,
+	}
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return fmt.Errorf("HTTP POST failed for %s: %w", url, err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		var errResp struct {
+			Error string `json:"error"`
+		}
+		if err := json.NewDecoder(resp.Body).Decode(&errResp); err == nil && errResp.Error != "" {
+			return fmt.Errorf("server error: %s", errResp.Error)
+		}
+		return fmt.Errorf("unexpected status code: %d", resp.StatusCode)
+	}
+
+	return nil
+}
