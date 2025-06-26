@@ -39,7 +39,11 @@ func NewNeuralNetworkTrainer(config map[string]interface{}) (*NeuralNetworkTrain
 
 // LoadData loads training data from IPFS/Filecoin
 func (t *NeuralNetworkTrainer) LoadData(ctx context.Context, datasetCID string, format string) ([][]float64, []float64, error) {
-	features, labels, err := t.dataLoader.LoadData(ctx, datasetCID, format)
+	return t.LoadPartitionedData(ctx, datasetCID, format, nil)
+}
+
+func (t *NeuralNetworkTrainer) LoadPartitionedData(ctx context.Context, datasetCID string, format string, partitionConfig *PartitionConfig) ([][]float64, []float64, error) {
+	features, labels, err := t.dataLoader.LoadPartitionedData(ctx, datasetCID, format, partitionConfig)
 	if err != nil {
 		return nil, nil, err
 	}

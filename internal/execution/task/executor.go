@@ -188,14 +188,15 @@ func (e *Executor) executeFederatedLearningTask(ctx context.Context, task *model
 		Msg("Starting federated learning task execution")
 
 	var config struct {
-		SessionID    string                 `json:"session_id"`
-		RoundID      string                 `json:"round_id"`
-		ModelType    string                 `json:"model_type"`
-		DatasetCID   string                 `json:"dataset_cid"`
-		DataFormat   string                 `json:"data_format"`
-		ModelConfig  map[string]interface{} `json:"model_config"`
-		TrainConfig  map[string]interface{} `json:"train_config"`
-		OutputFormat string                 `json:"output_format"`
+		SessionID       string                 `json:"session_id"`
+		RoundID         string                 `json:"round_id"`
+		ModelType       string                 `json:"model_type"`
+		DatasetCID      string                 `json:"dataset_cid"`
+		DataFormat      string                 `json:"data_format"`
+		ModelConfig     map[string]interface{} `json:"model_config"`
+		TrainConfig     map[string]interface{} `json:"train_config"`
+		PartitionConfig map[string]interface{} `json:"partition_config"`
+		OutputFormat    string                 `json:"output_format"`
 	}
 
 	if err := json.Unmarshal(task.Config, &config); err != nil {
@@ -236,11 +237,49 @@ func (e *Executor) executeFederatedLearningTask(ctx context.Context, task *model
 		return nil, fmt.Errorf("failed to create trainer: %w", err)
 	}
 
-	// Load training data
-	features, labels, err := trainer.LoadData(ctx, config.DatasetCID, config.DataFormat)
+	// Load training data with partitioning
+	var features [][]float64
+	var labels []float64
+
+	if config.PartitionConfig != nil && len(config.PartitionConfig) > 0 {
+		// Convert partition config from map to struct
+		partitionConfig := &training.PartitionConfig{
+			Strategy:     getStringFromMap(config.PartitionConfig, "strategy", "random"),
+			TotalParts:   getIntFromMap(config.PartitionConfig, "total_parts", 1),
+			PartIndex:    getIntFromMap(config.PartitionConfig, "part_index", 0),
+			Alpha:        getFloatFromMap(config.PartitionConfig, "alpha", 0.5),
+			MinSamples:   getIntFromMap(config.PartitionConfig, "min_samples", 50),
+			OverlapRatio: getFloatFromMap(config.PartitionConfig, "overlap_ratio", 0.0),
+		}
+
+		e.log.Info().
+			Str("strategy", partitionConfig.Strategy).
+			Int("total_parts", partitionConfig.TotalParts).
+			Int("part_index", partitionConfig.PartIndex).
+			Float64("alpha", partitionConfig.Alpha).
+			Msg("Loading partitioned training data")
+
+		// Use partitioned data loading
+		if nnTrainer, ok := trainer.(*training.NeuralNetworkTrainer); ok {
+			features, labels, err = nnTrainer.LoadPartitionedData(ctx, config.DatasetCID, config.DataFormat, partitionConfig)
+		} else {
+			// Fallback for other trainer types
+			features, labels, err = trainer.LoadData(ctx, config.DatasetCID, config.DataFormat)
+		}
+	} else {
+		// Use regular data loading without partitioning
+		e.log.Info().Msg("Loading full dataset (no partitioning)")
+		features, labels, err = trainer.LoadData(ctx, config.DatasetCID, config.DataFormat)
+	}
+
 	if err != nil {
 		return nil, fmt.Errorf("failed to load training data: %w", err)
 	}
+
+	e.log.Info().
+		Int("samples_loaded", len(features)).
+		Int("features_per_sample", len(features[0])).
+		Msg("Training data loaded successfully")
 
 	// Extract training parameters
 	epochs := 10 // Default values
@@ -283,14 +322,15 @@ func (e *Executor) executeFederatedLearningTask(ctx context.Context, task *model
 			"data_size":     len(features),
 			"training_time": 1000, // Placeholder training time in ms
 			"metadata": map[string]interface{}{
-				"model_type":    config.ModelType,
-				"epochs":        epochs,
-				"batch_size":    batchSize,
-				"learning_rate": learningRate,
-				"dataset_cid":   config.DatasetCID,
-				"data_format":   config.DataFormat,
-				"feature_count": len(features[0]),
-				"sample_count":  len(features),
+				"model_type":     config.ModelType,
+				"epochs":         epochs,
+				"batch_size":     batchSize,
+				"learning_rate":  learningRate,
+				"dataset_cid":    config.DatasetCID,
+				"data_format":    config.DataFormat,
+				"feature_count":  len(features[0]),
+				"sample_count":   len(features),
+				"partition_info": config.PartitionConfig,
 			},
 		}
 		outputBytes, err := json.MarshalIndent(outputData, "", "  ")
@@ -299,8 +339,8 @@ func (e *Executor) executeFederatedLearningTask(ctx context.Context, task *model
 		}
 		output = string(outputBytes)
 	default:
-		output = fmt.Sprintf("Training completed:\nSession: %s\nRound: %s\nLoss: %f\nAccuracy: %f\nGradients: %v",
-			config.SessionID, config.RoundID, loss, accuracy, gradients)
+		output = fmt.Sprintf("Training completed:\nSession: %s\nRound: %s\nLoss: %f\nAccuracy: %f\nSamples: %d\nGradients: %v",
+			config.SessionID, config.RoundID, loss, accuracy, len(features), gradients)
 	}
 
 	return &models.TaskResult{
@@ -309,6 +349,31 @@ func (e *Executor) executeFederatedLearningTask(ctx context.Context, task *model
 		ExitCode:  0,
 		CreatedAt: time.Now(),
 	}, nil
+}
+
+// Helper functions to safely extract values from maps
+func getStringFromMap(m map[string]interface{}, key, defaultValue string) string {
+	if val, ok := m[key].(string); ok {
+		return val
+	}
+	return defaultValue
+}
+
+func getIntFromMap(m map[string]interface{}, key string, defaultValue int) int {
+	if val, ok := m[key].(float64); ok {
+		return int(val)
+	}
+	if val, ok := m[key].(int); ok {
+		return val
+	}
+	return defaultValue
+}
+
+func getFloatFromMap(m map[string]interface{}, key string, defaultValue float64) float64 {
+	if val, ok := m[key].(float64); ok {
+		return val
+	}
+	return defaultValue
 }
 
 func truncateString(s string, maxLen int) string {
