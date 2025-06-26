@@ -171,6 +171,25 @@ func (e *Executor) executeFederatedLearningTask(ctx context.Context, task *model
 		}, nil
 	}
 
+	// Get global model if available
+	var globalModel map[string][]float64
+	if globalModelData, ok := config["global_model"].(map[string]interface{}); ok {
+		if aggregation, ok := globalModelData["aggregated_model"].(map[string]interface{}); ok {
+			globalModel = make(map[string][]float64)
+			for layer, values := range aggregation {
+				if valueSlice, ok := values.([]interface{}); ok {
+					floatSlice := make([]float64, len(valueSlice))
+					for i, v := range valueSlice {
+						if f, ok := v.(float64); ok {
+							floatSlice[i] = f
+						}
+					}
+					globalModel[layer] = floatSlice
+				}
+			}
+		}
+	}
+
 	log.Info().
 		Str("session_id", sessionID).
 		Str("round_id", roundID).
@@ -192,12 +211,37 @@ func (e *Executor) executeFederatedLearningTask(ctx context.Context, task *model
 
 	trainingDuration := time.Since(startTime)
 
-	// Generate mock gradients for demonstration
-	mockGradients := map[string][]float64{
-		"layer1_weights": {0.1, -0.05, 0.02, 0.08, -0.03},
-		"layer1_bias":    {0.01, -0.02},
-		"layer2_weights": {-0.02, 0.04, -0.01, 0.03},
-		"layer2_bias":    {0.005},
+	// Generate mock weights and gradients for demonstration
+	mockWeights := map[string][]float64{
+		"layer1_weights": {1.1, 0.95, 1.02, 1.08, 0.97},
+		"layer1_bias":    {1.01, 0.98},
+		"layer2_weights": {0.98, 1.04, 0.99, 1.03},
+		"layer2_bias":    {1.005},
+	}
+
+	// Calculate gradients as the difference from initial weights
+	mockGradients := make(map[string][]float64)
+	if len(globalModel) > 0 {
+		// If we have a global model, calculate gradients as difference
+		for layer, weights := range mockWeights {
+			if baseWeights, ok := globalModel[layer]; ok {
+				gradients := make([]float64, len(weights))
+				for i := range weights {
+					if i < len(baseWeights) {
+						gradients[i] = weights[i] - baseWeights[i]
+					}
+				}
+				mockGradients[layer] = gradients
+			}
+		}
+	} else {
+		// Otherwise use small random gradients
+		mockGradients = map[string][]float64{
+			"layer1_weights": {0.1, -0.05, 0.02, 0.08, -0.03},
+			"layer1_bias":    {0.01, -0.02},
+			"layer2_weights": {-0.02, 0.04, -0.01, 0.03},
+			"layer2_bias":    {0.005},
+		}
 	}
 
 	// Mock training metrics
@@ -210,7 +254,8 @@ func (e *Executor) executeFederatedLearningTask(ctx context.Context, task *model
 		"session_id":    sessionID,
 		"round_id":      roundID,
 		"gradients":     mockGradients,
-		"update_type":   "gradients",
+		"weights":       mockWeights,
+		"update_type":   "gradients_and_weights",
 		"data_size":     dataSize,
 		"loss":          mockLoss,
 		"accuracy":      mockAccuracy,

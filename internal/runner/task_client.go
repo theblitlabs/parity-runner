@@ -239,3 +239,59 @@ func (c *HTTPTaskClient) CompletePrompt(promptID uuid.UUID, response string, pro
 
 	return nil
 }
+
+// SubmitFLModelUpdate submits federated learning model updates to the server
+func (c *HTTPTaskClient) SubmitFLModelUpdate(sessionID, roundID, runnerID string, gradients map[string][]float64, dataSize int, loss, accuracy float64, trainingTime int) error {
+	baseURL := strings.TrimSuffix(c.baseURL, "/api")
+	url := fmt.Sprintf("%s/api/v1/federated-learning/model-updates", baseURL)
+
+	payload := map[string]interface{}{
+		"session_id":    sessionID,
+		"round_id":      roundID,
+		"runner_id":     runnerID,
+		"gradients":     gradients,
+		"update_type":   "gradients",
+		"data_size":     dataSize,
+		"loss":          loss,
+		"accuracy":      accuracy,
+		"training_time": trainingTime,
+		"metadata": map[string]interface{}{
+			"submission_time": time.Now().Unix(),
+		},
+	}
+
+	body, err := json.Marshal(payload)
+	if err != nil {
+		return fmt.Errorf("failed to marshal FL model update: %w", err)
+	}
+
+	req, err := http.NewRequest("POST", url, bytes.NewBuffer(body))
+	if err != nil {
+		return fmt.Errorf("failed to create FL model update request: %w", err)
+	}
+
+	req.Header.Set("Content-Type", "application/json")
+
+	client := &http.Client{
+		Timeout: 30 * time.Second, // Longer timeout for FL operations
+	}
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return fmt.Errorf("HTTP POST failed for FL model update %s: %w", url, err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		var errResp struct {
+			Error string `json:"error"`
+		}
+		bodyBytes, _ := io.ReadAll(resp.Body)
+		if err := json.Unmarshal(bodyBytes, &errResp); err == nil && errResp.Error != "" {
+			return fmt.Errorf("FL model update server error: %s", errResp.Error)
+		}
+		return fmt.Errorf("FL model update unexpected status code: %d, body: %s", resp.StatusCode, string(bodyBytes))
+	}
+
+	return nil
+}
