@@ -2,7 +2,10 @@ package task
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"math/rand"
+	"time"
 
 	"github.com/theblitlabs/gologger"
 
@@ -47,6 +50,8 @@ func (e *Executor) ExecuteTask(ctx context.Context, task *models.Task) (*models.
 		return nil, fmt.Errorf("command task type not implemented yet")
 	case models.TaskTypeLLM:
 		return e.executeLLMTask(ctx, task)
+	case models.TaskTypeFederatedLearning:
+		return e.executeFederatedLearningTask(ctx, task)
 	default:
 		return nil, fmt.Errorf("unsupported task type: %s", task.Type)
 	}
@@ -119,6 +124,128 @@ func (e *Executor) executeLLMTask(ctx context.Context, task *models.Task) (*mode
 		PromptTokens:   response.PromptEvalCount,
 		ResponseTokens: response.EvalCount,
 		InferenceTime:  response.TotalDuration / 1000000, // Convert nanoseconds to milliseconds
+	}, nil
+}
+
+func (e *Executor) executeFederatedLearningTask(ctx context.Context, task *models.Task) (*models.TaskResult, error) {
+	log := gologger.WithComponent("fl_executor")
+
+	log.Info().
+		Str("task_id", task.ID.String()).
+		Msg("Starting federated learning task execution")
+
+	// Parse the task configuration
+	var config map[string]interface{}
+	if err := json.Unmarshal(task.Config, &config); err != nil {
+		return &models.TaskResult{
+			Output:   "",
+			Error:    fmt.Sprintf("Failed to parse FL task config: %v", err),
+			ExitCode: 1,
+		}, nil
+	}
+
+	sessionID, ok := config["session_id"].(string)
+	if !ok {
+		return &models.TaskResult{
+			Output:   "",
+			Error:    "Missing session_id in FL task config",
+			ExitCode: 1,
+		}, nil
+	}
+
+	roundID, ok := config["round_id"].(string)
+	if !ok {
+		return &models.TaskResult{
+			Output:   "",
+			Error:    "Missing round_id in FL task config",
+			ExitCode: 1,
+		}, nil
+	}
+
+	modelType, ok := config["model_type"].(string)
+	if !ok {
+		return &models.TaskResult{
+			Output:   "",
+			Error:    "Missing model_type in FL task config",
+			ExitCode: 1,
+		}, nil
+	}
+
+	log.Info().
+		Str("session_id", sessionID).
+		Str("round_id", roundID).
+		Str("model_type", modelType).
+		Msg("Parsed FL task configuration")
+
+	// Simulate federated learning training
+	// In a real implementation, this would:
+	// 1. Load the global model
+	// 2. Load local training data
+	// 3. Perform local training
+	// 4. Calculate gradients/model updates
+	// 5. Apply privacy techniques if configured
+
+	startTime := time.Now()
+
+	// Simulate training process
+	time.Sleep(2 * time.Second) // Simulate training time
+
+	trainingDuration := time.Since(startTime)
+
+	// Generate mock gradients for demonstration
+	mockGradients := map[string][]float64{
+		"layer1_weights": {0.1, -0.05, 0.02, 0.08, -0.03},
+		"layer1_bias":    {0.01, -0.02},
+		"layer2_weights": {-0.02, 0.04, -0.01, 0.03},
+		"layer2_bias":    {0.005},
+	}
+
+	// Mock training metrics
+	mockLoss := 0.15 + (rand.Float64()-0.5)*0.1     // Loss around 0.15 ± 0.05
+	mockAccuracy := 0.85 + (rand.Float64()-0.5)*0.1 // Accuracy around 0.85 ± 0.05
+	dataSize := 1000 + rand.Intn(500)               // Mock data size
+
+	// Create the model update result
+	resultData := map[string]interface{}{
+		"session_id":    sessionID,
+		"round_id":      roundID,
+		"gradients":     mockGradients,
+		"update_type":   "gradients",
+		"data_size":     dataSize,
+		"loss":          mockLoss,
+		"accuracy":      mockAccuracy,
+		"training_time": trainingDuration.Milliseconds(),
+		"metadata": map[string]interface{}{
+			"model_type":    modelType,
+			"local_epochs":  3,
+			"batch_size":    32,
+			"learning_rate": 0.001,
+		},
+	}
+
+	resultJSON, err := json.Marshal(resultData)
+	if err != nil {
+		return &models.TaskResult{
+			Output:   "",
+			Error:    fmt.Sprintf("Failed to marshal FL result: %v", err),
+			ExitCode: 1,
+		}, nil
+	}
+
+	log.Info().
+		Str("session_id", sessionID).
+		Str("round_id", roundID).
+		Float64("loss", mockLoss).
+		Float64("accuracy", mockAccuracy).
+		Int("data_size", dataSize).
+		Int64("training_time_ms", trainingDuration.Milliseconds()).
+		Msg("Federated learning task completed successfully")
+
+	return &models.TaskResult{
+		Output:        string(resultJSON),
+		Error:         "",
+		ExitCode:      0,
+		ExecutionTime: trainingDuration.Milliseconds(),
 	}, nil
 }
 

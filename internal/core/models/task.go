@@ -22,9 +22,10 @@ const (
 )
 
 const (
-	TaskTypeDocker  TaskType = "docker"
-	TaskTypeCommand TaskType = "command"
-	TaskTypeLLM     TaskType = "llm"
+	TaskTypeDocker            TaskType = "docker"
+	TaskTypeCommand           TaskType = "command"
+	TaskTypeLLM               TaskType = "llm"
+	TaskTypeFederatedLearning TaskType = "federated_learning"
 )
 
 type TaskConfig struct {
