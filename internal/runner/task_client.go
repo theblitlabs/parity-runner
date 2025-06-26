@@ -44,20 +44,20 @@ func (c *HTTPTaskClient) FetchTask() (*models.Task, error) {
 }
 
 func (c *HTTPTaskClient) UpdateTaskStatus(taskID string, status models.TaskStatus, result *models.TaskResult) error {
-	if status == models.TaskStatusRunning {
+	switch status {
+	case models.TaskStatusRunning:
 		return c.StartTask(taskID)
-	} else if status == models.TaskStatusCompleted || status == models.TaskStatusFailed {
+	case models.TaskStatusCompleted, models.TaskStatusFailed:
 		if err := c.CompleteTask(taskID); err != nil {
 			return err
 		}
-
 		if result != nil {
 			return c.SaveTaskResult(taskID, result)
 		}
 		return nil
+	default:
+		return fmt.Errorf("unsupported status: %s", status)
 	}
-
-	return fmt.Errorf("unsupported status: %s", status)
 }
 
 func (c *HTTPTaskClient) GetAvailableTasks() ([]*models.Task, error) {

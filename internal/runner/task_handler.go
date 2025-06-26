@@ -124,9 +124,40 @@ func (h *DefaultTaskHandler) HandleTask(task *models.Task) error {
 func (h *DefaultTaskHandler) handleLLMTask(task *models.Task) error {
 	log := gologger.WithComponent("task_handler")
 
+	// Add a small delay before first status update to ensure task is created
+	time.Sleep(500 * time.Millisecond)
+
+	// Add retry logic for updating task status
+	maxRetries := 3
+	retryDelay := time.Second
+	var lastErr error
+
 	// Update task status to running when we start processing
-	if err := h.taskClient.UpdateTaskStatus(task.ID.String(), models.TaskStatusRunning, nil); err != nil {
-		log.Error().Err(err).Str("id", task.ID.String()).Msg("Failed to update LLM task status to running")
+	for i := 0; i < maxRetries; i++ {
+		err := h.taskClient.UpdateTaskStatus(task.ID.String(), models.TaskStatusRunning, nil)
+		if err == nil {
+			break
+		}
+		lastErr = err
+
+		log.Warn().
+			Err(err).
+			Int("retry", i+1).
+			Str("id", task.ID.String()).
+			Msg("Failed to update LLM task status to running, retrying...")
+
+		// Wait before retrying
+		time.Sleep(retryDelay)
+		// Exponential backoff
+		retryDelay *= 2
+	}
+
+	if lastErr != nil {
+		log.Error().
+			Err(lastErr).
+			Str("id", task.ID.String()).
+			Msg("Failed to update LLM task status to running after retries")
+		// Continue execution despite status update failure
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)

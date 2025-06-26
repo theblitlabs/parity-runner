@@ -86,7 +86,7 @@ func NewService(cfg *config.Config) (*Service, error) {
 	}
 
 	// Create the enhanced task executor that supports LLM routing
-	executor := task.NewExecutor(dockerExecutor)
+	executor := task.NewExecutor()
 
 	taskClient := NewHTTPTaskClient(cfg.Runner.ServerURL)
 	taskHandler := NewTaskHandler(executor, taskClient)
