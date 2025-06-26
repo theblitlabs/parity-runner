@@ -330,22 +330,25 @@ func (w *WebhookClient) handleWebhook(resp http.ResponseWriter, req *http.Reques
 				Float64("reward", task.Reward).
 				Msg("Processing task from webhook")
 
-			if err := w.handler.HandleTask(task); err != nil {
-				log.Error().Err(err).
-					Str("id", taskID).
-					Str("type", string(task.Type)).
-					Float64("reward", task.Reward).
-					Msg("Task processing failed")
+			// Process task asynchronously so webhook responds immediately
+			go func() {
+				if err := w.handler.HandleTask(task); err != nil {
+					log.Error().Err(err).
+						Str("id", taskID).
+						Str("type", string(task.Type)).
+						Float64("reward", task.Reward).
+						Msg("Task processing failed")
 
-				w.markTaskCompleted(taskID)
-			} else {
-				log.Info().
-					Str("id", taskID).
-					Str("type", string(task.Type)).
-					Msg("Task processed successfully")
+					w.markTaskCompleted(taskID)
+				} else {
+					log.Info().
+						Str("id", taskID).
+						Str("type", string(task.Type)).
+						Msg("Task processed successfully")
 
-				w.markTaskCompleted(taskID)
-			}
+					w.markTaskCompleted(taskID)
+				}
+			}()
 		} else {
 			log.Warn().Msg("Received empty tasks array in webhook")
 		}
