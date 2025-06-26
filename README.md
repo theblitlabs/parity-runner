@@ -248,7 +248,18 @@ parity-runner <command> --help
 
 ## API Documentation
 
-#### Task Creator Endpoints
+Runners interact with various server endpoints. Below are the main API endpoints available:
+
+### LLM Endpoints
+
+| Method | Endpoint                | Description                        |
+| ------ | ----------------------- | ---------------------------------- |
+| GET    | `/api/llm/models`       | List all available LLM models      |
+| POST   | `/api/llm/prompts`      | Submit a prompt for LLM processing |
+| GET    | `/api/llm/prompts/{id}` | Get prompt status and response     |
+| GET    | `/api/llm/prompts`      | List recent prompts                |
+
+### Task Endpoints
 
 | Method | Endpoint               | Description      |
 | ------ | ---------------------- | ---------------- |
@@ -256,16 +267,47 @@ parity-runner <command> --help
 | GET    | /api/tasks             | List tasks       |
 | GET    | /api/tasks/{id}        | Get task details |
 | GET    | /api/tasks/{id}/reward | Get task reward  |
+| GET    | /api/tasks/{id}/status | Get task status  |
+| GET    | /api/tasks/{id}/logs   | Get task logs    |
 
-#### Runner Endpoints
+### Runner Endpoints
 
 | Method | Endpoint                         | Description                 |
 | ------ | -------------------------------- | --------------------------- |
+| POST   | /api/runners                     | Register runner             |
+| POST   | /api/runners/heartbeat           | Send heartbeat              |
 | GET    | /api/runners/tasks/available     | List available tasks        |
 | POST   | /api/runners/tasks/{id}/start    | Start task                  |
 | POST   | /api/runners/tasks/{id}/complete | Complete task               |
 | POST   | /api/runners/webhooks            | Register webhook endpoint   |
 | DELETE | /api/runners/webhooks/{id}       | Unregister webhook endpoint |
+
+### Federated Learning Endpoints
+
+| Method | Endpoint                                       | Description          |
+| ------ | ---------------------------------------------- | -------------------- |
+| POST   | /api/v1/federated-learning/sessions            | Create FL session    |
+| GET    | /api/v1/federated-learning/sessions            | List FL sessions     |
+| GET    | /api/v1/federated-learning/sessions/{id}       | Get session details  |
+| POST   | /api/v1/federated-learning/sessions/{id}/start | Start FL session     |
+| GET    | /api/v1/federated-learning/sessions/{id}/model | Get trained model    |
+| POST   | /api/v1/federated-learning/model-updates       | Submit model updates |
+
+### Storage Endpoints
+
+| Method | Endpoint                    | Description                  |
+| ------ | --------------------------- | ---------------------------- |
+| POST   | /api/storage/upload         | Upload file to IPFS/Filecoin |
+| GET    | /api/storage/download/{cid} | Download file by CID         |
+| GET    | /api/storage/info/{cid}     | Get file information         |
+| POST   | /api/storage/pin/{cid}      | Pin file to IPFS             |
+
+### Health & Status Endpoints
+
+| Method | Endpoint    | Description   |
+| ------ | ----------- | ------------- |
+| GET    | /api/health | Health check  |
+| GET    | /api/status | System status |
 
 ## Contributing
 

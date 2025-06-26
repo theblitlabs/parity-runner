@@ -177,7 +177,7 @@ func (w *WebhookClient) UnregisterWithContext(ctx context.Context) error {
 		return nil
 	}
 
-	reqURL := fmt.Sprintf("%s/api/runners/webhooks/%s", w.serverURL, w.deviceID)
+	reqURL := fmt.Sprintf("%s/api/v1/runners/webhooks", w.serverURL)
 	req, err := http.NewRequestWithContext(ctx, "DELETE", reqURL, nil)
 	if err != nil {
 		return fmt.Errorf("failed to create webhook unregister request: %w", err)
@@ -393,7 +393,7 @@ func (w *WebhookClient) Register() error {
 		ModelCapabilities: capabilities,
 	}
 
-	registerURL := fmt.Sprintf("%s/api/runners", w.serverURL)
+	registerURL := fmt.Sprintf("%s/api/v1/runners", w.serverURL)
 	payloadBytes, err := json.Marshal(payload)
 	if err != nil {
 		return fmt.Errorf("failed to marshal register payload: %w", err)

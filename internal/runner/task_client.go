@@ -62,7 +62,7 @@ func (c *HTTPTaskClient) UpdateTaskStatus(taskID string, status models.TaskStatu
 
 func (c *HTTPTaskClient) GetAvailableTasks() ([]*models.Task, error) {
 	baseURL := strings.TrimSuffix(c.baseURL, "/api")
-	url := fmt.Sprintf("%s/api/runners/tasks/available", baseURL)
+	url := fmt.Sprintf("%s/api/v1/runners/tasks/available", baseURL)
 
 	resp, err := http.Get(url)
 	if err != nil {
@@ -84,7 +84,7 @@ func (c *HTTPTaskClient) GetAvailableTasks() ([]*models.Task, error) {
 
 func (c *HTTPTaskClient) StartTask(taskID string) error {
 	baseURL := strings.TrimSuffix(c.baseURL, "/api")
-	url := fmt.Sprintf("%s/api/runners/tasks/%s/start", baseURL, taskID)
+	url := fmt.Sprintf("%s/api/v1/runners/tasks/%s/start", baseURL, taskID)
 
 	deviceIDManager := deviceid.NewManager(deviceid.Config{})
 	deviceID, err := deviceIDManager.VerifyDeviceID()
@@ -127,7 +127,7 @@ func (c *HTTPTaskClient) StartTask(taskID string) error {
 
 func (c *HTTPTaskClient) CompleteTask(taskID string) error {
 	baseURL := strings.TrimSuffix(c.baseURL, "/api")
-	url := fmt.Sprintf("%s/api/runners/tasks/%s/complete", baseURL, taskID)
+	url := fmt.Sprintf("%s/api/v1/runners/tasks/%s/complete", baseURL, taskID)
 
 	resp, err := http.Post(url, "application/json", nil)
 	if err != nil {
@@ -144,7 +144,7 @@ func (c *HTTPTaskClient) CompleteTask(taskID string) error {
 
 func (c *HTTPTaskClient) SaveTaskResult(taskID string, result *models.TaskResult) error {
 	baseURL := strings.TrimSuffix(c.baseURL, "/api")
-	url := fmt.Sprintf("%s/api/runners/tasks/%s/result", baseURL, taskID)
+	url := fmt.Sprintf("%s/api/v1/runners/tasks/%s/result", baseURL, taskID)
 
 	deviceIDManager := deviceid.NewManager(deviceid.Config{})
 	deviceID, err := deviceIDManager.VerifyDeviceID()
@@ -196,7 +196,7 @@ func (c *HTTPTaskClient) SaveTaskResult(taskID string, result *models.TaskResult
 
 func (c *HTTPTaskClient) CompletePrompt(promptID uuid.UUID, response string, promptTokens, responseTokens int, inferenceTime int64) error {
 	baseURL := strings.TrimSuffix(c.baseURL, "/api")
-	url := fmt.Sprintf("%s/api/llm/prompts/%s/complete", baseURL, promptID.String())
+	url := fmt.Sprintf("%s/api/v1/llm/prompts/%s/complete", baseURL, promptID.String())
 
 	payload := map[string]interface{}{
 		"response":          response,
