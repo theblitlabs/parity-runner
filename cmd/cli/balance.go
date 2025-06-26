@@ -72,7 +72,7 @@ func executeBalance() error {
 			Str("wallet_address", stakeInfo.WalletAddress.Hex()).
 			Msg("Current stake info")
 
-		stakeAddress := common.HexToAddress(cfg.Ethereum.StakeWalletAddress)
+		stakeAddress := common.HexToAddress(cfg.FilecoinNetwork.StakeWalletAddress)
 		contractBalance, err := client.GetBalance(stakeAddress)
 		if err != nil {
 			utils.HandleContextFatal(logger, ctx, err,
