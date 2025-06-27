@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"math"
 	"math/rand"
+	"time"
 )
 
 // NeuralNetworkTrainer implements a simple feed-forward neural network
@@ -53,6 +54,21 @@ func (t *NeuralNetworkTrainer) LoadPartitionedData(ctx context.Context, datasetC
 		return nil, nil, fmt.Errorf("no data loaded")
 	}
 
+	// Validate and sanitize input data for NaN/Inf values
+	for i := range features {
+		for j := range features[i] {
+			if math.IsNaN(features[i][j]) || math.IsInf(features[i][j], 0) {
+				return nil, nil, fmt.Errorf("input features contain NaN or Inf values at sample %d, feature %d", i, j)
+			}
+		}
+	}
+
+	for i, label := range labels {
+		if math.IsNaN(label) || math.IsInf(label, 0) {
+			return nil, nil, fmt.Errorf("input labels contain NaN or Inf values at sample %d", i)
+		}
+	}
+
 	// Dynamically set input and output sizes based on actual data
 	t.inputSize = len(features[0])
 
@@ -68,6 +84,14 @@ func (t *NeuralNetworkTrainer) LoadPartitionedData(ctx context.Context, datasetC
 		t.outputSize = 1
 	}
 
+	// Ensure we have valid dimensions
+	if t.inputSize <= 0 {
+		return nil, nil, fmt.Errorf("invalid input size: %d", t.inputSize)
+	}
+	if t.outputSize <= 0 {
+		return nil, nil, fmt.Errorf("invalid output size: %d", t.outputSize)
+	}
+
 	// Initialize weights with proper dimensions
 	t.initializeWeights()
 
@@ -76,8 +100,12 @@ func (t *NeuralNetworkTrainer) LoadPartitionedData(ctx context.Context, datasetC
 
 // Train performs neural network training using backpropagation
 func (t *NeuralNetworkTrainer) Train(ctx context.Context, features [][]float64, labels []float64, epochs int, batchSize int, learningRate float64) ([]float64, float64, float64, error) {
-	if t.inputSize == 0 || t.outputSize == 0 {
-		return nil, 0, 0, fmt.Errorf("model not initialized - call LoadData first")
+	if len(features) == 0 || len(labels) == 0 {
+		return nil, 0, 0, fmt.Errorf("empty training data")
+	}
+
+	if len(features) != len(labels) {
+		return nil, 0, 0, fmt.Errorf("feature and label count mismatch")
 	}
 
 	numSamples := len(features)
@@ -88,6 +116,11 @@ func (t *NeuralNetworkTrainer) Train(ctx context.Context, features [][]float64, 
 	// Ensure batchSize doesn't exceed number of samples
 	if batchSize > numSamples {
 		batchSize = numSamples
+	}
+
+	// Clip learning rate to reasonable bounds
+	if learningRate <= 0 || learningRate > 1.0 {
+		learningRate = 0.01 // Default safe learning rate
 	}
 
 	var finalLoss, finalAccuracy float64
@@ -107,12 +140,26 @@ func (t *NeuralNetworkTrainer) Train(ctx context.Context, features [][]float64, 
 			batchLabels := labels[i:end]
 
 			batchLoss, batchCorrect := t.trainBatch(batchFeatures, batchLabels, learningRate)
+
+			// Check for NaN in loss
+			if math.IsNaN(batchLoss) || math.IsInf(batchLoss, 0) {
+				return nil, 0, 0, fmt.Errorf("training produced NaN/Inf loss at epoch %d, batch %d - this indicates numerical instability", epoch, i/batchSize)
+			}
+
 			totalLoss += batchLoss
 			correctPredictions += batchCorrect
 		}
 
 		finalLoss = totalLoss / float64(numSamples)
 		finalAccuracy = float64(correctPredictions) / float64(numSamples)
+
+		// Check for NaN in final metrics
+		if math.IsNaN(finalLoss) || math.IsInf(finalLoss, 0) {
+			return nil, 0, 0, fmt.Errorf("training produced NaN/Inf final loss at epoch %d", epoch)
+		}
+		if math.IsNaN(finalAccuracy) || math.IsInf(finalAccuracy, 0) {
+			return nil, 0, 0, fmt.Errorf("training produced NaN/Inf accuracy at epoch %d", epoch)
+		}
 	}
 
 	// Store the current weights as gradients (for federated learning)
@@ -233,26 +280,60 @@ func (t *NeuralNetworkTrainer) backward(input, hidden, output, target []float64,
 }
 
 func (t *NeuralNetworkTrainer) updateWeights(gradWeights1, gradWeights2 [][]float64, gradBias1, gradBias2 []float64, learningRate, batchSize float64) {
-	// Update weights1
+	// Protect against division by zero
+	if batchSize == 0 {
+		batchSize = 1
+	}
+
+	// Clip learning rate to prevent exploding gradients
+	if learningRate > 1.0 {
+		learningRate = 1.0
+	}
+
+	// Update weights1 with NaN protection
 	for i := 0; i < t.inputSize; i++ {
 		for j := 0; j < t.hiddenSize; j++ {
-			t.weights1[i][j] -= learningRate * gradWeights1[i][j] / batchSize
+			update := learningRate * gradWeights1[i][j] / batchSize
+			if !math.IsNaN(update) && !math.IsInf(update, 0) {
+				newWeight := t.weights1[i][j] - update
+				if !math.IsNaN(newWeight) && !math.IsInf(newWeight, 0) {
+					t.weights1[i][j] = newWeight
+				}
+			}
 		}
 	}
 
-	// Update weights2
+	// Update weights2 with NaN protection
 	for i := 0; i < t.hiddenSize; i++ {
 		for j := 0; j < t.outputSize; j++ {
-			t.weights2[i][j] -= learningRate * gradWeights2[i][j] / batchSize
+			update := learningRate * gradWeights2[i][j] / batchSize
+			if !math.IsNaN(update) && !math.IsInf(update, 0) {
+				newWeight := t.weights2[i][j] - update
+				if !math.IsNaN(newWeight) && !math.IsInf(newWeight, 0) {
+					t.weights2[i][j] = newWeight
+				}
+			}
 		}
 	}
 
-	// Update biases
+	// Update biases with NaN protection
 	for i := 0; i < t.hiddenSize; i++ {
-		t.bias1[i] -= learningRate * gradBias1[i] / batchSize
+		update := learningRate * gradBias1[i] / batchSize
+		if !math.IsNaN(update) && !math.IsInf(update, 0) {
+			newBias := t.bias1[i] - update
+			if !math.IsNaN(newBias) && !math.IsInf(newBias, 0) {
+				t.bias1[i] = newBias
+			}
+		}
 	}
 	for i := 0; i < t.outputSize; i++ {
-		t.bias2[i] -= learningRate * gradBias2[i] / batchSize
+		update := learningRate * gradBias2[i] / batchSize
+		if !math.IsNaN(update) && !math.IsInf(update, 0) {
+			newBias := t.bias2[i] - update
+			if !math.IsNaN(newBias) && !math.IsInf(newBias, 0) {
+				t.bias2[i] = newBias
+			}
+		}
 	}
 }
 
@@ -322,16 +403,32 @@ func (t *NeuralNetworkTrainer) reluDerivative(x float64) float64 {
 }
 
 func (t *NeuralNetworkTrainer) initializeWeights() {
-	// Xavier initialization
+	// Seed random number generator
+	rand.Seed(time.Now().UnixNano())
+
+	// Xavier/Glorot initialization with bounds checking
 	inputRange := math.Sqrt(6.0 / float64(t.inputSize+t.hiddenSize))
 	hiddenRange := math.Sqrt(6.0 / float64(t.hiddenSize+t.outputSize))
+
+	// Clamp ranges to prevent extreme values
+	if inputRange > 1.0 {
+		inputRange = 1.0
+	}
+	if hiddenRange > 1.0 {
+		hiddenRange = 1.0
+	}
 
 	// Initialize weights1 (input to hidden)
 	t.weights1 = make([][]float64, t.inputSize)
 	for i := range t.weights1 {
 		t.weights1[i] = make([]float64, t.hiddenSize)
 		for j := range t.weights1[i] {
-			t.weights1[i][j] = (rand.Float64()*2 - 1) * inputRange
+			weight := (rand.Float64()*2 - 1) * inputRange
+			// Ensure no NaN/Inf values
+			if math.IsNaN(weight) || math.IsInf(weight, 0) {
+				weight = 0.01 // Small non-zero fallback
+			}
+			t.weights1[i][j] = weight
 		}
 	}
 
@@ -340,13 +437,24 @@ func (t *NeuralNetworkTrainer) initializeWeights() {
 	for i := range t.weights2 {
 		t.weights2[i] = make([]float64, t.outputSize)
 		for j := range t.weights2[i] {
-			t.weights2[i][j] = (rand.Float64()*2 - 1) * hiddenRange
+			weight := (rand.Float64()*2 - 1) * hiddenRange
+			// Ensure no NaN/Inf values
+			if math.IsNaN(weight) || math.IsInf(weight, 0) {
+				weight = 0.01 // Small non-zero fallback
+			}
+			t.weights2[i][j] = weight
 		}
 	}
 
-	// Initialize biases
+	// Initialize biases to small values (not zero to break symmetry)
 	t.bias1 = make([]float64, t.hiddenSize)
+	for i := range t.bias1 {
+		t.bias1[i] = 0.01
+	}
 	t.bias2 = make([]float64, t.outputSize)
+	for i := range t.bias2 {
+		t.bias2[i] = 0.01
+	}
 }
 
 func min(a, b int) int {
@@ -360,29 +468,53 @@ func min(a, b int) int {
 func (t *NeuralNetworkTrainer) GetModelWeights() map[string][]float64 {
 	weights := make(map[string][]float64)
 
-	// Flatten and store weights1 (input to hidden)
+	// Flatten and store weights1 (input to hidden) with NaN protection
 	var weights1Flat []float64
 	for i := 0; i < t.inputSize; i++ {
 		for j := 0; j < t.hiddenSize; j++ {
-			weights1Flat = append(weights1Flat, t.weights1[i][j])
+			weight := t.weights1[i][j]
+			if math.IsNaN(weight) || math.IsInf(weight, 0) {
+				weight = 0.0 // Replace NaN/Inf with 0
+			}
+			weights1Flat = append(weights1Flat, weight)
 		}
 	}
 	weights["input_to_hidden_weights"] = weights1Flat
 
-	// Store bias1 (hidden layer bias)
-	weights["hidden_bias"] = append([]float64(nil), t.bias1...)
+	// Store bias1 (hidden layer bias) with NaN protection
+	bias1Clean := make([]float64, len(t.bias1))
+	for i, bias := range t.bias1 {
+		if math.IsNaN(bias) || math.IsInf(bias, 0) {
+			bias1Clean[i] = 0.0
+		} else {
+			bias1Clean[i] = bias
+		}
+	}
+	weights["hidden_bias"] = bias1Clean
 
-	// Flatten and store weights2 (hidden to output)
+	// Flatten and store weights2 (hidden to output) with NaN protection
 	var weights2Flat []float64
 	for i := 0; i < t.hiddenSize; i++ {
 		for j := 0; j < t.outputSize; j++ {
-			weights2Flat = append(weights2Flat, t.weights2[i][j])
+			weight := t.weights2[i][j]
+			if math.IsNaN(weight) || math.IsInf(weight, 0) {
+				weight = 0.0 // Replace NaN/Inf with 0
+			}
+			weights2Flat = append(weights2Flat, weight)
 		}
 	}
 	weights["hidden_to_output_weights"] = weights2Flat
 
-	// Store bias2 (output layer bias)
-	weights["output_bias"] = append([]float64(nil), t.bias2...)
+	// Store bias2 (output layer bias) with NaN protection
+	bias2Clean := make([]float64, len(t.bias2))
+	for i, bias := range t.bias2 {
+		if math.IsNaN(bias) || math.IsInf(bias, 0) {
+			bias2Clean[i] = 0.0
+		} else {
+			bias2Clean[i] = bias
+		}
+	}
+	weights["output_bias"] = bias2Clean
 
 	return weights
 }

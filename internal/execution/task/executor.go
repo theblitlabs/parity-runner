@@ -241,7 +241,7 @@ func (e *Executor) executeFederatedLearningTask(ctx context.Context, task *model
 	var features [][]float64
 	var labels []float64
 
-	if config.PartitionConfig != nil && len(config.PartitionConfig) > 0 {
+	if config.PartitionConfig != nil {
 		// Convert partition config from map to struct
 		partitionConfig := &training.PartitionConfig{
 			Strategy:     getStringFromMap(config.PartitionConfig, "strategy", "random"),
@@ -388,11 +388,4 @@ func getFloatFromMap(m map[string]interface{}, key string, defaultValue float64)
 		return val
 	}
 	return defaultValue
-}
-
-func truncateString(s string, maxLen int) string {
-	if len(s) <= maxLen {
-		return s
-	}
-	return s[:maxLen] + "..."
 }
