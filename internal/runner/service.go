@@ -20,12 +20,14 @@ import (
 	"github.com/theblitlabs/parity-runner/internal/execution/sandbox/docker"
 	"github.com/theblitlabs/parity-runner/internal/execution/task"
 	"github.com/theblitlabs/parity-runner/internal/messaging/webhook"
+	"github.com/theblitlabs/parity-runner/internal/tunnel"
 	"github.com/theblitlabs/parity-runner/internal/utils"
 )
 
 type Service struct {
 	cfg               *config.Config
 	webhookClient     *webhook.WebhookClient
+	tunnelClient      *tunnel.TunnelClient
 	taskHandler       ports.TaskHandler
 	taskClient        ports.TaskClient
 	dockerExecutor    *docker.DockerExecutor
@@ -115,7 +117,43 @@ func NewService(cfg *config.Config) (*Service, error) {
 		walletAddress,
 	)
 
+	// Initialize tunnel client if enabled
+	var tunnelClient *tunnel.TunnelClient
+	log.Info().
+		Bool("tunnel_enabled", cfg.Runner.Tunnel.Enabled).
+		Str("tunnel_type", cfg.Runner.Tunnel.Type).
+		Str("tunnel_server_url", cfg.Runner.Tunnel.ServerURL).
+		Msg("Checking tunnel configuration")
+
+	if cfg.Runner.Tunnel.Enabled {
+		tunnelConfig := tunnel.TunnelConfig{
+			Type:      tunnel.TunnelType(cfg.Runner.Tunnel.Type),
+			ServerURL: cfg.Runner.Tunnel.ServerURL,
+			Port:      cfg.Runner.Tunnel.Port,
+			Secret:    cfg.Runner.Tunnel.Secret,
+			LocalPort: cfg.Runner.WebhookPort,
+			Enabled:   cfg.Runner.Tunnel.Enabled,
+		}
+
+		// Default to bore if type not specified
+		if tunnelConfig.Type == "" {
+			tunnelConfig.Type = tunnel.TunnelTypeBore
+		}
+
+		tunnelClient = tunnel.NewTunnelClient(tunnelConfig)
+		utils.SetTunnelClient(tunnelClient)
+
+		log.Info().
+			Str("type", string(tunnelConfig.Type)).
+			Str("server", tunnelConfig.ServerURL).
+			Int("local_port", tunnelConfig.LocalPort).
+			Msg("Tunnel client initialized")
+	} else {
+		log.Info().Msg("Tunnel disabled in configuration")
+	}
+
 	svc.webhookClient = webhookClient
+	svc.tunnelClient = tunnelClient
 	svc.taskHandler = taskHandler
 	svc.taskClient = taskClient
 	svc.dockerExecutor = dockerExecutor
@@ -168,15 +206,57 @@ func (s *Service) SetupWithDeviceID(deviceID string) error {
 func (s *Service) Start() error {
 	log := gologger.WithComponent("runner")
 
+	// Start tunnel if enabled and wait for it to be ready
+	log.Info().
+		Bool("tunnel_client_exists", s.tunnelClient != nil).
+		Bool("tunnel_config_enabled", s.cfg.Runner.Tunnel.Enabled).
+		Msg("Starting runner service - checking tunnel")
+
+	if s.tunnelClient != nil {
+		log.Info().Msg("Starting tunnel before webhook registration...")
+		tunnelURL, err := s.tunnelClient.Start()
+		if err != nil {
+			log.Error().Err(err).Msg("Failed to start tunnel")
+			return fmt.Errorf("failed to start tunnel: %w", err)
+		}
+
+		// Verify tunnel is actually running
+		if !s.tunnelClient.IsRunning() {
+			return fmt.Errorf("tunnel started but is not running")
+		}
+
+		log.Info().
+			Str("tunnel_url", tunnelURL).
+			Bool("tunnel_running", s.tunnelClient.IsRunning()).
+			Msg("Tunnel established successfully")
+
+		// Small delay to ensure tunnel is fully stable
+		time.Sleep(2 * time.Second)
+	} else {
+		log.Info().Msg("No tunnel client - proceeding with localhost webhook")
+	}
+
 	if s.webhookClient != nil {
 		s.webhookClient.SetHeartbeatInterval(s.heartbeatInterval)
 
+		// The webhook client will now use the tunnel URL when registering
+		log.Info().Msg("Starting webhook client with tunnel URL...")
 		if err := s.webhookClient.Start(); err != nil {
 			log.Error().Err(err).Msg("Failed to start webhook server")
+			// Stop tunnel if webhook fails
+			if s.tunnelClient != nil {
+				if stopErr := s.tunnelClient.Stop(); stopErr != nil {
+					log.Error().Err(stopErr).Msg("Failed to stop tunnel after webhook failure")
+				}
+			}
 			return err
 		}
 
-		log.Info().Msg("Runner service started with webhook and heartbeat system")
+		finalWebhookURL := utils.GetWebhookURL()
+		log.Info().
+			Str("final_webhook_url", finalWebhookURL).
+			Bool("tunnel_enabled", s.cfg.Runner.Tunnel.Enabled).
+			Msg("Runner service started successfully")
 	} else {
 		log.Error().Msg("Webhook client not initialized")
 		return fmt.Errorf("webhook client not initialized, cannot start service")
@@ -197,6 +277,18 @@ func (s *Service) Stop(ctx context.Context) error {
 			if stopErr := s.webhookClient.Stop(); stopErr != nil {
 				log.Error().Err(stopErr).Msg("Failed to stop webhook client")
 				err = stopErr
+			}
+		}
+
+		// Stop tunnel
+		if s.tunnelClient != nil {
+			if stopErr := s.tunnelClient.Stop(); stopErr != nil {
+				log.Error().Err(stopErr).Msg("Failed to stop tunnel client")
+				if err == nil {
+					err = stopErr
+				}
+			} else {
+				log.Info().Msg("Tunnel client stopped successfully")
 			}
 		}
 

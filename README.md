@@ -115,6 +115,78 @@ This will automatically:
 
 That's it! You're now participating in the PLGenesis network and can receive federated learning training tasks.
 
+## 🌐 Tunnel Support (NAT/Firewall Bypass)
+
+PLGenesis Runner includes **automatic tunneling** to expose webhook endpoints through NAT/firewall using **bore.pub**. This enables runners behind routers or firewalls to participate without manual port forwarding.
+
+### Quick Tunnel Setup
+
+#### Option 1: Auto-Setup (Recommended)
+
+```bash
+# Automatically enables tunneling and starts runner
+make run-tunnel
+```
+
+#### Option 2: Manual Setup
+
+```bash
+# 1. Install tunnel support
+make install-tunnel
+
+# 2. Enable in .env
+echo "RUNNER_TUNNEL_ENABLED=true" >> .env
+
+# 3. Start runner normally
+parity-runner runner --config-path .env
+```
+
+### Tunnel Features
+
+- ✅ **Automatic bore.pub integration** - Free public tunnel service
+- ✅ **Auto-installation** - Installs bore CLI automatically if needed
+- ✅ **Zero configuration** - Works out of the box with sensible defaults
+- ✅ **Self-hostable** - Support for private bore servers with authentication
+- ✅ **Robust error handling** - Automatic reconnection and health monitoring
+
+### Tunnel Configuration
+
+Add these to your `.env` file:
+
+```env
+# Tunnel Configuration
+RUNNER_TUNNEL_ENABLED=true
+RUNNER_TUNNEL_TYPE=bore          # bore, ngrok, local, custom
+RUNNER_TUNNEL_SERVER_URL=bore.pub # Default: bore.pub (free)
+RUNNER_TUNNEL_PORT=0             # 0 for random port
+RUNNER_TUNNEL_SECRET=            # For private servers
+```
+
+### How It Works
+
+```
+PLGenesis Server → bore.pub → Your Runner (behind NAT)
+     ↓                ↓           ↓
+   Tasks          Tunneled    Local Webhook
+                  Traffic     Processing
+```
+
+1. Runner creates tunnel to bore.pub
+2. Gets public URL (e.g., `http://bore.pub:35429/webhook`)
+3. Registers this URL with PLGenesis server
+4. Server sends tasks to public URL
+5. bore.pub forwards to local webhook
+
+### Commands
+
+```bash
+make install-tunnel  # Install bore CLI
+make test-tunnel     # Test tunnel functionality
+make run-tunnel      # Start runner with auto-tunnel
+```
+
+📖 **Detailed Documentation**: See [TUNNEL_README.md](TUNNEL_README.md) for advanced configuration, self-hosting, and troubleshooting.
+
 ### Verification (Optional)
 
 You can verify your setup with these commands:
@@ -138,6 +210,9 @@ make format         # Run all formatters (gofumpt + goimports)
 make lint           # Run linting
 make format-lint    # Format code and run linters
 make run            # Start the task runner
+make run-tunnel     # Start runner with auto-tunnel setup
+make install-tunnel # Install bore CLI for tunneling
+make test-tunnel    # Test tunnel functionality
 make stake          # Stake tokens in the network
 make balance        # Check token balances
 make auth           # Authenticate with the network
