@@ -184,7 +184,7 @@ Example values for a local development setup:
 ETHEREUM_CHAIN_ID=314159  # Filecoin Calibration testnet
 ETHEREUM_RPC=https://api.calibration.node.glif.io/rpc/v1  # Filecoin Calibration RPC
 ETHEREUM_STAKE_WALLET_ADDRESS=0x7465e7a637f66cb7b294b856a25bc84abff1d247  # Deployed stake wallet contract
-ETHEREUM_TOKEN_ADDRESS=0xb3042734b608a1B16e9e86B374A3f3e389B4cDf0       # Deployed PRTY token contract
+ETHEREUM_TOKEN_ADDRESS=0xb3042734b608a1B16e9e86B374A3f3e389B4cDf0       # Deployed USDFC token contract
 
 # Runner config
 RUNNER_DOCKER_CPU_LIMIT=1.0
@@ -207,7 +207,7 @@ SERVER_WEBSOCKET_WRITE_WAIT=10s
 ### Contract Addresses (Filecoin Calibration Testnet)
 
 - Stake Wallet Contract: [0x7465e7a637f66cb7b294b856a25bc84abff1d247](https://filfox.info/en/address/0x7465e7a637f66cb7b294b856a25bc84abff1d247)
-- PRTY Token Contract: [0xb3042734b608a1B16e9e86B374A3f3e389B4cDf0](https://filfox.info/en/address/0xb3042734b608a1B16e9e86B374A3f3e389B4cDf0)
+- USDFC Token Contract: [0xb3042734b608a1B16e9e86B374A3f3e389B4cDf0](https://filfox.info/en/address/0xb3042734b608a1B16e9e86B374A3f3e389B4cDf0)
 
 You can get a free RPC endpoint for Filecoin Calibration from:
 

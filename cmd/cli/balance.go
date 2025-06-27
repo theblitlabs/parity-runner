@@ -48,7 +48,7 @@ func executeBalance() error {
 
 	logger.Info().
 		Str("wallet_address", client.Address().Hex()).
-		Str("balance", walletBalance.String()+" PRTY").
+		Str("balance", walletBalance.String()+" USDFC").
 		Msg("Wallet token balance")
 
 	deviceID, err := utils.GetDeviceID()
@@ -67,7 +67,7 @@ func executeBalance() error {
 
 	if stakeInfo.Exists {
 		logger.Info().
-			Str("amount", stakeInfo.Amount.String()+" PRTY").
+			Str("amount", stakeInfo.Amount.String()+" USDFC").
 			Str("device_id", stakeInfo.DeviceID).
 			Str("wallet_address", stakeInfo.WalletAddress.Hex()).
 			Msg("Current stake info")
