@@ -242,14 +242,27 @@ func (e *Executor) executeFederatedLearningTask(ctx context.Context, task *model
 	var labels []float64
 
 	if config.PartitionConfig != nil {
-		// Convert partition config from map to struct
+		// Convert partition config from map to struct - validate required values
+		strategy := getStringFromMap(config.PartitionConfig, "strategy", "")
+		if strategy == "" {
+			return nil, fmt.Errorf("partition strategy is required")
+		}
+
 		partitionConfig := &training.PartitionConfig{
-			Strategy:     getStringFromMap(config.PartitionConfig, "strategy", "random"),
+			Strategy:     strategy,
 			TotalParts:   getIntFromMap(config.PartitionConfig, "total_parts", 1),
 			PartIndex:    getIntFromMap(config.PartitionConfig, "part_index", 0),
-			Alpha:        getFloatFromMap(config.PartitionConfig, "alpha", 0.5),
-			MinSamples:   getIntFromMap(config.PartitionConfig, "min_samples", 50),
-			OverlapRatio: getFloatFromMap(config.PartitionConfig, "overlap_ratio", 0.0),
+			Alpha:        getFloatFromMap(config.PartitionConfig, "alpha", 0),
+			MinSamples:   getIntFromMap(config.PartitionConfig, "min_samples", 0),
+			OverlapRatio: getFloatFromMap(config.PartitionConfig, "overlap_ratio", 0),
+		}
+
+		// Validate strategy-specific requirements
+		if strategy == "non_iid" && partitionConfig.Alpha <= 0 {
+			return nil, fmt.Errorf("alpha parameter is required for non_iid partitioning strategy")
+		}
+		if partitionConfig.MinSamples <= 0 {
+			return nil, fmt.Errorf("min_samples must be provided and positive")
 		}
 
 		e.log.Info().
@@ -281,21 +294,28 @@ func (e *Executor) executeFederatedLearningTask(ctx context.Context, task *model
 		Int("features_per_sample", len(features[0])).
 		Msg("Training data loaded successfully")
 
-	// Extract training parameters
-	epochs := 10 // Default values
-	batchSize := 32
-	learningRate := 0.01
+	// Extract training parameters - all values must be provided
+	var epochs, batchSize int
+	var learningRate float64
+	var hasEpochs, hasBatchSize, hasLearningRate bool
 
 	if config.TrainConfig != nil {
 		if e, ok := config.TrainConfig["epochs"].(float64); ok {
 			epochs = int(e)
+			hasEpochs = true
 		}
 		if b, ok := config.TrainConfig["batch_size"].(float64); ok {
 			batchSize = int(b)
+			hasBatchSize = true
 		}
 		if lr, ok := config.TrainConfig["learning_rate"].(float64); ok {
 			learningRate = lr
+			hasLearningRate = true
 		}
+	}
+
+	if !hasEpochs || !hasBatchSize || !hasLearningRate || epochs <= 0 || batchSize <= 0 || learningRate <= 0 {
+		return nil, fmt.Errorf("training configuration is incomplete - epochs (%d), batch_size (%d), and learning_rate (%f) must all be provided and positive", epochs, batchSize, learningRate)
 	}
 
 	// Train the model

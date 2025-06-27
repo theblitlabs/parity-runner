@@ -244,7 +244,7 @@ func (d *DataLoader) nonIIDPartition(features [][]float64, labels []float64, con
 
 	alpha := config.Alpha
 	if alpha <= 0 {
-		alpha = 0.5 // Default non-IID parameter
+		return nil, nil, fmt.Errorf("alpha parameter must be positive for non-IID partitioning, got %f", alpha)
 	}
 
 	var partitionIndices []int

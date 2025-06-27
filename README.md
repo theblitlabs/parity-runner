@@ -1,6 +1,6 @@
 # Parity Runner
 
-Parity Runner is a compute execution node for the PLGenesis decentralized AI and compute network. Runners execute tasks, run LLM inference, and earn token rewards for their computational contributions. This component includes built-in support for Docker containers, shell commands, and Large Language Model inference via Ollama.
+Parity Runner is a compute execution node for the PLGenesis decentralized AI and compute network. Runners execute tasks, run LLM inference, perform federated learning training, and earn token rewards for their computational contributions. This component includes built-in support for Docker containers, shell commands, Large Language Model inference via Ollama, and federated learning with comprehensive data partitioning strategies.
 
 ## 🚀 Features
 
@@ -11,6 +11,21 @@ Parity Runner is a compute execution node for the PLGenesis decentralized AI and
 - **Automatic Model Management**: Downloads and manages models automatically
 - **Performance Optimization**: Efficient GPU/CPU utilization for inference
 - **Token Counting**: Accurate tracking of prompt and response tokens for billing
+
+### 🧠 Federated Learning Capabilities
+
+- **Neural Network Training**: Support for multi-layer neural networks with configurable architectures
+- **Linear Regression**: Built-in linear regression training capabilities
+- **Data Partitioning**: Advanced partitioning strategies for truly distributed FL:
+  - **Random (IID)**: Uniform random distribution
+  - **Stratified**: Maintains class distribution across participants
+  - **Sequential**: Consecutive data splits
+  - **Non-IID**: Dirichlet distribution for realistic data heterogeneity
+  - **Label Skew**: Each participant gets subset of classes with optional overlap
+- **IPFS/Filecoin Integration**: Automatic data loading from decentralized storage
+- **Numerical Stability**: Comprehensive NaN protection and safe weight initialization
+- **Model Aggregation**: Automatic submission of both weights and gradients to server
+- **Requirements Validation**: All training parameters must be explicitly provided (no defaults)
 
 ### ⚡ Compute Task Execution
 
@@ -55,7 +70,7 @@ make install-lint-tools  # Install code quality tools
 make install-hooks      # Install git hooks for development
 ```
 
-4. Configure the application:
+3. Configure the application:
 
 ```bash
 # Copy the sample environment file
@@ -65,7 +80,7 @@ cp .env.sample .env
 # See Configuration section below for details
 ```
 
-5. Install the Parity Runner globally:
+4. Install the Parity Runner globally:
 
 ```bash
 make install
@@ -85,7 +100,7 @@ parity-runner auth --private-key YOUR_PRIVATE_KEY
 parity-runner stake --amount 10
 ```
 
-3. Start the runner with LLM capabilities:
+3. Start the runner with LLM and FL capabilities:
 
 ```bash
 parity-runner runner --config-path .env
@@ -94,11 +109,11 @@ parity-runner runner --config-path .env
 This will automatically:
 
 - Set up Ollama with default models
-- Register with the server
-- Start processing tasks and LLM requests
+- Register with the server for task execution
+- Start processing compute tasks, LLM requests, and FL training
 - Begin earning rewards for completed work
 
-That's it! You're now participating in the PLGenesis network.
+That's it! You're now participating in the PLGenesis network and can receive federated learning training tasks.
 
 ### Verification (Optional)
 
@@ -218,6 +233,110 @@ parity-runner
 3. Default path:
    If neither the flag nor environment variable is set, it will use `.env` in the current directory.
 
+## Federated Learning
+
+The parity-runner provides comprehensive federated learning capabilities with strict requirements validation.
+
+### Key Capabilities
+
+#### 🎯 Requirements-Based Training
+
+- **No Default Values**: All training parameters must be provided by the server task
+- **Strict Validation**: Comprehensive parameter validation with clear error messages
+- **Configuration Required**: Model architecture must be specified in task configuration
+
+#### 🔢 Model Support
+
+- **Neural Networks**: Multi-layer perceptrons with configurable architecture
+- **Linear Regression**: Support for regression tasks
+- **Extensible**: Easy to add new model types
+
+#### 📊 Data Partitioning
+
+Automatic data partitioning based on server coordination:
+
+1. **Random (IID)**: `strategy: "random"`
+
+   - Uniform random distribution of data
+   - Suitable for homogeneous scenarios
+
+2. **Stratified**: `strategy: "stratified"`
+
+   - Maintains class distribution across participants
+   - Good for balanced federated learning
+
+3. **Sequential**: `strategy: "sequential"`
+
+   - Consecutive data splits
+   - Useful for time-series or ordered data
+
+4. **Non-IID**: `strategy: "non_iid"`
+
+   - Dirichlet distribution for realistic data heterogeneity
+   - Controlled by alpha parameter (lower = more skewed)
+
+5. **Label Skew**: `strategy: "label_skew"`
+   - Each participant gets subset of classes
+   - Optional overlap between participants
+
+#### 🛡️ Numerical Stability
+
+- **NaN Protection**: Multiple layers of NaN detection and prevention
+- **Safe Weight Initialization**: Enhanced Xavier/Glorot initialization
+- **Learning Rate Validation**: Automatic bounds checking
+- **Input Data Validation**: Pre-training data quality checks
+- **Output Sanitization**: Final cleanup before JSON serialization
+
+### FL Task Processing
+
+When a runner receives an FL training task:
+
+1. **Task Validation**: Validates all required parameters are present
+2. **Data Loading**: Downloads and loads data from IPFS/Filecoin CID
+3. **Data Partitioning**: Applies assigned partition strategy and index
+4. **Model Training**: Performs local training with specified parameters
+5. **Weight Extraction**: Extracts both weights and gradients
+6. **Result Submission**: Submits training results to server
+
+### Example FL Task Configuration
+
+```json
+{
+  "session_id": "uuid",
+  "round_id": "uuid",
+  "model_type": "neural_network",
+  "dataset_cid": "QmYourDatasetCID",
+  "data_format": "csv",
+  "model_config": {
+    "input_size": 784,
+    "hidden_size": 128,
+    "output_size": 10
+  },
+  "partition_config": {
+    "strategy": "non_iid",
+    "total_parts": 3,
+    "part_index": 0,
+    "alpha": 0.5,
+    "min_samples": 100,
+    "overlap_ratio": 0.0
+  },
+  "train_config": {
+    "epochs": 5,
+    "batch_size": 32,
+    "learning_rate": 0.001
+  }
+}
+```
+
+### Error Handling
+
+The FL system provides comprehensive error messages:
+
+- **Missing Parameters**: Clear indication of required parameters
+- **Invalid Values**: Specific validation error messages
+- **Data Issues**: Detailed data quality error reports
+- **Training Failures**: Comprehensive debugging information
+
 ## CLI Commands
 
 The CLI provides a unified interface through the `parity-runner` command:
@@ -227,7 +346,7 @@ The CLI provides a unified interface through the `parity-runner` command:
 parity-runner help
 
 # Authenticate with your private key
-parity auth --private-key <private-key>
+parity-runner auth --private-key <private-key>
 
 # Check balance
 parity-runner balance
@@ -235,9 +354,8 @@ parity-runner balance
 # Stake tokens
 parity-runner stake --amount <amount>
 
-# Start a runner
-parity-runner
-
+# Start the runner (handles all task types including FL)
+parity-runner runner
 ```
 
 Each command supports the `--help` flag for detailed usage information:
@@ -249,6 +367,13 @@ parity-runner <command> --help
 ## API Documentation
 
 Runners interact with various server endpoints. Below are the main API endpoints available:
+
+### Federated Learning Endpoints
+
+| Method | Endpoint                                 | Description          | Runner Usage             |
+| ------ | ---------------------------------------- | -------------------- | ------------------------ |
+| POST   | /api/v1/federated-learning/model-updates | Submit model updates | Automatic after training |
+| GET    | /api/v1/federated-learning/sessions/{id} | Get session details  | Task validation          |
 
 ### LLM Endpoints
 
@@ -282,17 +407,6 @@ Runners interact with various server endpoints. Below are the main API endpoints
 | POST   | /api/runners/webhooks            | Register webhook endpoint   |
 | DELETE | /api/runners/webhooks/{id}       | Unregister webhook endpoint |
 
-### Federated Learning Endpoints
-
-| Method | Endpoint                                       | Description          |
-| ------ | ---------------------------------------------- | -------------------- |
-| POST   | /api/v1/federated-learning/sessions            | Create FL session    |
-| GET    | /api/v1/federated-learning/sessions            | List FL sessions     |
-| GET    | /api/v1/federated-learning/sessions/{id}       | Get session details  |
-| POST   | /api/v1/federated-learning/sessions/{id}/start | Start FL session     |
-| GET    | /api/v1/federated-learning/sessions/{id}/model | Get trained model    |
-| POST   | /api/v1/federated-learning/model-updates       | Submit model updates |
-
 ### Storage Endpoints
 
 | Method | Endpoint                    | Description                  |
@@ -308,6 +422,60 @@ Runners interact with various server endpoints. Below are the main API endpoints
 | ------ | ----------- | ------------- |
 | GET    | /api/health | Health check  |
 | GET    | /api/status | System status |
+
+## Troubleshooting
+
+### Common Issues
+
+1. **Federated Learning Issues**
+
+   - **Training parameter errors**: Ensure server provides all required parameters
+   - **Data loading failures**: Check IPFS/Filecoin connectivity and CID validity
+   - **Partition errors**: Verify partition configuration matches strategy requirements
+   - **NaN values in training**: Check input data quality and learning rate values
+
+2. **Docker Issues**
+
+   - **Docker daemon not running**: Start Docker service
+   - **Permission issues**: Ensure user is in docker group
+   - **Resource limits**: Adjust memory/CPU limits in configuration
+
+3. **Network Issues**
+
+   - **Connection failures**: Check server URL and network connectivity
+   - **Authentication issues**: Verify private key and staking status
+   - **Webhook port conflicts**: Ensure webhook port is available
+
+4. **LLM Issues**
+   - **Ollama connection failures**: Ensure Ollama is installed and running
+   - **Model download issues**: Check internet connectivity and disk space
+   - **GPU memory issues**: Adjust model selection based on available resources
+
+### Error Examples
+
+**FL Parameter Error**:
+
+```
+training configuration is incomplete: learning_rate is required
+```
+
+**Solution**: Ensure the FL session was created with all required training parameters
+
+**Data Partition Error**:
+
+```
+alpha parameter must be positive for non-IID partitioning, got 0.000000
+```
+
+**Solution**: Check that the FL session was created with appropriate alpha value for non_iid strategy
+
+**Model Configuration Error**:
+
+```
+hidden_size is required in neural network configuration
+```
+
+**Solution**: Ensure the FL session includes complete model configuration
 
 ## Contributing
 

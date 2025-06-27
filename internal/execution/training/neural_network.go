@@ -29,11 +29,11 @@ func NewNeuralNetworkTrainer(config map[string]interface{}) (*NeuralNetworkTrain
 		dataLoader: NewDataLoader(""),
 	}
 
-	// Get hidden size from config, default to 64 for smaller datasets
+	// Get hidden size from config - required parameter
 	if hiddenSize, ok := config["hidden_size"].(float64); ok {
 		trainer.hiddenSize = int(hiddenSize)
 	} else {
-		trainer.hiddenSize = 64
+		return nil, fmt.Errorf("hidden_size is required in neural network configuration")
 	}
 
 	return trainer, nil
@@ -118,9 +118,12 @@ func (t *NeuralNetworkTrainer) Train(ctx context.Context, features [][]float64, 
 		batchSize = numSamples
 	}
 
-	// Clip learning rate to reasonable bounds
-	if learningRate <= 0 || learningRate > 1.0 {
-		learningRate = 0.01 // Default safe learning rate
+	// Validate learning rate - must be positive and reasonable
+	if learningRate <= 0 {
+		return nil, 0, 0, fmt.Errorf("learning rate must be positive, got %f", learningRate)
+	}
+	if learningRate > 1.0 {
+		return nil, 0, 0, fmt.Errorf("learning rate is too high (%f), maximum allowed is 1.0", learningRate)
 	}
 
 	var finalLoss, finalAccuracy float64
@@ -424,9 +427,9 @@ func (t *NeuralNetworkTrainer) initializeWeights() {
 		t.weights1[i] = make([]float64, t.hiddenSize)
 		for j := range t.weights1[i] {
 			weight := (rand.Float64()*2 - 1) * inputRange
-			// Ensure no NaN/Inf values
+			// Ensure no NaN/Inf values - use small random value instead of hardcoded fallback
 			if math.IsNaN(weight) || math.IsInf(weight, 0) {
-				weight = 0.01 // Small non-zero fallback
+				weight = (rand.Float64() - 0.5) * 0.02 // Small random fallback
 			}
 			t.weights1[i][j] = weight
 		}
@@ -438,22 +441,22 @@ func (t *NeuralNetworkTrainer) initializeWeights() {
 		t.weights2[i] = make([]float64, t.outputSize)
 		for j := range t.weights2[i] {
 			weight := (rand.Float64()*2 - 1) * hiddenRange
-			// Ensure no NaN/Inf values
+			// Ensure no NaN/Inf values - use small random value instead of hardcoded fallback
 			if math.IsNaN(weight) || math.IsInf(weight, 0) {
-				weight = 0.01 // Small non-zero fallback
+				weight = (rand.Float64() - 0.5) * 0.02 // Small random fallback
 			}
 			t.weights2[i][j] = weight
 		}
 	}
 
-	// Initialize biases to small values (not zero to break symmetry)
+	// Initialize biases to small random values (not zero to break symmetry)
 	t.bias1 = make([]float64, t.hiddenSize)
 	for i := range t.bias1 {
-		t.bias1[i] = 0.01
+		t.bias1[i] = (rand.Float64() - 0.5) * 0.02 // Small random initialization
 	}
 	t.bias2 = make([]float64, t.outputSize)
 	for i := range t.bias2 {
-		t.bias2[i] = 0.01
+		t.bias2[i] = (rand.Float64() - 0.5) * 0.02 // Small random initialization
 	}
 }
 
