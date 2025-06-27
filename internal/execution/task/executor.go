@@ -4,50 +4,43 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"math/rand"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strings"
 	"time"
 
-	"github.com/theblitlabs/gologger"
-
+	"github.com/rs/zerolog"
 	"github.com/theblitlabs/parity-runner/internal/core/models"
-	"github.com/theblitlabs/parity-runner/internal/core/ports"
 	"github.com/theblitlabs/parity-runner/internal/execution/llm"
-	"github.com/theblitlabs/parity-runner/internal/execution/sandbox/docker"
+	"github.com/theblitlabs/parity-runner/internal/execution/training"
 )
 
 type Executor struct {
-	dockerExecutor *docker.DockerExecutor
 	ollamaExecutor *llm.OllamaExecutor
+	log            zerolog.Logger
 }
 
-func NewExecutor(dockerExec *docker.DockerExecutor) *Executor {
+func NewExecutor() *Executor {
 	return &Executor{
-		dockerExecutor: dockerExec,
 		ollamaExecutor: llm.NewOllamaExecutor("http://localhost:11434"),
+		log:            zerolog.New(os.Stdout).With().Str("component", "task_executor").Logger(),
 	}
 }
 
-func (e *Executor) Execute(task *models.Task) (*models.TaskResult, error) {
-	return e.ExecuteTask(context.Background(), task)
-}
-
 func (e *Executor) ExecuteTask(ctx context.Context, task *models.Task) (*models.TaskResult, error) {
-	log := gologger.WithComponent("task_executor")
-
 	if task == nil {
 		return nil, fmt.Errorf("nil task provided")
 	}
 
-	log.Info().
+	e.log.Info().
 		Str("task_id", task.ID.String()).
 		Str("task_type", string(task.Type)).
-		Msg("Executing task")
+		Msg("Starting task execution")
 
 	switch task.Type {
-	case models.TaskTypeDocker:
-		return e.dockerExecutor.ExecuteTask(ctx, task)
 	case models.TaskTypeCommand:
-		return nil, fmt.Errorf("command task type not implemented yet")
+		return e.executeCommand(ctx, task)
 	case models.TaskTypeLLM:
 		return e.executeLLMTask(ctx, task)
 	case models.TaskTypeFederatedLearning:
@@ -57,65 +50,126 @@ func (e *Executor) ExecuteTask(ctx context.Context, task *models.Task) (*models.
 	}
 }
 
+func (e *Executor) executeCommand(ctx context.Context, task *models.Task) (*models.TaskResult, error) {
+	var config struct {
+		Command     string            `json:"command"`
+		WorkingDir  string            `json:"working_dir"`
+		Environment map[string]string `json:"environment"`
+		Timeout     int               `json:"timeout_seconds"`
+	}
+
+	if err := json.Unmarshal(task.Config, &config); err != nil {
+		return nil, fmt.Errorf("failed to parse command config: %w", err)
+	}
+
+	if config.Command == "" {
+		return nil, fmt.Errorf("command is required")
+	}
+
+	// Set default timeout if not specified
+	if config.Timeout == 0 {
+		config.Timeout = 300 // 5 minutes default
+	}
+
+	// Create command context with timeout
+	cmdCtx, cancel := context.WithTimeout(ctx, time.Duration(config.Timeout)*time.Second)
+	defer cancel()
+
+	// Prepare command
+	cmdParts := strings.Fields(config.Command)
+	if len(cmdParts) == 0 {
+		return nil, fmt.Errorf("invalid command format")
+	}
+
+	cmd := exec.CommandContext(cmdCtx, cmdParts[0], cmdParts[1:]...)
+
+	// Set working directory
+	if config.WorkingDir != "" {
+		if !filepath.IsAbs(config.WorkingDir) {
+			absPath, err := filepath.Abs(config.WorkingDir)
+			if err != nil {
+				return nil, fmt.Errorf("failed to resolve working directory: %w", err)
+			}
+			config.WorkingDir = absPath
+		}
+		cmd.Dir = config.WorkingDir
+	}
+
+	// Set environment variables
+	if len(config.Environment) > 0 {
+		env := os.Environ()
+		for key, value := range config.Environment {
+			env = append(env, fmt.Sprintf("%s=%s", key, value))
+		}
+		cmd.Env = env
+	}
+
+	// Capture output
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		if cmdCtx.Err() == context.DeadlineExceeded {
+			return nil, fmt.Errorf("command timed out after %d seconds", config.Timeout)
+		}
+		return &models.TaskResult{
+			TaskID:    task.ID,
+			Output:    string(output),
+			Error:     err.Error(),
+			ExitCode:  cmd.ProcessState.ExitCode(),
+			CreatedAt: time.Now(),
+		}, nil
+	}
+
+	return &models.TaskResult{
+		TaskID:    task.ID,
+		Output:    string(output),
+		ExitCode:  cmd.ProcessState.ExitCode(),
+		CreatedAt: time.Now(),
+	}, nil
+}
+
 func (e *Executor) executeLLMTask(ctx context.Context, task *models.Task) (*models.TaskResult, error) {
-	log := gologger.WithComponent("task_executor")
+	e.log.Info().
+		Str("task_id", task.ID.String()).
+		Msg("Executing LLM task")
 
 	// Extract model and prompt from task
-	modelName := ""
-	prompt := ""
-
-	if task.Environment != nil && task.Environment.Config != nil {
-		if model, ok := task.Environment.Config["MODEL"].(string); ok {
-			modelName = model
-		}
-		if p, ok := task.Environment.Config["PROMPT"].(string); ok {
-			prompt = p
-		}
+	var config struct {
+		Model  string `json:"model"`
+		Prompt string `json:"prompt"`
 	}
 
+	if err := json.Unmarshal(task.Config, &config); err != nil {
+		return nil, fmt.Errorf("failed to parse LLM task config: %w", err)
+	}
+
+	modelName := config.Model
 	if modelName == "" {
-		return &models.TaskResult{
-			TaskID:   task.ID,
-			Error:    "MODEL config not provided for LLM task",
-			ExitCode: 1,
-		}, nil
+		modelName = "llama2" // Default model
 	}
 
+	prompt := config.Prompt
 	if prompt == "" {
-		return &models.TaskResult{
-			TaskID:   task.ID,
-			Error:    "PROMPT config not provided for LLM task",
-			ExitCode: 1,
-		}, nil
+		return nil, fmt.Errorf("prompt is required for LLM task")
 	}
 
-	log.Info().
+	e.log.Info().
 		Str("task_id", task.ID.String()).
 		Str("model", modelName).
-		Str("prompt_preview", truncateString(prompt, 100)).
-		Msg("Executing LLM task")
+		Msg("Generating LLM response")
 
 	response, err := e.ollamaExecutor.Generate(ctx, modelName, prompt)
 	if err != nil {
-		log.Error().Err(err).
+		e.log.Error().Err(err).
 			Str("task_id", task.ID.String()).
 			Str("model", modelName).
-			Msg("LLM generation failed")
-
-		return &models.TaskResult{
-			TaskID:   task.ID,
-			Error:    fmt.Sprintf("LLM generation failed: %v", err),
-			ExitCode: 1,
-		}, nil
+			Msg("Failed to generate LLM response")
+		return nil, fmt.Errorf("failed to generate response: %w", err)
 	}
 
-	log.Info().
+	e.log.Info().
 		Str("task_id", task.ID.String()).
 		Str("model", modelName).
-		Int("prompt_tokens", response.PromptEvalCount).
-		Int("response_tokens", response.EvalCount).
-		Int64("duration_ms", response.TotalDuration/1000000).
-		Msg("LLM task completed successfully")
+		Msg("LLM response generated successfully")
 
 	return &models.TaskResult{
 		TaskID:         task.ID,
@@ -124,181 +178,234 @@ func (e *Executor) executeLLMTask(ctx context.Context, task *models.Task) (*mode
 		PromptTokens:   response.PromptEvalCount,
 		ResponseTokens: response.EvalCount,
 		InferenceTime:  response.TotalDuration / 1000000, // Convert nanoseconds to milliseconds
+		CreatedAt:      time.Now(),
 	}, nil
 }
 
 func (e *Executor) executeFederatedLearningTask(ctx context.Context, task *models.Task) (*models.TaskResult, error) {
-	log := gologger.WithComponent("fl_executor")
-
-	log.Info().
+	e.log.Info().
 		Str("task_id", task.ID.String()).
 		Msg("Starting federated learning task execution")
 
-	// Parse the task configuration
-	var config map[string]interface{}
+	var config struct {
+		SessionID       string                 `json:"session_id"`
+		RoundID         string                 `json:"round_id"`
+		ModelType       string                 `json:"model_type"`
+		DatasetCID      string                 `json:"dataset_cid"`
+		DataFormat      string                 `json:"data_format"`
+		ModelConfig     map[string]interface{} `json:"model_config"`
+		TrainConfig     map[string]interface{} `json:"train_config"`
+		PartitionConfig map[string]interface{} `json:"partition_config"`
+		OutputFormat    string                 `json:"output_format"`
+	}
+
 	if err := json.Unmarshal(task.Config, &config); err != nil {
-		return &models.TaskResult{
-			Output:   "",
-			Error:    fmt.Sprintf("Failed to parse FL task config: %v", err),
-			ExitCode: 1,
-		}, nil
+		return nil, fmt.Errorf("failed to parse federated learning config: %w", err)
 	}
 
-	sessionID, ok := config["session_id"].(string)
-	if !ok {
-		return &models.TaskResult{
-			Output:   "",
-			Error:    "Missing session_id in FL task config",
-			ExitCode: 1,
-		}, nil
+	// Validate required fields
+	if config.ModelType == "" {
+		return nil, fmt.Errorf("model_type is required")
+	}
+	if config.DatasetCID == "" {
+		return nil, fmt.Errorf("dataset_cid is required")
+	}
+	if config.DataFormat == "" {
+		return nil, fmt.Errorf("data_format is required")
+	}
+	if config.SessionID == "" {
+		return nil, fmt.Errorf("session_id is required")
+	}
+	if config.RoundID == "" {
+		return nil, fmt.Errorf("round_id is required")
 	}
 
-	roundID, ok := config["round_id"].(string)
-	if !ok {
-		return &models.TaskResult{
-			Output:   "",
-			Error:    "Missing round_id in FL task config",
-			ExitCode: 1,
-		}, nil
+	// Create appropriate trainer based on model type
+	var trainer training.Trainer
+	var err error
+
+	switch config.ModelType {
+	case "neural_network":
+		trainer, err = training.NewNeuralNetworkTrainer(config.ModelConfig)
+	case "linear_regression":
+		trainer, err = training.NewLinearRegressionTrainer(config.ModelConfig)
+	default:
+		return nil, fmt.Errorf("unsupported model type: %s", config.ModelType)
 	}
 
-	modelType, ok := config["model_type"].(string)
-	if !ok {
-		return &models.TaskResult{
-			Output:   "",
-			Error:    "Missing model_type in FL task config",
-			ExitCode: 1,
-		}, nil
+	if err != nil {
+		return nil, fmt.Errorf("failed to create trainer: %w", err)
 	}
 
-	// Get global model if available
-	var globalModel map[string][]float64
-	if globalModelData, ok := config["global_model"].(map[string]interface{}); ok {
-		if aggregation, ok := globalModelData["aggregated_model"].(map[string]interface{}); ok {
-			globalModel = make(map[string][]float64)
-			for layer, values := range aggregation {
-				if valueSlice, ok := values.([]interface{}); ok {
-					floatSlice := make([]float64, len(valueSlice))
-					for i, v := range valueSlice {
-						if f, ok := v.(float64); ok {
-							floatSlice[i] = f
-						}
-					}
-					globalModel[layer] = floatSlice
-				}
-			}
+	// Load training data with partitioning
+	var features [][]float64
+	var labels []float64
+
+	if config.PartitionConfig != nil {
+		// Convert partition config from map to struct - validate required values
+		strategy := getStringFromMap(config.PartitionConfig, "strategy", "")
+		if strategy == "" {
+			return nil, fmt.Errorf("partition strategy is required")
 		}
-	}
 
-	log.Info().
-		Str("session_id", sessionID).
-		Str("round_id", roundID).
-		Str("model_type", modelType).
-		Msg("Parsed FL task configuration")
+		partitionConfig := &training.PartitionConfig{
+			Strategy:     strategy,
+			TotalParts:   getIntFromMap(config.PartitionConfig, "total_parts", 1),
+			PartIndex:    getIntFromMap(config.PartitionConfig, "part_index", 0),
+			Alpha:        getFloatFromMap(config.PartitionConfig, "alpha", 0),
+			MinSamples:   getIntFromMap(config.PartitionConfig, "min_samples", 0),
+			OverlapRatio: getFloatFromMap(config.PartitionConfig, "overlap_ratio", 0),
+		}
 
-	// Simulate federated learning training
-	// In a real implementation, this would:
-	// 1. Load the global model
-	// 2. Load local training data
-	// 3. Perform local training
-	// 4. Calculate gradients/model updates
-	// 5. Apply privacy techniques if configured
+		// Validate strategy-specific requirements
+		if strategy == "non_iid" && partitionConfig.Alpha <= 0 {
+			return nil, fmt.Errorf("alpha parameter is required for non_iid partitioning strategy")
+		}
+		if partitionConfig.MinSamples <= 0 {
+			return nil, fmt.Errorf("min_samples must be provided and positive")
+		}
 
-	startTime := time.Now()
+		e.log.Info().
+			Str("strategy", partitionConfig.Strategy).
+			Int("total_parts", partitionConfig.TotalParts).
+			Int("part_index", partitionConfig.PartIndex).
+			Float64("alpha", partitionConfig.Alpha).
+			Msg("Loading partitioned training data")
 
-	// Simulate training process
-	time.Sleep(2 * time.Second) // Simulate training time
-
-	trainingDuration := time.Since(startTime)
-
-	// Generate mock weights and gradients for demonstration
-	mockWeights := map[string][]float64{
-		"layer1_weights": {1.1, 0.95, 1.02, 1.08, 0.97},
-		"layer1_bias":    {1.01, 0.98},
-		"layer2_weights": {0.98, 1.04, 0.99, 1.03},
-		"layer2_bias":    {1.005},
-	}
-
-	// Calculate gradients as the difference from initial weights
-	mockGradients := make(map[string][]float64)
-	if len(globalModel) > 0 {
-		// If we have a global model, calculate gradients as difference
-		for layer, weights := range mockWeights {
-			if baseWeights, ok := globalModel[layer]; ok {
-				gradients := make([]float64, len(weights))
-				for i := range weights {
-					if i < len(baseWeights) {
-						gradients[i] = weights[i] - baseWeights[i]
-					}
-				}
-				mockGradients[layer] = gradients
-			}
+		// Use partitioned data loading
+		if nnTrainer, ok := trainer.(*training.NeuralNetworkTrainer); ok {
+			features, labels, err = nnTrainer.LoadPartitionedData(ctx, config.DatasetCID, config.DataFormat, partitionConfig)
+		} else {
+			// Fallback for other trainer types
+			features, labels, err = trainer.LoadData(ctx, config.DatasetCID, config.DataFormat)
 		}
 	} else {
-		// Otherwise use small random gradients
-		mockGradients = map[string][]float64{
-			"layer1_weights": {0.1, -0.05, 0.02, 0.08, -0.03},
-			"layer1_bias":    {0.01, -0.02},
-			"layer2_weights": {-0.02, 0.04, -0.01, 0.03},
-			"layer2_bias":    {0.005},
+		// Use regular data loading without partitioning
+		e.log.Info().Msg("Loading full dataset (no partitioning)")
+		features, labels, err = trainer.LoadData(ctx, config.DatasetCID, config.DataFormat)
+	}
+
+	if err != nil {
+		return nil, fmt.Errorf("failed to load training data: %w", err)
+	}
+
+	e.log.Info().
+		Int("samples_loaded", len(features)).
+		Int("features_per_sample", len(features[0])).
+		Msg("Training data loaded successfully")
+
+	// Extract training parameters - all values must be provided
+	var epochs, batchSize int
+	var learningRate float64
+	var hasEpochs, hasBatchSize, hasLearningRate bool
+
+	if config.TrainConfig != nil {
+		if e, ok := config.TrainConfig["epochs"].(float64); ok {
+			epochs = int(e)
+			hasEpochs = true
+		}
+		if b, ok := config.TrainConfig["batch_size"].(float64); ok {
+			batchSize = int(b)
+			hasBatchSize = true
+		}
+		if lr, ok := config.TrainConfig["learning_rate"].(float64); ok {
+			learningRate = lr
+			hasLearningRate = true
 		}
 	}
 
-	// Mock training metrics
-	mockLoss := 0.15 + (rand.Float64()-0.5)*0.1     // Loss around 0.15 ± 0.05
-	mockAccuracy := 0.85 + (rand.Float64()-0.5)*0.1 // Accuracy around 0.85 ± 0.05
-	dataSize := 1000 + rand.Intn(500)               // Mock data size
-
-	// Create the model update result
-	resultData := map[string]interface{}{
-		"session_id":    sessionID,
-		"round_id":      roundID,
-		"gradients":     mockGradients,
-		"weights":       mockWeights,
-		"update_type":   "gradients_and_weights",
-		"data_size":     dataSize,
-		"loss":          mockLoss,
-		"accuracy":      mockAccuracy,
-		"training_time": trainingDuration.Milliseconds(),
-		"metadata": map[string]interface{}{
-			"model_type":    modelType,
-			"local_epochs":  3,
-			"batch_size":    32,
-			"learning_rate": 0.001,
-		},
+	if !hasEpochs || !hasBatchSize || !hasLearningRate || epochs <= 0 || batchSize <= 0 || learningRate <= 0 {
+		return nil, fmt.Errorf("training configuration is incomplete - epochs (%d), batch_size (%d), and learning_rate (%f) must all be provided and positive", epochs, batchSize, learningRate)
 	}
 
-	resultJSON, err := json.Marshal(resultData)
+	// Train the model
+	gradients, loss, accuracy, err := trainer.Train(ctx, features, labels, epochs, batchSize, learningRate)
 	if err != nil {
-		return &models.TaskResult{
-			Output:   "",
-			Error:    fmt.Sprintf("Failed to marshal FL result: %v", err),
-			ExitCode: 1,
-		}, nil
+		return nil, fmt.Errorf("training failed: %w", err)
 	}
 
-	log.Info().
-		Str("session_id", sessionID).
-		Str("round_id", roundID).
-		Float64("loss", mockLoss).
-		Float64("accuracy", mockAccuracy).
-		Int("data_size", dataSize).
-		Int64("training_time_ms", trainingDuration.Milliseconds()).
-		Msg("Federated learning task completed successfully")
+	// Get model weights and gradients
+	var weightsMap map[string][]float64
+	var gradientsMap map[string][]float64
+
+	// Check if trainer supports the new interface
+	if nnTrainer, ok := trainer.(*training.NeuralNetworkTrainer); ok {
+		weightsMap = nnTrainer.GetModelWeights()
+		gradientsMap = nnTrainer.GetGradients()
+	} else {
+		// Fallback: convert gradients array to map format
+		gradientsMap = map[string][]float64{
+			"layer_weights": gradients,
+		}
+		weightsMap = map[string][]float64{
+			"layer_weights": gradients, // For backward compatibility
+		}
+	}
+
+	// Format output based on specified format
+	var output string
+	switch config.OutputFormat {
+	case "json":
+		outputData := map[string]interface{}{
+			"session_id":    config.SessionID,
+			"round_id":      config.RoundID,
+			"gradients":     gradientsMap,
+			"weights":       weightsMap,
+			"loss":          loss,
+			"accuracy":      accuracy,
+			"data_size":     len(features),
+			"training_time": 1000, // Placeholder training time in ms
+			"metadata": map[string]interface{}{
+				"model_type":     config.ModelType,
+				"epochs":         epochs,
+				"batch_size":     batchSize,
+				"learning_rate":  learningRate,
+				"dataset_cid":    config.DatasetCID,
+				"data_format":    config.DataFormat,
+				"feature_count":  len(features[0]),
+				"sample_count":   len(features),
+				"partition_info": config.PartitionConfig,
+			},
+		}
+		outputBytes, err := json.MarshalIndent(outputData, "", "  ")
+		if err != nil {
+			return nil, fmt.Errorf("failed to marshal output: %w", err)
+		}
+		output = string(outputBytes)
+	default:
+		output = fmt.Sprintf("Training completed:\nSession: %s\nRound: %s\nLoss: %f\nAccuracy: %f\nSamples: %d\nWeights: %v",
+			config.SessionID, config.RoundID, loss, accuracy, len(features), weightsMap)
+	}
 
 	return &models.TaskResult{
-		Output:        string(resultJSON),
-		Error:         "",
-		ExitCode:      0,
-		ExecutionTime: trainingDuration.Milliseconds(),
+		TaskID:    task.ID,
+		Output:    output,
+		ExitCode:  0,
+		CreatedAt: time.Now(),
 	}, nil
 }
 
-func truncateString(s string, maxLen int) string {
-	if len(s) <= maxLen {
-		return s
+// Helper functions to safely extract values from maps
+func getStringFromMap(m map[string]interface{}, key, defaultValue string) string {
+	if val, ok := m[key].(string); ok {
+		return val
 	}
-	return s[:maxLen] + "..."
+	return defaultValue
 }
 
-var _ ports.TaskExecutor = (*Executor)(nil)
+func getIntFromMap(m map[string]interface{}, key string, defaultValue int) int {
+	if val, ok := m[key].(float64); ok {
+		return int(val)
+	}
+	if val, ok := m[key].(int); ok {
+		return val
+	}
+	return defaultValue
+}
+
+func getFloatFromMap(m map[string]interface{}, key string, defaultValue float64) float64 {
+	if val, ok := m[key].(float64); ok {
+		return val
+	}
+	return defaultValue
+}

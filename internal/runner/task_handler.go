@@ -124,9 +124,40 @@ func (h *DefaultTaskHandler) HandleTask(task *models.Task) error {
 func (h *DefaultTaskHandler) handleLLMTask(task *models.Task) error {
 	log := gologger.WithComponent("task_handler")
 
+	// Add a small delay before first status update to ensure task is created
+	time.Sleep(500 * time.Millisecond)
+
+	// Add retry logic for updating task status
+	maxRetries := 3
+	retryDelay := time.Second
+	var lastErr error
+
 	// Update task status to running when we start processing
-	if err := h.taskClient.UpdateTaskStatus(task.ID.String(), models.TaskStatusRunning, nil); err != nil {
-		log.Error().Err(err).Str("id", task.ID.String()).Msg("Failed to update LLM task status to running")
+	for i := 0; i < maxRetries; i++ {
+		err := h.taskClient.UpdateTaskStatus(task.ID.String(), models.TaskStatusRunning, nil)
+		if err == nil {
+			break
+		}
+		lastErr = err
+
+		log.Warn().
+			Err(err).
+			Int("retry", i+1).
+			Str("id", task.ID.String()).
+			Msg("Failed to update LLM task status to running, retrying...")
+
+		// Wait before retrying
+		time.Sleep(retryDelay)
+		// Exponential backoff
+		retryDelay *= 2
+	}
+
+	if lastErr != nil {
+		log.Error().
+			Err(lastErr).
+			Str("id", task.ID.String()).
+			Msg("Failed to update LLM task status to running after retries")
+		// Continue execution despite status update failure
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
@@ -222,6 +253,22 @@ func (h *DefaultTaskHandler) handleFederatedLearningCompletion(task *models.Task
 		}
 	}
 
+	// Extract weights (may be empty if not provided)
+	weightsFloat := make(map[string][]float64)
+	if weights, ok := trainingResult["weights"].(map[string]interface{}); ok {
+		for key, value := range weights {
+			if valueSlice, ok := value.([]interface{}); ok {
+				floatSlice := make([]float64, len(valueSlice))
+				for i, v := range valueSlice {
+					if floatVal, ok := v.(float64); ok {
+						floatSlice[i] = floatVal
+					}
+				}
+				weightsFloat[key] = floatSlice
+			}
+		}
+	}
+
 	// Extract metrics with defaults
 	dataSize := 1000 // Default value
 	if ds, ok := trainingResult["data_size"].(float64); ok {
@@ -253,7 +300,7 @@ func (h *DefaultTaskHandler) handleFederatedLearningCompletion(task *models.Task
 
 	// Submit model update to the federated learning service
 	if httpClient, ok := h.taskClient.(*HTTPTaskClient); ok {
-		if err := httpClient.SubmitFLModelUpdate(sessionID, roundID, runnerID, gradientsFloat, dataSize, loss, accuracy, trainingTime); err != nil {
+		if err := httpClient.SubmitFLModelUpdate(sessionID, roundID, runnerID, gradientsFloat, weightsFloat, dataSize, loss, accuracy, trainingTime); err != nil {
 			return fmt.Errorf("failed to submit FL model update: %w", err)
 		}
 

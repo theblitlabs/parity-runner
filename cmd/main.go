@@ -110,7 +110,7 @@ func init() {
 		log.Error().Err(err).Msg("Failed to mark private-key flag as required")
 	}
 
-	stakeCmd.Flags().Float64("amount", 1.0, "Amount of PRTY tokens to stake")
+	stakeCmd.Flags().Float64("amount", 1.0, "Amount of USDFC tokens to stake")
 	if err := stakeCmd.MarkFlagRequired("amount"); err != nil {
 		log.Error().Err(err).Msg("Failed to mark amount flag as required")
 	}

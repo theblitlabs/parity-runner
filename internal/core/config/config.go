@@ -53,6 +53,15 @@ type RunnerConfig struct {
 	HeartbeatInterval time.Duration `mapstructure:"HEARTBEAT_INTERVAL"`
 	ExecutionTimeout  time.Duration `mapstructure:"EXECUTION_TIMEOUT"`
 	Docker            DockerConfig  `mapstructure:"DOCKER"`
+	Tunnel            TunnelConfig  `mapstructure:"TUNNEL"`
+}
+
+type TunnelConfig struct {
+	Enabled   bool   `mapstructure:"ENABLED"`
+	Type      string `mapstructure:"TYPE"`
+	ServerURL string `mapstructure:"SERVER_URL"`
+	Port      int    `mapstructure:"PORT"`
+	Secret    string `mapstructure:"SECRET"`
 }
 
 type DockerConfig struct {
@@ -147,6 +156,13 @@ func loadConfigFile(path string) (*Config, error) {
 			"MEMORY_LIMIT": v.GetString("RUNNER_DOCKER_MEMORY_LIMIT"),
 			"CPU_LIMIT":    v.GetString("RUNNER_DOCKER_CPU_LIMIT"),
 			"TIMEOUT":      v.GetDuration("RUNNER_DOCKER_TIMEOUT"),
+		},
+		"TUNNEL": map[string]interface{}{
+			"ENABLED":    v.GetBool("RUNNER_TUNNEL_ENABLED"),
+			"TYPE":       v.GetString("RUNNER_TUNNEL_TYPE"),
+			"SERVER_URL": v.GetString("RUNNER_TUNNEL_SERVER_URL"),
+			"PORT":       v.GetInt("RUNNER_TUNNEL_PORT"),
+			"SECRET":     v.GetString("RUNNER_TUNNEL_SECRET"),
 		},
 	})
 
