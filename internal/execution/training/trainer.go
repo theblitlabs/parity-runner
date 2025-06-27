@@ -20,8 +20,14 @@ type Trainer interface {
 	// LoadData loads training data from IPFS/Filecoin
 	LoadData(ctx context.Context, datasetCID string, format string) ([][]float64, []float64, error)
 
-	// Train performs model training
+	// Train performs model training and returns weights, loss, and accuracy
 	Train(ctx context.Context, features [][]float64, labels []float64, epochs int, batchSize int, learningRate float64) ([]float64, float64, float64, error)
+
+	// GetModelWeights returns the current model weights as a map
+	GetModelWeights() map[string][]float64
+
+	// GetGradients returns the gradients from the last training step
+	GetGradients() map[string][]float64
 }
 
 // NewTrainer creates a new trainer instance based on model type

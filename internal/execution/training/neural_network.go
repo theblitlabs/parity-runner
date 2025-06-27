@@ -9,15 +9,16 @@ import (
 
 // NeuralNetworkTrainer implements a simple feed-forward neural network
 type NeuralNetworkTrainer struct {
-	config     map[string]interface{}
-	inputSize  int
-	outputSize int
-	hiddenSize int
-	weights1   [][]float64 // Input to hidden layer weights
-	weights2   [][]float64 // Hidden to output layer weights
-	bias1      []float64   // Hidden layer bias
-	bias2      []float64   // Output layer bias
-	dataLoader *DataLoader
+	config        map[string]interface{}
+	inputSize     int
+	outputSize    int
+	hiddenSize    int
+	weights1      [][]float64 // Input to hidden layer weights
+	weights2      [][]float64 // Hidden to output layer weights
+	bias1         []float64   // Hidden layer bias
+	bias2         []float64   // Output layer bias
+	dataLoader    *DataLoader
+	lastGradients map[string][]float64 // Store gradients from last training step
 }
 
 // NewNeuralNetworkTrainer creates a new neural network trainer
@@ -113,6 +114,10 @@ func (t *NeuralNetworkTrainer) Train(ctx context.Context, features [][]float64, 
 		finalLoss = totalLoss / float64(numSamples)
 		finalAccuracy = float64(correctPredictions) / float64(numSamples)
 	}
+
+	// Store the current weights as gradients (for federated learning)
+	// In federated learning, we typically send weight updates rather than raw gradients
+	t.lastGradients = t.GetModelWeights()
 
 	// Return flattened weights as gradients
 	gradients := t.flattenWeights()
@@ -349,4 +354,55 @@ func min(a, b int) int {
 		return a
 	}
 	return b
+}
+
+// GetModelWeights returns the current model weights as a map
+func (t *NeuralNetworkTrainer) GetModelWeights() map[string][]float64 {
+	weights := make(map[string][]float64)
+
+	// Flatten and store weights1 (input to hidden)
+	var weights1Flat []float64
+	for i := 0; i < t.inputSize; i++ {
+		for j := 0; j < t.hiddenSize; j++ {
+			weights1Flat = append(weights1Flat, t.weights1[i][j])
+		}
+	}
+	weights["input_to_hidden_weights"] = weights1Flat
+
+	// Store bias1 (hidden layer bias)
+	weights["hidden_bias"] = append([]float64(nil), t.bias1...)
+
+	// Flatten and store weights2 (hidden to output)
+	var weights2Flat []float64
+	for i := 0; i < t.hiddenSize; i++ {
+		for j := 0; j < t.outputSize; j++ {
+			weights2Flat = append(weights2Flat, t.weights2[i][j])
+		}
+	}
+	weights["hidden_to_output_weights"] = weights2Flat
+
+	// Store bias2 (output layer bias)
+	weights["output_bias"] = append([]float64(nil), t.bias2...)
+
+	return weights
+}
+
+// GetGradients returns the gradients from the last training step
+func (t *NeuralNetworkTrainer) GetGradients() map[string][]float64 {
+	if t.lastGradients == nil {
+		// If no gradients stored, return zero gradients with proper structure
+		gradients := make(map[string][]float64)
+		gradients["input_to_hidden_weights"] = make([]float64, t.inputSize*t.hiddenSize)
+		gradients["hidden_bias"] = make([]float64, t.hiddenSize)
+		gradients["hidden_to_output_weights"] = make([]float64, t.hiddenSize*t.outputSize)
+		gradients["output_bias"] = make([]float64, t.outputSize)
+		return gradients
+	}
+
+	// Return a copy of the stored gradients
+	gradientsCopy := make(map[string][]float64)
+	for key, values := range t.lastGradients {
+		gradientsCopy[key] = append([]float64(nil), values...)
+	}
+	return gradientsCopy
 }

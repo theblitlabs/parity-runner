@@ -304,9 +304,22 @@ func (e *Executor) executeFederatedLearningTask(ctx context.Context, task *model
 		return nil, fmt.Errorf("training failed: %w", err)
 	}
 
-	// Convert gradients array to map format expected by FL
-	gradientsMap := map[string][]float64{
-		"layer_weights": gradients,
+	// Get model weights and gradients
+	var weightsMap map[string][]float64
+	var gradientsMap map[string][]float64
+
+	// Check if trainer supports the new interface
+	if nnTrainer, ok := trainer.(*training.NeuralNetworkTrainer); ok {
+		weightsMap = nnTrainer.GetModelWeights()
+		gradientsMap = nnTrainer.GetGradients()
+	} else {
+		// Fallback: convert gradients array to map format
+		gradientsMap = map[string][]float64{
+			"layer_weights": gradients,
+		}
+		weightsMap = map[string][]float64{
+			"layer_weights": gradients, // For backward compatibility
+		}
 	}
 
 	// Format output based on specified format
@@ -317,6 +330,7 @@ func (e *Executor) executeFederatedLearningTask(ctx context.Context, task *model
 			"session_id":    config.SessionID,
 			"round_id":      config.RoundID,
 			"gradients":     gradientsMap,
+			"weights":       weightsMap,
 			"loss":          loss,
 			"accuracy":      accuracy,
 			"data_size":     len(features),
@@ -339,8 +353,8 @@ func (e *Executor) executeFederatedLearningTask(ctx context.Context, task *model
 		}
 		output = string(outputBytes)
 	default:
-		output = fmt.Sprintf("Training completed:\nSession: %s\nRound: %s\nLoss: %f\nAccuracy: %f\nSamples: %d\nGradients: %v",
-			config.SessionID, config.RoundID, loss, accuracy, len(features), gradients)
+		output = fmt.Sprintf("Training completed:\nSession: %s\nRound: %s\nLoss: %f\nAccuracy: %f\nSamples: %d\nWeights: %v",
+			config.SessionID, config.RoundID, loss, accuracy, len(features), weightsMap)
 	}
 
 	return &models.TaskResult{

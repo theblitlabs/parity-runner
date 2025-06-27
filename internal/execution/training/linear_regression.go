@@ -10,9 +10,10 @@ import (
 
 // LinearRegressionTrainer implements linear regression training
 type LinearRegressionTrainer struct {
-	inputSize  int
-	weights    []float64
-	dataLoader *DataLoader
+	inputSize     int
+	weights       []float64
+	dataLoader    *DataLoader
+	lastGradients map[string][]float64 // Store gradients from last training step
 }
 
 // NewLinearRegressionTrainer creates a new linear regression trainer
@@ -94,6 +95,9 @@ func (t *LinearRegressionTrainer) Train(ctx context.Context, features [][]float6
 	avgLoss := totalLoss / float64(totalSamples)
 	accuracy := t.computeAccuracy(features, labels)
 
+	// Store the current weights as gradients (for federated learning)
+	t.lastGradients = t.GetModelWeights()
+
 	return t.weights, avgLoss, accuracy, nil
 }
 
@@ -141,4 +145,28 @@ func (t *LinearRegressionTrainer) initializeWeights() {
 	for i := range t.weights {
 		t.weights[i] = rand.NormFloat64() * scale
 	}
+}
+
+// GetModelWeights returns the current model weights as a map
+func (t *LinearRegressionTrainer) GetModelWeights() map[string][]float64 {
+	weights := make(map[string][]float64)
+	weights["linear_weights"] = append([]float64(nil), t.weights...)
+	return weights
+}
+
+// GetGradients returns the gradients from the last training step
+func (t *LinearRegressionTrainer) GetGradients() map[string][]float64 {
+	if t.lastGradients == nil {
+		// Return zero gradients with proper structure
+		gradients := make(map[string][]float64)
+		gradients["linear_weights"] = make([]float64, len(t.weights))
+		return gradients
+	}
+
+	// Return a copy of the stored gradients
+	gradientsCopy := make(map[string][]float64)
+	for key, values := range t.lastGradients {
+		gradientsCopy[key] = append([]float64(nil), values...)
+	}
+	return gradientsCopy
 }
