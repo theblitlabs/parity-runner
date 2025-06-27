@@ -241,7 +241,7 @@ func (c *HTTPTaskClient) CompletePrompt(promptID uuid.UUID, response string, pro
 }
 
 // SubmitFLModelUpdate submits federated learning model updates to the server
-func (c *HTTPTaskClient) SubmitFLModelUpdate(sessionID, roundID, runnerID string, gradients map[string][]float64, dataSize int, loss, accuracy float64, trainingTime int) error {
+func (c *HTTPTaskClient) SubmitFLModelUpdate(sessionID, roundID, runnerID string, gradients map[string][]float64, weights map[string][]float64, dataSize int, loss, accuracy float64, trainingTime int) error {
 	baseURL := strings.TrimSuffix(c.baseURL, "/api")
 	url := fmt.Sprintf("%s/api/v1/federated-learning/model-updates", baseURL)
 
@@ -250,6 +250,7 @@ func (c *HTTPTaskClient) SubmitFLModelUpdate(sessionID, roundID, runnerID string
 		"round_id":      roundID,
 		"runner_id":     runnerID,
 		"gradients":     gradients,
+		"weights":       weights,
 		"update_type":   "gradients",
 		"data_size":     dataSize,
 		"loss":          loss,

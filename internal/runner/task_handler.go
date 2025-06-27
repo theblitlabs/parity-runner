@@ -253,6 +253,22 @@ func (h *DefaultTaskHandler) handleFederatedLearningCompletion(task *models.Task
 		}
 	}
 
+	// Extract weights (may be empty if not provided)
+	weightsFloat := make(map[string][]float64)
+	if weights, ok := trainingResult["weights"].(map[string]interface{}); ok {
+		for key, value := range weights {
+			if valueSlice, ok := value.([]interface{}); ok {
+				floatSlice := make([]float64, len(valueSlice))
+				for i, v := range valueSlice {
+					if floatVal, ok := v.(float64); ok {
+						floatSlice[i] = floatVal
+					}
+				}
+				weightsFloat[key] = floatSlice
+			}
+		}
+	}
+
 	// Extract metrics with defaults
 	dataSize := 1000 // Default value
 	if ds, ok := trainingResult["data_size"].(float64); ok {
@@ -284,7 +300,7 @@ func (h *DefaultTaskHandler) handleFederatedLearningCompletion(task *models.Task
 
 	// Submit model update to the federated learning service
 	if httpClient, ok := h.taskClient.(*HTTPTaskClient); ok {
-		if err := httpClient.SubmitFLModelUpdate(sessionID, roundID, runnerID, gradientsFloat, dataSize, loss, accuracy, trainingTime); err != nil {
+		if err := httpClient.SubmitFLModelUpdate(sessionID, roundID, runnerID, gradientsFloat, weightsFloat, dataSize, loss, accuracy, trainingTime); err != nil {
 			return fmt.Errorf("failed to submit FL model update: %w", err)
 		}
 
