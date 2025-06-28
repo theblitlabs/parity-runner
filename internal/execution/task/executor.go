@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/rs/zerolog"
+	"github.com/theblitlabs/gologger"
 	"github.com/theblitlabs/parity-runner/internal/core/models"
 	"github.com/theblitlabs/parity-runner/internal/execution/llm"
 	"github.com/theblitlabs/parity-runner/internal/execution/training"
@@ -18,13 +18,11 @@ import (
 
 type Executor struct {
 	ollamaExecutor *llm.OllamaExecutor
-	log            zerolog.Logger
 }
 
 func NewExecutor() *Executor {
 	return &Executor{
 		ollamaExecutor: llm.NewOllamaExecutor("http://localhost:11434"),
-		log:            zerolog.New(os.Stdout).With().Str("component", "task_executor").Logger(),
 	}
 }
 
@@ -33,7 +31,8 @@ func (e *Executor) ExecuteTask(ctx context.Context, task *models.Task) (*models.
 		return nil, fmt.Errorf("nil task provided")
 	}
 
-	e.log.Info().
+	log := gologger.WithComponent("task_executor")
+	log.Info().
 		Str("task_id", task.ID.String()).
 		Str("task_type", string(task.Type)).
 		Msg("Starting task execution")
@@ -128,7 +127,8 @@ func (e *Executor) executeCommand(ctx context.Context, task *models.Task) (*mode
 }
 
 func (e *Executor) executeLLMTask(ctx context.Context, task *models.Task) (*models.TaskResult, error) {
-	e.log.Info().
+	log := gologger.WithComponent("task_executor")
+	log.Info().
 		Str("task_id", task.ID.String()).
 		Msg("Executing LLM task")
 
@@ -152,21 +152,21 @@ func (e *Executor) executeLLMTask(ctx context.Context, task *models.Task) (*mode
 		return nil, fmt.Errorf("prompt is required for LLM task")
 	}
 
-	e.log.Info().
+	log.Info().
 		Str("task_id", task.ID.String()).
 		Str("model", modelName).
 		Msg("Generating LLM response")
 
 	response, err := e.ollamaExecutor.Generate(ctx, modelName, prompt)
 	if err != nil {
-		e.log.Error().Err(err).
+		log.Error().Err(err).
 			Str("task_id", task.ID.String()).
 			Str("model", modelName).
 			Msg("Failed to generate LLM response")
 		return nil, fmt.Errorf("failed to generate response: %w", err)
 	}
 
-	e.log.Info().
+	log.Info().
 		Str("task_id", task.ID.String()).
 		Str("model", modelName).
 		Msg("LLM response generated successfully")
@@ -183,7 +183,8 @@ func (e *Executor) executeLLMTask(ctx context.Context, task *models.Task) (*mode
 }
 
 func (e *Executor) executeFederatedLearningTask(ctx context.Context, task *models.Task) (*models.TaskResult, error) {
-	e.log.Info().
+	log := gologger.WithComponent("task_executor")
+	log.Info().
 		Str("task_id", task.ID.String()).
 		Msg("Starting federated learning task execution")
 
@@ -265,7 +266,7 @@ func (e *Executor) executeFederatedLearningTask(ctx context.Context, task *model
 			return nil, fmt.Errorf("min_samples must be provided and positive")
 		}
 
-		e.log.Info().
+		log.Info().
 			Str("strategy", partitionConfig.Strategy).
 			Int("total_parts", partitionConfig.TotalParts).
 			Int("part_index", partitionConfig.PartIndex).
@@ -281,7 +282,7 @@ func (e *Executor) executeFederatedLearningTask(ctx context.Context, task *model
 		}
 	} else {
 		// Use regular data loading without partitioning
-		e.log.Info().Msg("Loading full dataset (no partitioning)")
+		log.Info().Msg("Loading full dataset (no partitioning)")
 		features, labels, err = trainer.LoadData(ctx, config.DatasetCID, config.DataFormat)
 	}
 
@@ -289,7 +290,7 @@ func (e *Executor) executeFederatedLearningTask(ctx context.Context, task *model
 		return nil, fmt.Errorf("failed to load training data: %w", err)
 	}
 
-	e.log.Info().
+	log.Info().
 		Int("samples_loaded", len(features)).
 		Int("features_per_sample", len(features[0])).
 		Msg("Training data loaded successfully")
