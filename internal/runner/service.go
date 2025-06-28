@@ -213,7 +213,7 @@ func (s *Service) Start() error {
 		Msg("Starting runner service - checking tunnel")
 
 	if s.tunnelClient != nil {
-		log.Info().Msg("Starting tunnel before webhook registration...")
+		log.Debug().Msg("Starting tunnel before webhook registration...")
 
 		// Create a context with timeout for tunnel startup
 		tunnelCtx, tunnelCancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -242,7 +242,7 @@ func (s *Service) Start() error {
 		s.webhookClient.SetHeartbeatInterval(s.heartbeatInterval)
 
 		// The webhook client will now use the tunnel URL when registering
-		log.Info().Msg("Starting webhook client with tunnel URL...")
+		log.Debug().Msg("Starting webhook client with tunnel URL...")
 		if err := s.webhookClient.Start(); err != nil {
 			log.Error().Err(err).Msg("Failed to start webhook server")
 			// Stop tunnel if webhook fails

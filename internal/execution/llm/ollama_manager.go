@@ -488,7 +488,7 @@ func (m *OllamaManager) SetupComplete(ctx context.Context) error {
 		return fmt.Errorf("failed to ensure models are available: %w", err)
 	}
 
-	log.Info().Strs("models", m.models).Msg("Ollama setup completed successfully")
+	log.Debug().Strs("models", m.models).Msg("Ollama setup completed successfully")
 	return nil
 }
 

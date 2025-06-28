@@ -114,6 +114,8 @@ func (w *WebhookClient) Start() error {
 		Handler: mux,
 	}
 
+	log.Debug().Str("port", fmt.Sprintf("%d", w.serverPort)).Msg("Starting webhook server")
+
 	if w.heartbeat != nil {
 		if err := w.heartbeat.Start(); err != nil {
 			log.Error().Err(err).Msg("Failed to start heartbeat service")
@@ -121,7 +123,6 @@ func (w *WebhookClient) Start() error {
 	}
 
 	go func() {
-		log.Info().Str("port", fmt.Sprintf("%d", w.serverPort)).Msg("Starting webhook server")
 		if err := w.server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			log.Error().Err(err).Msg("Webhook server error")
 		}
@@ -300,7 +301,7 @@ func (w *WebhookClient) handleWebhook(resp http.ResponseWriter, req *http.Reques
 		}
 
 		if task != nil {
-			log.Info().Int("count", 1).Msg("Task received via webhook")
+			log.Debug().Int("count", 1).Msg("Task received via webhook")
 
 			taskID := task.ID.String()
 
@@ -323,7 +324,7 @@ func (w *WebhookClient) handleWebhook(resp http.ResponseWriter, req *http.Reques
 					Msg("Task is already being processed")
 			}
 
-			log.Info().
+			log.Debug().
 				Str("id", taskID).
 				Str("title", task.Title).
 				Str("type", string(task.Type)).
@@ -341,7 +342,7 @@ func (w *WebhookClient) handleWebhook(resp http.ResponseWriter, req *http.Reques
 
 					w.markTaskCompleted(taskID)
 				} else {
-					log.Info().
+					log.Debug().
 						Str("id", taskID).
 						Str("type", string(task.Type)).
 						Msg("Task processed successfully")
@@ -440,7 +441,7 @@ func (w *WebhookClient) Register() error {
 
 	w.webhookID = response.WebhookID
 
-	log.Info().
+	log.Debug().
 		Str("device_id", w.deviceID).
 		Str("webhook_url", w.webhookURL).
 		Str("webhook_id", w.webhookID).

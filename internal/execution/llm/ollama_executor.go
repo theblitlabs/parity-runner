@@ -239,7 +239,7 @@ func (e *OllamaExecutor) ListModels(ctx context.Context) ([]ModelInfo, error) {
 		}
 	}
 
-	log.Info().Int("model_count", len(models)).Msg("Listed available models")
+	log.Debug().Int("model_count", len(models)).Msg("Listed available models")
 
 	return models, nil
 }

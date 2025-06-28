@@ -95,7 +95,7 @@ func executeRunner() error {
 	}
 
 	runnerService.SetHeartbeatInterval(cfg.Runner.HeartbeatInterval)
-	logger.Info().Dur("interval", cfg.Runner.HeartbeatInterval).Msg("Configured heartbeat interval")
+	logger.Debug().Dur("interval", cfg.Runner.HeartbeatInterval).Msg("Configured heartbeat interval")
 
 	deviceID, err := utils.GetDeviceID()
 	if err != nil {
@@ -130,7 +130,7 @@ func executeRunner() error {
 				logger.Info().
 					Str("signal", sig.String()).
 					Msg("Shutdown signal received, initiating graceful shutdown...")
-				logger.Info().Msg("💡 Press Ctrl+C again to force exit")
+				logger.Info().Msg("Press Ctrl+C again to force exit if shutdown hangs")
 
 				shutdownInitiated = true
 				cancel()
@@ -149,7 +149,7 @@ func executeRunner() error {
 				}()
 
 			} else if signalCount >= 2 {
-				logger.Warn().Msg("Force exit signal received - terminating immediately")
+				logger.Info().Msg("Force exit signal received - terminating immediately")
 				os.Exit(1)
 			}
 
@@ -218,16 +218,16 @@ func executeRunnerWithLLM(models []string, ollamaURL string, autoInstall bool) e
 
 	// Setup Ollama if auto-install is enabled
 	if autoInstall {
-		logger.Info().Strs("models", models).Msg("Setting up Ollama with specified models...")
+		logger.Debug().Strs("models", models).Msg("Setting up Ollama with specified models...")
 		if err := llmHandler.SetupOllama(ctx); err != nil {
 			logger.Fatal().Err(err).Msg("Failed to setup Ollama")
 			return err
 		}
-		logger.Info().Msg("Ollama setup completed successfully")
+		logger.Debug().Msg("Ollama setup completed successfully")
 	}
 
 	runnerService.SetHeartbeatInterval(cfg.Runner.HeartbeatInterval)
-	logger.Info().Dur("interval", cfg.Runner.HeartbeatInterval).Msg("Configured heartbeat interval")
+	logger.Debug().Dur("interval", cfg.Runner.HeartbeatInterval).Msg("Configured heartbeat interval")
 
 	deviceID, err := utils.GetDeviceID()
 	if err != nil {
@@ -248,7 +248,7 @@ func executeRunnerWithLLM(models []string, ollamaURL string, autoInstall bool) e
 		if err != nil {
 			logger.Warn().Err(err).Msg("Failed to get available models, continuing without model capabilities")
 		} else {
-			logger.Info().Int("model_count", len(availableModels)).Msg("Setting model capabilities in webhook client")
+			logger.Debug().Int("model_count", len(availableModels)).Msg("Setting model capabilities in webhook client")
 			if err := runnerService.SetModelCapabilities(availableModels); err != nil {
 				logger.Warn().Err(err).Msg("Failed to set model capabilities")
 			}
@@ -278,7 +278,7 @@ func executeRunnerWithLLM(models []string, ollamaURL string, autoInstall bool) e
 				logger.Info().
 					Str("signal", sig.String()).
 					Msg("Shutdown signal received, initiating graceful shutdown...")
-				logger.Info().Msg("💡 Press Ctrl+C again to force exit")
+				logger.Info().Msg("Press Ctrl+C again to force exit if shutdown hangs")
 
 				shutdownInitiated = true
 				cancel()
@@ -297,7 +297,7 @@ func executeRunnerWithLLM(models []string, ollamaURL string, autoInstall bool) e
 				}()
 
 			} else if signalCount >= 2 {
-				logger.Warn().Msg("Force exit signal received - terminating immediately")
+				logger.Info().Msg("Force exit signal received - terminating immediately")
 				os.Exit(1)
 			}
 

@@ -61,15 +61,15 @@ func (h *HeartbeatService) Start() error {
 	h.mu.Unlock()
 
 	log := gologger.WithComponent("heartbeat")
-	log.Info().
-		Dur("interval", h.config.BaseInterval).
+	log.Debug().
 		Str("device_id", h.config.DeviceID).
+		Dur("interval", h.config.BaseInterval).
 		Msg("Starting heartbeat service")
 
 	if err := h.sendHeartbeatWithRetry(); err != nil {
 		log.Error().Err(err).Msg("Failed to send initial heartbeat after retries")
 	} else {
-		log.Info().Msg("Initial heartbeat sent successfully")
+		log.Debug().Msg("Initial heartbeat sent successfully")
 	}
 
 	h.scheduler.SingletonMode()
@@ -191,7 +191,6 @@ func (h *HeartbeatService) sendHeartbeat() error {
 	if err != nil {
 		return fmt.Errorf("failed to marshal heartbeat payload: %w", err)
 	}
-	log.Info().Msgf("Heartbeat payload: %s", string(payloadBytes))
 
 	heartbeatURL := fmt.Sprintf("%s/api/v1/runners/heartbeat", h.config.ServerURL)
 	req, err := http.NewRequest("POST", heartbeatURL, bytes.NewBuffer(payloadBytes))

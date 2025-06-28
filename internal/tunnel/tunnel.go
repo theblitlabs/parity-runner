@@ -356,9 +356,9 @@ func (t *TunnelClient) startBoreTunnel() (string, error) {
 	case url := <-publicURL:
 		t.publicURL = url + "/webhook"
 		t.running = true
-		log.Info().
-			Str("public_url", t.publicURL).
+		log.Debug().
 			Str("base_url", url).
+			Str("public_url", t.publicURL).
 			Msg("Bore tunnel established successfully")
 		return t.publicURL, nil
 	case err := <-errorCh:
