@@ -214,24 +214,26 @@ func (s *Service) Start() error {
 
 	if s.tunnelClient != nil {
 		log.Info().Msg("Starting tunnel before webhook registration...")
-		tunnelURL, err := s.tunnelClient.Start()
+
+		// Create a context with timeout for tunnel startup
+		tunnelCtx, tunnelCancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer tunnelCancel()
+
+		tunnelURL, err := s.startTunnelWithFallback(tunnelCtx)
 		if err != nil {
-			log.Error().Err(err).Msg("Failed to start tunnel")
-			return fmt.Errorf("failed to start tunnel: %w", err)
+			log.Warn().Err(err).Msg("Tunnel failed to start - falling back to localhost mode")
+			log.Warn().Msg("⚠️  IMPORTANT: Running in localhost mode - tasks will only be accessible locally")
+			log.Warn().Msg("⚠️  To receive remote tasks, ensure bore.pub is reachable or configure alternative tunnel")
+			s.tunnelClient = nil // Disable tunnel client for the rest of the session
+		} else {
+			log.Info().
+				Str("tunnel_url", tunnelURL).
+				Bool("tunnel_running", s.tunnelClient.IsRunning()).
+				Msg("Tunnel established successfully")
+
+			// Small delay to ensure tunnel is fully stable
+			time.Sleep(2 * time.Second)
 		}
-
-		// Verify tunnel is actually running
-		if !s.tunnelClient.IsRunning() {
-			return fmt.Errorf("tunnel started but is not running")
-		}
-
-		log.Info().
-			Str("tunnel_url", tunnelURL).
-			Bool("tunnel_running", s.tunnelClient.IsRunning()).
-			Msg("Tunnel established successfully")
-
-		// Small delay to ensure tunnel is fully stable
-		time.Sleep(2 * time.Second)
 	} else {
 		log.Info().Msg("No tunnel client - proceeding with localhost webhook")
 	}
@@ -315,6 +317,44 @@ func (s *Service) Stop(ctx context.Context) error {
 		return nil
 	case <-ctx.Done():
 		return fmt.Errorf("shutdown timed out: %w", ctx.Err())
+	}
+}
+
+func (s *Service) startTunnelWithFallback(ctx context.Context) (string, error) {
+	// Try to start tunnel with timeout
+	tunnelDone := make(chan struct {
+		url string
+		err error
+	}, 1)
+
+	go func() {
+		tunnelURL, err := s.tunnelClient.Start()
+		tunnelDone <- struct {
+			url string
+			err error
+		}{url: tunnelURL, err: err}
+	}()
+
+	select {
+	case result := <-tunnelDone:
+		if result.err != nil {
+			return "", result.err
+		}
+
+		// Verify tunnel is actually running
+		if !s.tunnelClient.IsRunning() {
+			s.tunnelClient.Stop() // Clean up
+			return "", fmt.Errorf("tunnel started but is not running")
+		}
+
+		return result.url, nil
+
+	case <-ctx.Done():
+		// Timeout or cancellation - clean up tunnel
+		if s.tunnelClient != nil {
+			s.tunnelClient.Stop()
+		}
+		return "", fmt.Errorf("tunnel startup timed out or was cancelled")
 	}
 }
 
