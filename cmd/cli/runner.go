@@ -81,8 +81,9 @@ func executeRunner() error {
 		return err
 	}
 
-	stopChan := make(chan os.Signal, 1)
-	signal.Notify(stopChan, os.Interrupt, syscall.SIGTERM, syscall.SIGINT)
+	// Use a single signal channel to handle shutdown
+	signalChan := make(chan os.Signal, 2)
+	signal.Notify(signalChan, os.Interrupt, syscall.SIGTERM, syscall.SIGINT)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -116,37 +117,49 @@ func executeRunner() error {
 
 	logger.Info().Msg("Runner service started successfully")
 
-	select {
-	case sig := <-stopChan:
-		logger.Info().
-			Str("signal", sig.String()).
-			Msg("Shutdown signal received, initiating graceful shutdown...")
+	// Signal handling with force exit capability
+	signalCount := 0
+	shutdownInitiated := false
 
-		cancel()
-
-		shutdownCtx, shutdownCancel := utils.WithTimeout()
-		defer shutdownCancel()
-
-		shutdownChan := make(chan struct{})
-		go func() {
-			if err := runnerService.Stop(shutdownCtx); err != nil {
-				logger.Error().Err(err).Msg("Error during runner service shutdown")
-			}
-			close(shutdownChan)
-		}()
-
+	for {
 		select {
-		case <-shutdownChan:
-			logger.Info().Msg("Runner service stopped successfully")
-		case <-shutdownCtx.Done():
-			logger.Error().Msg("Shutdown timed out, forcing exit")
+		case sig := <-signalChan:
+			signalCount++
+
+			if signalCount == 1 && !shutdownInitiated {
+				logger.Info().
+					Str("signal", sig.String()).
+					Msg("Shutdown signal received, initiating graceful shutdown...")
+				logger.Info().Msg("💡 Press Ctrl+C again to force exit")
+
+				shutdownInitiated = true
+				cancel()
+
+				// Start graceful shutdown in a goroutine
+				go func() {
+					shutdownCtx, shutdownCancel := utils.WithTimeout()
+					defer shutdownCancel()
+
+					if err := runnerService.Stop(shutdownCtx); err != nil {
+						logger.Error().Err(err).Msg("Error during runner service shutdown")
+					} else {
+						logger.Info().Msg("Runner service stopped successfully")
+					}
+					os.Exit(0)
+				}()
+
+			} else if signalCount >= 2 {
+				logger.Warn().Msg("Force exit signal received - terminating immediately")
+				os.Exit(1)
+			}
+
+		case <-ctx.Done():
+			if !shutdownInitiated {
+				logger.Info().Msg("Context cancelled, shutting down...")
+				return nil
+			}
 		}
-
-	case <-ctx.Done():
-		logger.Info().Msg("Context cancelled, shutting down...")
 	}
-
-	return nil
 }
 
 func RunRunnerWithLLM(models []string, ollamaURL string, autoInstall bool) {
@@ -187,8 +200,9 @@ func executeRunnerWithLLM(models []string, ollamaURL string, autoInstall bool) e
 		return err
 	}
 
-	stopChan := make(chan os.Signal, 1)
-	signal.Notify(stopChan, os.Interrupt, syscall.SIGTERM, syscall.SIGINT)
+	// Use a single signal channel to handle shutdown
+	signalChan := make(chan os.Signal, 2)
+	signal.Notify(signalChan, os.Interrupt, syscall.SIGTERM, syscall.SIGINT)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -251,37 +265,49 @@ func executeRunnerWithLLM(models []string, ollamaURL string, autoInstall bool) e
 		Str("ollama_url", ollamaURL).
 		Msg("Runner service with LLM capabilities started successfully")
 
-	select {
-	case sig := <-stopChan:
-		logger.Info().
-			Str("signal", sig.String()).
-			Msg("Shutdown signal received, initiating graceful shutdown...")
+	// Signal handling with force exit capability
+	signalCount := 0
+	shutdownInitiated := false
 
-		cancel()
-
-		shutdownCtx, shutdownCancel := utils.WithTimeout()
-		defer shutdownCancel()
-
-		shutdownChan := make(chan struct{})
-		go func() {
-			if err := runnerService.Stop(shutdownCtx); err != nil {
-				logger.Error().Err(err).Msg("Error during runner service shutdown")
-			}
-			close(shutdownChan)
-		}()
-
+	for {
 		select {
-		case <-shutdownChan:
-			logger.Info().Msg("Runner service stopped successfully")
-		case <-shutdownCtx.Done():
-			logger.Error().Msg("Shutdown timed out, forcing exit")
+		case sig := <-signalChan:
+			signalCount++
+
+			if signalCount == 1 && !shutdownInitiated {
+				logger.Info().
+					Str("signal", sig.String()).
+					Msg("Shutdown signal received, initiating graceful shutdown...")
+				logger.Info().Msg("💡 Press Ctrl+C again to force exit")
+
+				shutdownInitiated = true
+				cancel()
+
+				// Start graceful shutdown in a goroutine
+				go func() {
+					shutdownCtx, shutdownCancel := utils.WithTimeout()
+					defer shutdownCancel()
+
+					if err := runnerService.Stop(shutdownCtx); err != nil {
+						logger.Error().Err(err).Msg("Error during runner service shutdown")
+					} else {
+						logger.Info().Msg("Runner service stopped successfully")
+					}
+					os.Exit(0)
+				}()
+
+			} else if signalCount >= 2 {
+				logger.Warn().Msg("Force exit signal received - terminating immediately")
+				os.Exit(1)
+			}
+
+		case <-ctx.Done():
+			if !shutdownInitiated {
+				logger.Info().Msg("Context cancelled, shutting down...")
+				return nil
+			}
 		}
-
-	case <-ctx.Done():
-		logger.Info().Msg("Context cancelled, shutting down...")
 	}
-
-	return nil
 }
 
 func ExecuteRunnerWithLLMDirect(models []string, ollamaURL string, autoInstall bool) error {

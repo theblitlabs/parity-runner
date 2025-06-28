@@ -46,11 +46,18 @@ func (h *DefaultTaskHandler) HandleTask(task *models.Task) error {
 	}
 
 	log := gologger.WithComponent("task_handler")
-	log.Info().
-		Str("id", task.ID.String()).
-		Str("title", task.Title).
-		Str("type", string(task.Type)).
-		Msg("Starting task execution")
+	// Only log federated learning task starts at info level due to their importance
+	if task.Type == models.TaskTypeFederatedLearning {
+		log.Info().
+			Str("id", task.ID.String()).
+			Str("type", string(task.Type)).
+			Msg("Starting FL training task")
+	} else {
+		log.Debug().
+			Str("id", task.ID.String()).
+			Str("type", string(task.Type)).
+			Msg("Starting task execution")
+	}
 
 	h.isProcessing.Store(true)
 	defer h.isProcessing.Store(false)
@@ -113,10 +120,19 @@ func (h *DefaultTaskHandler) HandleTask(task *models.Task) error {
 		}
 	}
 
-	log.Info().
-		Str("id", task.ID.String()).
-		Int("exit_code", result.ExitCode).
-		Msg("Task execution completed")
+	// Only log federated learning and failed task completions at info level
+	if task.Type == models.TaskTypeFederatedLearning || result.ExitCode != 0 {
+		log.Info().
+			Str("id", task.ID.String()).
+			Str("type", string(task.Type)).
+			Int("exit_code", result.ExitCode).
+			Msg("Task execution completed")
+	} else {
+		log.Debug().
+			Str("id", task.ID.String()).
+			Int("exit_code", result.ExitCode).
+			Msg("Task execution completed")
+	}
 
 	return nil
 }
@@ -196,7 +212,7 @@ func (h *DefaultTaskHandler) handleLLMTask(task *models.Task) error {
 			return fmt.Errorf("failed to complete LLM prompt: %w", err)
 		}
 
-		log.Info().
+		log.Debug().
 			Str("id", task.ID.String()).
 			Int("prompt_tokens", result.PromptTokens).
 			Int("response_tokens", result.ResponseTokens).
@@ -213,7 +229,7 @@ func (h *DefaultTaskHandler) handleLLMTask(task *models.Task) error {
 func (h *DefaultTaskHandler) handleFederatedLearningCompletion(task *models.Task, result *models.TaskResult) error {
 	log := gologger.WithComponent("task_handler")
 
-	log.Info().
+	log.Debug().
 		Str("task_id", task.ID.String()).
 		Msg("Processing federated learning task completion")
 

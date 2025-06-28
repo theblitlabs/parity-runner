@@ -7,14 +7,23 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/theblitlabs/gologger"
 )
 
+var (
+	// Global rate limiter to ensure minimum time between any Ollama requests
+	lastOllamaRequest  time.Time
+	ollamaRequestMutex sync.Mutex
+	minRequestInterval = 3 * time.Second // Increased to 3 seconds for better stability
+)
+
 type OllamaExecutor struct {
-	baseURL string
-	client  *http.Client
+	baseURL   string
+	client    *http.Client
+	semaphore chan struct{}
 }
 
 type GenerateRequest struct {
@@ -60,13 +69,93 @@ func NewOllamaExecutor(baseURL string) *OllamaExecutor {
 		client: &http.Client{
 			Timeout: 5 * time.Minute,
 		},
+		semaphore: make(chan struct{}, 1), // Allow max 1 concurrent request to avoid Ollama conflicts
 	}
 }
 
 func (e *OllamaExecutor) Generate(ctx context.Context, modelName, prompt string) (*GenerateResponse, error) {
 	log := gologger.WithComponent("ollama_executor")
 
+	// Acquire semaphore to limit concurrent requests
+	log.Debug().Msg("Waiting for semaphore to limit Ollama concurrency")
+	select {
+	case e.semaphore <- struct{}{}:
+		log.Debug().Msg("Acquired semaphore for Ollama request")
+		defer func() {
+			// Add delay before releasing to space out requests
+			time.Sleep(1 * time.Second)
+			<-e.semaphore
+			log.Debug().Msg("Released semaphore after Ollama request")
+		}()
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
+
 	startTime := time.Now()
+	maxRetries := 3
+	baseDelay := 3 * time.Second // Aggressive delay between retries for stability
+
+	for attempt := 1; attempt <= maxRetries; attempt++ {
+		response, err := e.generateWithRetry(ctx, modelName, prompt, attempt)
+		if err == nil {
+			response.TotalDuration = time.Since(startTime).Nanoseconds()
+
+			log.Info().
+				Str("model", modelName).
+				Int("prompt_tokens", response.PromptEvalCount).
+				Int("response_tokens", response.EvalCount).
+				Int64("duration_ms", response.TotalDuration/1000000).
+				Int("attempts", attempt).
+				Msg("Generated response successfully")
+
+			return response, nil
+		}
+
+		if attempt < maxRetries {
+			// Exponential backoff with jitter
+			delay := baseDelay * time.Duration(attempt)
+			log.Warn().
+				Err(err).
+				Str("model", modelName).
+				Int("attempt", attempt).
+				Int("max_retries", maxRetries).
+				Dur("retry_delay", delay).
+				Msg("Ollama request failed, retrying")
+
+			select {
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			case <-time.After(delay):
+				// Continue to next attempt
+			}
+		} else {
+			log.Error().
+				Err(err).
+				Str("model", modelName).
+				Int("attempts", attempt).
+				Msg("All Ollama retry attempts exhausted")
+			return nil, fmt.Errorf("failed after %d attempts: %w", maxRetries, err)
+		}
+	}
+
+	return nil, fmt.Errorf("unexpected retry loop exit")
+}
+
+func (e *OllamaExecutor) generateWithRetry(ctx context.Context, modelName, prompt string, attempt int) (*GenerateResponse, error) {
+	log := gologger.WithComponent("ollama_executor")
+
+	// Global rate limiting to ensure minimum time between requests
+	ollamaRequestMutex.Lock()
+	timeSinceLastRequest := time.Since(lastOllamaRequest)
+	if timeSinceLastRequest < minRequestInterval {
+		waitTime := minRequestInterval - timeSinceLastRequest
+		log.Debug().
+			Dur("wait_time", waitTime).
+			Msg("Rate limiting Ollama request")
+		time.Sleep(waitTime)
+	}
+	lastOllamaRequest = time.Now()
+	ollamaRequestMutex.Unlock()
 
 	req := GenerateRequest{
 		Model:  modelName,
@@ -86,10 +175,12 @@ func (e *OllamaExecutor) Generate(ctx context.Context, modelName, prompt string)
 
 	httpReq.Header.Set("Content-Type", "application/json")
 
-	log.Info().
-		Str("model", modelName).
-		Str("prompt_preview", truncateString(prompt, 100)).
-		Msg("Generating response with Ollama")
+	if attempt == 1 {
+		log.Info().
+			Str("model", modelName).
+			Str("prompt_preview", truncateString(prompt, 100)).
+			Msg("Generating response with Ollama")
+	}
 
 	resp, err := e.client.Do(httpReq)
 	if err != nil {
@@ -107,17 +198,11 @@ func (e *OllamaExecutor) Generate(ctx context.Context, modelName, prompt string)
 	}
 
 	if !response.Done {
-		return nil, fmt.Errorf("ollama response not complete")
+		return nil, fmt.Errorf("ollama response not complete (done: %v)", response.Done)
 	}
 
-	response.TotalDuration = time.Since(startTime).Nanoseconds()
-
-	log.Info().
-		Str("model", modelName).
-		Int("prompt_tokens", response.PromptEvalCount).
-		Int("response_tokens", response.EvalCount).
-		Int64("duration_ms", response.TotalDuration/1000000).
-		Msg("Generated response successfully")
+	// Add small delay after successful response to let Ollama stabilize
+	time.Sleep(200 * time.Millisecond)
 
 	return &response, nil
 }
