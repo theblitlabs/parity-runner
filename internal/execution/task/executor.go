@@ -7,22 +7,43 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"time"
 
 	"github.com/theblitlabs/gologger"
 	"github.com/theblitlabs/parity-runner/internal/core/models"
 	"github.com/theblitlabs/parity-runner/internal/execution/llm"
+	"github.com/theblitlabs/parity-runner/internal/execution/sandbox/docker"
 	"github.com/theblitlabs/parity-runner/internal/execution/training"
 )
 
 type Executor struct {
 	ollamaExecutor *llm.OllamaExecutor
+	dockerExecutor *docker.DockerExecutor
 }
 
 func NewExecutor() *Executor {
+	// Detect available CPUs and set reasonable limits
+	cpuLimit := "8.0" // Default safe value
+	if runtime.GOMAXPROCS(0) < 8 {
+		cpuLimit = fmt.Sprintf("%.1f", float64(runtime.GOMAXPROCS(0)))
+	}
+
+	dockerExecutor, err := docker.NewDockerExecutor(&docker.ExecutorConfig{
+		MemoryLimit:      "8g", // Reduced from 16g to be more reasonable
+		CPULimit:         cpuLimit,
+		Timeout:          15 * time.Minute,
+		ExecutionTimeout: 25 * time.Minute,
+	})
+	if err != nil {
+		log := gologger.WithComponent("task_executor")
+		log.Error().Err(err).Msg("Failed to create Docker executor")
+	}
+
 	return &Executor{
 		ollamaExecutor: llm.NewOllamaExecutor("http://localhost:11434"),
+		dockerExecutor: dockerExecutor,
 	}
 }
 
@@ -44,6 +65,8 @@ func (e *Executor) ExecuteTask(ctx context.Context, task *models.Task) (*models.
 		return e.executeLLMTask(ctx, task)
 	case models.TaskTypeFederatedLearning:
 		return e.executeFederatedLearningTask(ctx, task)
+	case models.TaskTypeDocker:
+		return e.executeDockerTask(ctx, task)
 	default:
 		return nil, fmt.Errorf("unsupported task type: %s", task.Type)
 	}
@@ -405,8 +428,23 @@ func getIntFromMap(m map[string]interface{}, key string, defaultValue int) int {
 }
 
 func getFloatFromMap(m map[string]interface{}, key string, defaultValue float64) float64 {
-	if val, ok := m[key].(float64); ok {
-		return val
+	if val, ok := m[key]; ok {
+		if floatVal, ok := val.(float64); ok {
+			return floatVal
+		}
 	}
 	return defaultValue
+}
+
+func (e *Executor) executeDockerTask(ctx context.Context, task *models.Task) (*models.TaskResult, error) {
+	log := gologger.WithComponent("task_executor")
+	log.Info().
+		Str("task_id", task.ID.String()).
+		Msg("Executing Docker task")
+
+	if e.dockerExecutor == nil {
+		return nil, fmt.Errorf("docker executor not available")
+	}
+
+	return e.dockerExecutor.ExecuteTask(ctx, task)
 }

@@ -43,6 +43,8 @@ func (c *TaskConfig) Validate(taskType TaskType) error {
 			return errors.New("image name is required for Docker tasks")
 		}
 	case TaskTypeCommand:
+	case TaskTypeLLM:
+	case TaskTypeFederatedLearning:
 	default:
 		return fmt.Errorf("unsupported task type: %s", taskType)
 	}
