@@ -16,6 +16,14 @@ Parity Runner is a compute execution node for the PLGenesis decentralized AI and
 
 - **Neural Network Training**: Support for multi-layer neural networks with configurable architectures
 - **Linear Regression**: Built-in linear regression training capabilities
+- **Distributed Random Forest**: Complete random forest implementation with federated learning support
+  - **Bootstrap Sampling**: Configurable subsample ratios with bagging
+  - **Random Feature Selection**: Configurable number of features per split
+  - **Decision Tree Building**: Full binary tree construction with Gini impurity
+  - **Out-of-Bag (OOB) Scoring**: Automatic model validation using unused samples
+  - **Feature Importance**: Calculates and tracks feature importance across all trees
+  - **Model Aggregation**: Combines feature importance and tree statistics across nodes
+  - **Privacy-Preserving**: No raw data sharing between participants in distributed training
 - **Data Partitioning**: Advanced partitioning strategies for truly distributed FL:
   - **Random (IID)**: Uniform random distribution
   - **Stratified**: Maintains class distribution across participants
@@ -23,6 +31,9 @@ Parity Runner is a compute execution node for the PLGenesis decentralized AI and
   - **Non-IID**: Dirichlet distribution for realistic data heterogeneity
   - **Label Skew**: Each participant gets subset of classes with optional overlap
 - **IPFS/Filecoin Integration**: Automatic data loading from decentralized storage
+  - **Mandatory IPFS Storage**: All datasets must be stored on FileCoin and accessed via CID
+  - **Supported Formats**: CSV and JSON data formats with automatic validation
+  - **Multiple Gateways**: Uses multiple IPFS gateways for reliable data retrieval
 - **Numerical Stability**: Comprehensive NaN protection and safe weight initialization
 - **Model Aggregation**: Automatic submission of both weights and gradients to server
 - **Requirements Validation**: All training parameters must be explicitly provided (no defaults)
@@ -402,6 +413,72 @@ When a runner receives an FL training task:
   }
 }
 ```
+
+### Random Forest Configuration
+
+Configure distributed random forest training through federated learning sessions:
+
+```json
+{
+  "session_id": "rf_session_1",
+  "round_id": "round_1",
+  "model_type": "random_forest",
+  "dataset_cid": "QmYwAPJzv5CZsnA625s3Xf2nemtYgPpHdWEz79ojWnPbdG",
+  "data_format": "csv",
+  "model_config": {
+    "num_trees": 100,
+    "max_depth": 10,
+    "min_samples_split": 2,
+    "min_samples_leaf": 1,
+    "max_features": 0,
+    "subsample": 1.0,
+    "random_state": 42,
+    "bootstrap_samples": true,
+    "oob_score": true,
+    "num_classes": 0
+  },
+  "train_config": {
+    "epochs": 1,
+    "batch_size": 32,
+    "learning_rate": 0.01
+  },
+  "partition_config": {
+    "strategy": "random",
+    "total_parts": 3,
+    "part_index": 0,
+    "min_samples": 10
+  },
+  "output_format": "json"
+}
+```
+
+#### Random Forest Parameters
+
+- **num_trees**: Number of trees in the forest (default: 100)
+- **max_depth**: Maximum depth of each tree (default: 10)
+- **min_samples_split**: Minimum samples required to split (default: 2)
+- **min_samples_leaf**: Minimum samples in leaf nodes (default: 1)
+- **max_features**: Features per split (0 = sqrt(total))
+- **subsample**: Fraction of samples for each tree (default: 1.0)
+- **bootstrap_samples**: Enable bootstrap sampling (default: true)
+- **oob_score**: Calculate out-of-bag scores (default: true)
+- **num_classes**: Number of target classes (0 = auto-detect from IPFS data)
+
+#### IPFS Dataset Requirements
+
+All datasets must be stored on IPFS and accessed via Content ID (CID):
+
+**Supported Formats:**
+
+- **CSV**: First row optional headers, last column contains labels
+- **JSON**: `{"features": [[...]], "labels": [...]}`
+
+**Data Validation:**
+
+- Feature dimensions must be consistent across samples
+- No NaN/Inf values allowed
+- Automatic class detection from label data
+- Minimum data quality requirements enforced
 
 ### Error Handling
 

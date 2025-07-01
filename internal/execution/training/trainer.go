@@ -37,6 +37,8 @@ func NewTrainer(modelType string, config map[string]interface{}, globalModel map
 		return NewNeuralNetworkTrainer(config)
 	case "linear_regression":
 		return NewLinearRegressionTrainer(config)
+	case "random_forest":
+		return NewRandomForestTrainer(config)
 	default:
 		return nil, fmt.Errorf("unsupported model type: %s", modelType)
 	}

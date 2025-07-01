@@ -253,6 +253,8 @@ func (e *Executor) executeFederatedLearningTask(ctx context.Context, task *model
 		trainer, err = training.NewNeuralNetworkTrainer(config.ModelConfig)
 	case "linear_regression":
 		trainer, err = training.NewLinearRegressionTrainer(config.ModelConfig)
+	case "random_forest":
+		trainer, err = training.NewRandomForestTrainer(config.ModelConfig)
 	default:
 		return nil, fmt.Errorf("unsupported model type: %s", config.ModelType)
 	}
@@ -299,9 +301,28 @@ func (e *Executor) executeFederatedLearningTask(ctx context.Context, task *model
 		// Use partitioned data loading
 		if nnTrainer, ok := trainer.(*training.NeuralNetworkTrainer); ok {
 			features, labels, err = nnTrainer.LoadPartitionedData(ctx, config.DatasetCID, config.DataFormat, partitionConfig)
+		} else if rfTrainer, ok := trainer.(*training.RandomForestTrainer); ok {
+			// Random forest trainer supports partitioned data loading
+			features, labels, err = rfTrainer.LoadPartitionedData(ctx, config.DatasetCID, config.DataFormat, partitionConfig)
 		} else {
 			// Fallback for other trainer types
 			features, labels, err = trainer.LoadData(ctx, config.DatasetCID, config.DataFormat)
+			if err == nil && len(features) > 0 {
+				// Apply simple partitioning for non-neural network models
+				totalSamples := len(features)
+				samplesPerPart := totalSamples / partitionConfig.TotalParts
+				startIdx := partitionConfig.PartIndex * samplesPerPart
+				endIdx := startIdx + samplesPerPart
+
+				if partitionConfig.PartIndex == partitionConfig.TotalParts-1 {
+					endIdx = totalSamples // Last partition gets remaining samples
+				}
+
+				if startIdx < totalSamples && endIdx <= totalSamples {
+					features = features[startIdx:endIdx]
+					labels = labels[startIdx:endIdx]
+				}
+			}
 		}
 	} else {
 		// Use regular data loading without partitioning
@@ -356,6 +377,9 @@ func (e *Executor) executeFederatedLearningTask(ctx context.Context, task *model
 	if nnTrainer, ok := trainer.(*training.NeuralNetworkTrainer); ok {
 		weightsMap = nnTrainer.GetModelWeights()
 		gradientsMap = nnTrainer.GetGradients()
+	} else if rfTrainer, ok := trainer.(*training.RandomForestTrainer); ok {
+		weightsMap = rfTrainer.GetModelWeights()
+		gradientsMap = rfTrainer.GetGradients()
 	} else {
 		// Fallback: convert gradients array to map format
 		gradientsMap = map[string][]float64{
@@ -390,6 +414,27 @@ func (e *Executor) executeFederatedLearningTask(ctx context.Context, task *model
 				"sample_count":   len(features),
 				"partition_info": config.PartitionConfig,
 			},
+		}
+
+		// Add random forest specific metadata
+		if rfTrainer, ok := trainer.(*training.RandomForestTrainer); ok {
+			outputData["rf_metrics"] = map[string]interface{}{
+				"feature_importance": rfTrainer.GetFeatureImportance(),
+				"oob_error":          rfTrainer.GetOOBError(),
+				"tree_count":         len(rfTrainer.GetTrees()),
+			}
+			outputData["metadata"].(map[string]interface{})["model_specific"] = map[string]interface{}{
+				"random_forest": map[string]interface{}{
+					"num_trees":         config.ModelConfig["num_trees"],
+					"max_depth":         config.ModelConfig["max_depth"],
+					"min_samples_split": config.ModelConfig["min_samples_split"],
+					"min_samples_leaf":  config.ModelConfig["min_samples_leaf"],
+					"max_features":      config.ModelConfig["max_features"],
+					"subsample":         config.ModelConfig["subsample"],
+					"bootstrap_samples": config.ModelConfig["bootstrap_samples"],
+					"oob_score":         config.ModelConfig["oob_score"],
+				},
+			}
 		}
 		outputBytes, err := json.MarshalIndent(outputData, "", "  ")
 		if err != nil {
