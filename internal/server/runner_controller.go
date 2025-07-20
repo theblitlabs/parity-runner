@@ -11,12 +11,14 @@ import (
 )
 
 type RunnerController struct {
-	runnerService services.RunnerService
+	runnerService  services.RunnerService
+	availableTasks []*models.Task
 }
 
 func NewRunnerController(runnerService services.RunnerService) *RunnerController {
 	return &RunnerController{
-		runnerService: runnerService,
+		runnerService:  runnerService,
+		availableTasks: make([]*models.Task, 0),
 	}
 }
 
@@ -108,9 +110,31 @@ func (c *RunnerController) handleHeartbeat(ctx *gin.Context) {
 	ctx.JSON(http.StatusOK, gin.H{"status": "ok"})
 }
 
-// TODO: Implement the logic to handle available tasks
 func (c *RunnerController) handleAvailableTasks(ctx *gin.Context) {
-	ctx.JSON(http.StatusOK, []interface{}{})
+	log := gologger.WithComponent("runner_controller")
+
+	deviceID := ctx.GetHeader("X-Device-ID")
+	if deviceID == "" {
+		log.Error().Msg("Missing X-Device-ID header")
+		ctx.JSON(http.StatusBadRequest, gin.H{"error": "Missing X-Device-ID header"})
+		return
+	}
+
+	// Return available tasks from local storage
+	ctx.JSON(http.StatusOK, c.availableTasks)
+}
+
+func (c *RunnerController) AddAvailableTask(task *models.Task) {
+	c.availableTasks = append(c.availableTasks, task)
+}
+
+func (c *RunnerController) RemoveAvailableTask(taskID string) {
+	for i, task := range c.availableTasks {
+		if task.ID.String() == taskID {
+			c.availableTasks = append(c.availableTasks[:i], c.availableTasks[i+1:]...)
+			break
+		}
+	}
 }
 
 func (c *RunnerController) handleTaskStart(ctx *gin.Context) {
@@ -118,6 +142,9 @@ func (c *RunnerController) handleTaskStart(ctx *gin.Context) {
 
 	taskID := ctx.Param("taskID")
 	log.Debug().Str("task_id", taskID).Msg("Start task request received")
+
+	// Remove task from available tasks when started
+	c.RemoveAvailableTask(taskID)
 
 	ctx.JSON(http.StatusOK, gin.H{"status": "ok"})
 }

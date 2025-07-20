@@ -15,6 +15,7 @@ import (
 	"github.com/theblitlabs/keystore"
 
 	"github.com/theblitlabs/parity-runner/internal/core/config"
+	"github.com/theblitlabs/parity-runner/internal/core/models"
 	"github.com/theblitlabs/parity-runner/internal/core/ports"
 	"github.com/theblitlabs/parity-runner/internal/execution/llm"
 	"github.com/theblitlabs/parity-runner/internal/execution/sandbox/docker"
@@ -201,6 +202,20 @@ func (s *Service) SetupWithDeviceID(deviceID string) error {
 		Msg("Runner service setup with device ID")
 
 	return nil
+}
+
+func (s *Service) FetchTask() (*models.Task, error) {
+	if s.taskClient == nil {
+		return nil, fmt.Errorf("task client not initialized")
+	}
+	return s.taskClient.FetchTask()
+}
+
+func (s *Service) HandleTask(task *models.Task) error {
+	if s.taskHandler == nil {
+		return fmt.Errorf("task handler not initialized")
+	}
+	return s.taskHandler.HandleTask(task)
 }
 
 func (s *Service) Start() error {
