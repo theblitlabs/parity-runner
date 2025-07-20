@@ -32,6 +32,11 @@ type TaskResult struct {
 	MemoryGBHours       float64   `json:"memory_gb_hours" gorm:"type:decimal(20,8);default:0"`
 	StorageGB           float64   `json:"storage_gb" gorm:"type:decimal(20,8);default:0"`
 	NetworkDataGB       float64   `json:"network_data_gb" gorm:"type:decimal(20,8);default:0"`
+
+	// LLM-specific fields
+	PromptTokens   int   `json:"prompt_tokens,omitempty" gorm:"type:int;default:0"`
+	ResponseTokens int   `json:"response_tokens,omitempty" gorm:"type:int;default:0"`
+	InferenceTime  int64 `json:"inference_time_ms,omitempty" gorm:"type:bigint;default:0"`
 }
 
 func (r *TaskResult) Clean() {

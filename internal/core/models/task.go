@@ -22,8 +22,10 @@ const (
 )
 
 const (
-	TaskTypeDocker  TaskType = "docker"
-	TaskTypeCommand TaskType = "command"
+	TaskTypeDocker            TaskType = "docker"
+	TaskTypeCommand           TaskType = "command"
+	TaskTypeLLM               TaskType = "llm"
+	TaskTypeFederatedLearning TaskType = "federated_learning"
 )
 
 type TaskConfig struct {
@@ -41,6 +43,8 @@ func (c *TaskConfig) Validate(taskType TaskType) error {
 			return errors.New("image name is required for Docker tasks")
 		}
 	case TaskTypeCommand:
+	case TaskTypeLLM:
+	case TaskTypeFederatedLearning:
 	default:
 		return fmt.Errorf("unsupported task type: %s", taskType)
 	}
@@ -64,7 +68,7 @@ type Task struct {
 	Reward          float64            `json:"reward,omitempty" gorm:"type:decimal(20,8)"`
 	CreatorAddress  string             `json:"creator_address" gorm:"type:varchar(42)"`
 	CreatorDeviceID string             `json:"creator_device_id" gorm:"type:varchar(255)"`
-	RunnerID        *uuid.UUID         `json:"runner_id" gorm:"type:uuid"`
+	RunnerID        string             `json:"runner_id" gorm:"type:varchar(255)"`
 	Nonce           string             `json:"nonce" gorm:"type:varchar(64);not null"`
 	CreatedAt       time.Time          `json:"created_at" gorm:"type:timestamp"`
 	UpdatedAt       time.Time          `json:"updated_at" gorm:"type:timestamp"`

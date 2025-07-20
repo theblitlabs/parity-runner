@@ -44,25 +44,25 @@ func (c *HTTPTaskClient) FetchTask() (*models.Task, error) {
 }
 
 func (c *HTTPTaskClient) UpdateTaskStatus(taskID string, status models.TaskStatus, result *models.TaskResult) error {
-	if status == models.TaskStatusRunning {
+	switch status {
+	case models.TaskStatusRunning:
 		return c.StartTask(taskID)
-	} else if status == models.TaskStatusCompleted || status == models.TaskStatusFailed {
+	case models.TaskStatusCompleted, models.TaskStatusFailed:
 		if err := c.CompleteTask(taskID); err != nil {
 			return err
 		}
-
 		if result != nil {
 			return c.SaveTaskResult(taskID, result)
 		}
 		return nil
+	default:
+		return fmt.Errorf("unsupported status: %s", status)
 	}
-
-	return fmt.Errorf("unsupported status: %s", status)
 }
 
 func (c *HTTPTaskClient) GetAvailableTasks() ([]*models.Task, error) {
 	baseURL := strings.TrimSuffix(c.baseURL, "/api")
-	url := fmt.Sprintf("%s/api/runners/tasks/available", baseURL)
+	url := fmt.Sprintf("%s/api/v1/runners/tasks/available", baseURL)
 
 	resp, err := http.Get(url)
 	if err != nil {
@@ -84,7 +84,7 @@ func (c *HTTPTaskClient) GetAvailableTasks() ([]*models.Task, error) {
 
 func (c *HTTPTaskClient) StartTask(taskID string) error {
 	baseURL := strings.TrimSuffix(c.baseURL, "/api")
-	url := fmt.Sprintf("%s/api/runners/tasks/%s/start", baseURL, taskID)
+	url := fmt.Sprintf("%s/api/v1/runners/tasks/%s/start", baseURL, taskID)
 
 	deviceIDManager := deviceid.NewManager(deviceid.Config{})
 	deviceID, err := deviceIDManager.VerifyDeviceID()
@@ -127,7 +127,7 @@ func (c *HTTPTaskClient) StartTask(taskID string) error {
 
 func (c *HTTPTaskClient) CompleteTask(taskID string) error {
 	baseURL := strings.TrimSuffix(c.baseURL, "/api")
-	url := fmt.Sprintf("%s/api/runners/tasks/%s/complete", baseURL, taskID)
+	url := fmt.Sprintf("%s/api/v1/runners/tasks/%s/complete", baseURL, taskID)
 
 	resp, err := http.Post(url, "application/json", nil)
 	if err != nil {
@@ -144,7 +144,7 @@ func (c *HTTPTaskClient) CompleteTask(taskID string) error {
 
 func (c *HTTPTaskClient) SaveTaskResult(taskID string, result *models.TaskResult) error {
 	baseURL := strings.TrimSuffix(c.baseURL, "/api")
-	url := fmt.Sprintf("%s/api/runners/tasks/%s/result", baseURL, taskID)
+	url := fmt.Sprintf("%s/api/v1/runners/tasks/%s/result", baseURL, taskID)
 
 	deviceIDManager := deviceid.NewManager(deviceid.Config{})
 	deviceID, err := deviceIDManager.VerifyDeviceID()
@@ -189,6 +189,109 @@ func (c *HTTPTaskClient) SaveTaskResult(taskID string, result *models.TaskResult
 			return fmt.Errorf("server error: %s", errResp.Error)
 		}
 		return fmt.Errorf("unexpected status code: %d", resp.StatusCode)
+	}
+
+	return nil
+}
+
+func (c *HTTPTaskClient) CompletePrompt(promptID uuid.UUID, response string, promptTokens, responseTokens int, inferenceTime int64) error {
+	baseURL := strings.TrimSuffix(c.baseURL, "/api")
+	url := fmt.Sprintf("%s/api/v1/llm/prompts/%s/complete", baseURL, promptID.String())
+
+	payload := map[string]interface{}{
+		"response":          response,
+		"prompt_tokens":     promptTokens,
+		"response_tokens":   responseTokens,
+		"inference_time_ms": inferenceTime,
+	}
+
+	body, err := json.Marshal(payload)
+	if err != nil {
+		return fmt.Errorf("failed to marshal completion payload: %w", err)
+	}
+
+	req, err := http.NewRequest("POST", url, bytes.NewBuffer(body))
+	if err != nil {
+		return fmt.Errorf("failed to create request: %w", err)
+	}
+
+	req.Header.Set("Content-Type", "application/json")
+
+	client := &http.Client{
+		Timeout: 10 * time.Second,
+	}
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return fmt.Errorf("HTTP POST failed for %s: %w", url, err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		var errResp struct {
+			Error string `json:"error"`
+		}
+		if err := json.NewDecoder(resp.Body).Decode(&errResp); err == nil && errResp.Error != "" {
+			return fmt.Errorf("server error: %s", errResp.Error)
+		}
+		return fmt.Errorf("unexpected status code: %d", resp.StatusCode)
+	}
+
+	return nil
+}
+
+// SubmitFLModelUpdate submits federated learning model updates to the server
+func (c *HTTPTaskClient) SubmitFLModelUpdate(sessionID, roundID, runnerID string, gradients map[string][]float64, weights map[string][]float64, dataSize int, loss, accuracy float64, trainingTime int) error {
+	baseURL := strings.TrimSuffix(c.baseURL, "/api")
+	url := fmt.Sprintf("%s/api/v1/federated-learning/model-updates", baseURL)
+
+	payload := map[string]interface{}{
+		"session_id":    sessionID,
+		"round_id":      roundID,
+		"runner_id":     runnerID,
+		"gradients":     gradients,
+		"weights":       weights,
+		"update_type":   "gradients",
+		"data_size":     dataSize,
+		"loss":          loss,
+		"accuracy":      accuracy,
+		"training_time": trainingTime,
+		"metadata": map[string]interface{}{
+			"submission_time": time.Now().Unix(),
+		},
+	}
+
+	body, err := json.Marshal(payload)
+	if err != nil {
+		return fmt.Errorf("failed to marshal FL model update: %w", err)
+	}
+
+	req, err := http.NewRequest("POST", url, bytes.NewBuffer(body))
+	if err != nil {
+		return fmt.Errorf("failed to create FL model update request: %w", err)
+	}
+
+	req.Header.Set("Content-Type", "application/json")
+
+	client := &http.Client{
+		Timeout: 30 * time.Second, // Longer timeout for FL operations
+	}
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return fmt.Errorf("HTTP POST failed for FL model update %s: %w", url, err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		var errResp struct {
+			Error string `json:"error"`
+		}
+		bodyBytes, _ := io.ReadAll(resp.Body)
+		if err := json.Unmarshal(bodyBytes, &errResp); err == nil && errResp.Error != "" {
+			return fmt.Errorf("FL model update server error: %s", errResp.Error)
+		}
+		return fmt.Errorf("FL model update unexpected status code: %d, body: %s", resp.StatusCode, string(bodyBytes))
 	}
 
 	return nil

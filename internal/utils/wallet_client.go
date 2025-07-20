@@ -33,14 +33,14 @@ func NewClient(cfg *config.Config) (*walletsdk.Client, error) {
 	}
 
 	clientConfig := walletsdk.ClientConfig{
-		RPCURL:       cfg.Ethereum.RPC,
-		ChainID:      cfg.Ethereum.ChainID,
+		RPCURL:       cfg.Blockchain.RPC,
+		ChainID:      cfg.Blockchain.ChainID,
 		PrivateKey:   privateKeyHex,
-		TokenAddress: common.HexToAddress(cfg.Ethereum.TokenAddress),
+		TokenAddress: common.HexToAddress(cfg.Blockchain.TokenAddress),
 	}
 
-	if cfg.Ethereum.StakeWalletAddress != "" {
-		clientConfig.StakeAddress = common.HexToAddress(cfg.Ethereum.StakeWalletAddress)
+	if cfg.Blockchain.StakeWalletAddress != "" {
+		clientConfig.StakeAddress = common.HexToAddress(cfg.Blockchain.StakeWalletAddress)
 	}
 
 	client, err := walletsdk.NewClient(clientConfig)
@@ -68,14 +68,14 @@ func GetClientWithConfig(config walletsdk.ClientConfig) (*walletsdk.Client, erro
 
 func GetClientWithPrivateKey(cfg *config.Config, privateKeyHex string) (*walletsdk.Client, error) {
 	clientConfig := walletsdk.ClientConfig{
-		RPCURL:       cfg.Ethereum.RPC,
-		ChainID:      cfg.Ethereum.ChainID,
+		RPCURL:       cfg.Blockchain.RPC,
+		ChainID:      cfg.Blockchain.ChainID,
 		PrivateKey:   privateKeyHex,
-		TokenAddress: common.HexToAddress(cfg.Ethereum.TokenAddress),
+		TokenAddress: common.HexToAddress(cfg.Blockchain.TokenAddress),
 	}
 
-	if cfg.Ethereum.StakeWalletAddress != "" {
-		clientConfig.StakeAddress = common.HexToAddress(cfg.Ethereum.StakeWalletAddress)
+	if cfg.Blockchain.StakeWalletAddress != "" {
+		clientConfig.StakeAddress = common.HexToAddress(cfg.Blockchain.StakeWalletAddress)
 	}
 
 	return GetClientWithConfig(clientConfig)

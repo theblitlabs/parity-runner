@@ -41,6 +41,13 @@ type WebhookClient struct {
 	lastCleanupTime    time.Time
 	completedTasksLock sync.RWMutex
 	heartbeat          *heartbeat.HeartbeatService
+	modelCapabilities  []ModelCapabilityInfo
+}
+
+type ModelCapabilityInfo struct {
+	ModelName string `json:"model_name"`
+	IsLoaded  bool   `json:"is_loaded"`
+	MaxTokens int    `json:"max_tokens"`
 }
 
 func NewWebhookClient(serverURL string, serverPort int, handler ports.TaskHandler, runnerID, deviceID, walletAddress string) *WebhookClient {
@@ -107,6 +114,8 @@ func (w *WebhookClient) Start() error {
 		Handler: mux,
 	}
 
+	log.Debug().Str("port", fmt.Sprintf("%d", w.serverPort)).Msg("Starting webhook server")
+
 	if w.heartbeat != nil {
 		if err := w.heartbeat.Start(); err != nil {
 			log.Error().Err(err).Msg("Failed to start heartbeat service")
@@ -114,7 +123,6 @@ func (w *WebhookClient) Start() error {
 	}
 
 	go func() {
-		log.Info().Str("port", fmt.Sprintf("%d", w.serverPort)).Msg("Starting webhook server")
 		if err := w.server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			log.Error().Err(err).Msg("Webhook server error")
 		}
@@ -170,7 +178,7 @@ func (w *WebhookClient) UnregisterWithContext(ctx context.Context) error {
 		return nil
 	}
 
-	reqURL := fmt.Sprintf("%s/api/runners/webhooks/%s", w.serverURL, w.deviceID)
+	reqURL := fmt.Sprintf("%s/api/v1/runners/webhooks", w.serverURL)
 	req, err := http.NewRequestWithContext(ctx, "DELETE", reqURL, nil)
 	if err != nil {
 		return fmt.Errorf("failed to create webhook unregister request: %w", err)
@@ -293,7 +301,7 @@ func (w *WebhookClient) handleWebhook(resp http.ResponseWriter, req *http.Reques
 		}
 
 		if task != nil {
-			log.Info().Int("count", 1).Msg("Task received via webhook")
+			log.Debug().Int("count", 1).Msg("Task received via webhook")
 
 			taskID := task.ID.String()
 
@@ -302,6 +310,11 @@ func (w *WebhookClient) handleWebhook(resp http.ResponseWriter, req *http.Reques
 					Str("id", taskID).
 					Str("type", string(task.Type)).
 					Msg("Skipping already completed or in-progress task")
+				resp.WriteHeader(http.StatusOK)
+				if _, err := resp.Write([]byte(`{"status":"skipped"}`)); err != nil {
+					log.Error().Err(err).Msg("Failed to write response")
+				}
+				return
 			}
 
 			if !w.markTaskStarted(taskID) {
@@ -311,29 +324,32 @@ func (w *WebhookClient) handleWebhook(resp http.ResponseWriter, req *http.Reques
 					Msg("Task is already being processed")
 			}
 
-			log.Info().
+			log.Debug().
 				Str("id", taskID).
 				Str("title", task.Title).
 				Str("type", string(task.Type)).
 				Float64("reward", task.Reward).
 				Msg("Processing task from webhook")
 
-			if err := w.handler.HandleTask(task); err != nil {
-				log.Error().Err(err).
-					Str("id", taskID).
-					Str("type", string(task.Type)).
-					Float64("reward", task.Reward).
-					Msg("Task processing failed")
+			// Process task asynchronously so webhook responds immediately
+			go func() {
+				if err := w.handler.HandleTask(task); err != nil {
+					log.Error().Err(err).
+						Str("id", taskID).
+						Str("type", string(task.Type)).
+						Float64("reward", task.Reward).
+						Msg("Task processing failed")
 
-				w.markTaskCompleted(taskID)
-			} else {
-				log.Info().
-					Str("id", taskID).
-					Str("type", string(task.Type)).
-					Msg("Task processed successfully")
+					w.markTaskCompleted(taskID)
+				} else {
+					log.Debug().
+						Str("id", taskID).
+						Str("type", string(task.Type)).
+						Msg("Task processed successfully")
 
-				w.markTaskCompleted(taskID)
-			}
+					w.markTaskCompleted(taskID)
+				}
+			}()
 		} else {
 			log.Warn().Msg("Received empty tasks array in webhook")
 		}
@@ -347,6 +363,12 @@ func (w *WebhookClient) handleWebhook(resp http.ResponseWriter, req *http.Reques
 	}
 }
 
+func (w *WebhookClient) SetModelCapabilities(capabilities []ModelCapabilityInfo) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.modelCapabilities = capabilities
+}
+
 func (w *WebhookClient) Register() error {
 	log := gologger.WithComponent("webhook")
 
@@ -354,18 +376,25 @@ func (w *WebhookClient) Register() error {
 	log.Debug().Str("webhook_url", w.webhookURL).Msg("Generated webhook URL")
 
 	type RegisterPayload struct {
-		WalletAddress string              `json:"wallet_address"`
-		Status        models.RunnerStatus `json:"status"`
-		Webhook       string              `json:"webhook"`
+		WalletAddress     string                `json:"wallet_address"`
+		Status            models.RunnerStatus   `json:"status"`
+		Webhook           string                `json:"webhook"`
+		ModelCapabilities []ModelCapabilityInfo `json:"model_capabilities,omitempty"`
 	}
+
+	w.mu.Lock()
+	capabilities := make([]ModelCapabilityInfo, len(w.modelCapabilities))
+	copy(capabilities, w.modelCapabilities)
+	w.mu.Unlock()
 
 	payload := RegisterPayload{
-		WalletAddress: w.walletAddress,
-		Status:        models.RunnerStatusOnline,
-		Webhook:       w.webhookURL,
+		WalletAddress:     w.walletAddress,
+		Status:            models.RunnerStatusOnline,
+		Webhook:           w.webhookURL,
+		ModelCapabilities: capabilities,
 	}
 
-	registerURL := fmt.Sprintf("%s/api/runners", w.serverURL)
+	registerURL := fmt.Sprintf("%s/api/v1/runners", w.serverURL)
 	payloadBytes, err := json.Marshal(payload)
 	if err != nil {
 		return fmt.Errorf("failed to marshal register payload: %w", err)
@@ -376,6 +405,7 @@ func (w *WebhookClient) Register() error {
 		Str("wallet_address", w.walletAddress).
 		Str("url", registerURL).
 		Str("webhook_url", w.webhookURL).
+		Int("model_count", len(capabilities)).
 		RawJSON("payload", payloadBytes).
 		Msg("Registration payload")
 
@@ -411,11 +441,12 @@ func (w *WebhookClient) Register() error {
 
 	w.webhookID = response.WebhookID
 
-	log.Info().
+	log.Debug().
 		Str("device_id", w.deviceID).
 		Str("webhook_url", w.webhookURL).
 		Str("webhook_id", w.webhookID).
 		Int("status_code", resp.StatusCode).
+		Int("model_count", len(capabilities)).
 		Msg("Runner registered successfully with server")
 
 	return nil

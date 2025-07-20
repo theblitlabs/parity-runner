@@ -10,9 +10,9 @@ import (
 )
 
 type Config struct {
-	Server   ServerConfig   `mapstructure:"SERVER"`
-	Ethereum EthereumConfig `mapstructure:"ETHEREUM"`
-	Runner   RunnerConfig   `mapstructure:"RUNNER"`
+	Server     ServerConfig     `mapstructure:"SERVER"`
+	Blockchain BlockchainConfig `mapstructure:"BLOCKCHAIN"`
+	Runner     RunnerConfig     `mapstructure:"RUNNER"`
 }
 
 type ServerConfig struct {
@@ -28,11 +28,22 @@ type WebsocketConfig struct {
 	MaxMessageSize int64         `mapstructure:"MAX_MESSAGE_SIZE"`
 }
 
-type EthereumConfig struct {
+type BlockchainConfig struct {
 	RPC                string `mapstructure:"RPC"`
 	ChainID            int64  `mapstructure:"CHAIN_ID"`
 	TokenAddress       string `mapstructure:"TOKEN_ADDRESS"`
 	StakeWalletAddress string `mapstructure:"STAKE_WALLET_ADDRESS"`
+	TokenSymbol        string `mapstructure:"TOKEN_SYMBOL"`
+	TokenName          string `mapstructure:"TOKEN_NAME"`
+	NetworkName        string `mapstructure:"NETWORK_NAME"`
+}
+
+type DatabaseConfig struct {
+	ConnectionString string `mapstructure:"CONNECTION_STRING"`
+}
+
+type SchedulerConfig struct {
+	Interval time.Duration `mapstructure:"INTERVAL"`
 }
 
 type RunnerConfig struct {
@@ -41,6 +52,15 @@ type RunnerConfig struct {
 	HeartbeatInterval time.Duration `mapstructure:"HEARTBEAT_INTERVAL"`
 	ExecutionTimeout  time.Duration `mapstructure:"EXECUTION_TIMEOUT"`
 	Docker            DockerConfig  `mapstructure:"DOCKER"`
+	Tunnel            TunnelConfig  `mapstructure:"TUNNEL"`
+}
+
+type TunnelConfig struct {
+	Enabled   bool   `mapstructure:"ENABLED"`
+	Type      string `mapstructure:"TYPE"`
+	ServerURL string `mapstructure:"SERVER_URL"`
+	Port      int    `mapstructure:"PORT"`
+	Secret    string `mapstructure:"SECRET"`
 }
 
 type DockerConfig struct {
@@ -119,11 +139,14 @@ func loadConfigFile(path string) (*Config, error) {
 		},
 	})
 
-	v.SetDefault("ETHEREUM", map[string]interface{}{
-		"RPC":                  v.GetString("ETHEREUM_RPC"),
-		"CHAIN_ID":             v.GetInt64("ETHEREUM_CHAIN_ID"),
-		"TOKEN_ADDRESS":        v.GetString("ETHEREUM_TOKEN_ADDRESS"),
-		"STAKE_WALLET_ADDRESS": v.GetString("ETHEREUM_STAKE_WALLET_ADDRESS"),
+	v.SetDefault("BLOCKCHAIN", map[string]interface{}{
+		"RPC":                  v.GetString("BLOCKCHAIN_RPC"),
+		"CHAIN_ID":             v.GetInt64("BLOCKCHAIN_CHAIN_ID"),
+		"TOKEN_ADDRESS":        v.GetString("BLOCKCHAIN_TOKEN_ADDRESS"),
+		"STAKE_WALLET_ADDRESS": v.GetString("BLOCKCHAIN_STAKE_WALLET_ADDRESS"),
+		"TOKEN_SYMBOL":         v.GetString("BLOCKCHAIN_TOKEN_SYMBOL"),
+		"TOKEN_NAME":           v.GetString("BLOCKCHAIN_TOKEN_NAME"),
+		"NETWORK_NAME":         v.GetString("BLOCKCHAIN_NETWORK_NAME"),
 	})
 
 	v.SetDefault("RUNNER", map[string]interface{}{
@@ -135,6 +158,13 @@ func loadConfigFile(path string) (*Config, error) {
 			"MEMORY_LIMIT": v.GetString("RUNNER_DOCKER_MEMORY_LIMIT"),
 			"CPU_LIMIT":    v.GetString("RUNNER_DOCKER_CPU_LIMIT"),
 			"TIMEOUT":      v.GetDuration("RUNNER_DOCKER_TIMEOUT"),
+		},
+		"TUNNEL": map[string]interface{}{
+			"ENABLED":    v.GetBool("RUNNER_TUNNEL_ENABLED"),
+			"TYPE":       v.GetString("RUNNER_TUNNEL_TYPE"),
+			"SERVER_URL": v.GetString("RUNNER_TUNNEL_SERVER_URL"),
+			"PORT":       v.GetInt("RUNNER_TUNNEL_PORT"),
+			"SECRET":     v.GetString("RUNNER_TUNNEL_SECRET"),
 		},
 	})
 

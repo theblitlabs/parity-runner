@@ -2,7 +2,11 @@ package utils
 
 import (
 	"fmt"
+
+	"github.com/theblitlabs/parity-runner/internal/tunnel"
 )
+
+var tunnelClient *tunnel.TunnelClient
 
 func GetWebhookURL() string {
 	cfg, err := GetConfig()
@@ -10,13 +14,16 @@ func GetWebhookURL() string {
 		return ""
 	}
 
-	publicIP, err := GetPublicIP()
-	// publicIP := "localhost"
-	if err != nil {
-		return ""
+	// If tunnel is enabled and running, use tunnel URL
+	if cfg.Runner.Tunnel.Enabled && tunnelClient != nil && tunnelClient.IsRunning() {
+		return tunnelClient.GetPublicURL()
 	}
 
-	webhookUrl := fmt.Sprintf("http://%s:%d/webhook", publicIP, cfg.Runner.WebhookPort)
-
+	// Fallback to local URL
+	webhookUrl := fmt.Sprintf("http://localhost:%d/webhook", cfg.Runner.WebhookPort)
 	return webhookUrl
+}
+
+func SetTunnelClient(client *tunnel.TunnelClient) {
+	tunnelClient = client
 }

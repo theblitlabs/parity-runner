@@ -26,7 +26,8 @@ LINT_OUTPUT_FORMAT := colored-line-number
 
 # Define phony targets
 .PHONY: all build clean deps fmt imports format lint format-lint check-format help \
-        run stake balance auth install uninstall install-lint-tools install-hooks
+        run stake balance auth install uninstall install-lint-tools install-hooks \
+        install-tunnel test-tunnel run-tunnel
 
 # Default target
 .DEFAULT_GOAL := help
@@ -96,6 +97,15 @@ check-format: ## Check code formatting without applying changes (useful for CI)
 run: ## Start the task runner
 	$(GORUN) $(MAIN_PATH)
 
+run-tunnel: ## Start the runner with automatic tunnel setup
+	@./scripts/start_with_tunnel.sh
+
+# Tunnel-related targets
+install-tunnel: ## Install bore CLI for tunneling support
+	@./scripts/install_tunnel.sh
+
+test-tunnel: ## Test tunnel functionality
+	@./scripts/test_tunnel.sh
 
 stake: ## Stake tokens in the network
 	$(GORUN) $(MAIN_PATH) stake --amount 10
@@ -132,7 +142,6 @@ install-lint-tools: ## Install formatting and linting tools
 install-hooks: ## Install git hooks
 	@echo "Installing git hooks..."
 	@./scripts/hooks/install-hooks.sh
-
 
 help: ## Display this help screen
 	@grep -h -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "\033[36m%-30s\033[0m %s\n", $$1, $$2}'

@@ -15,9 +15,7 @@ func VerifyImageHash(imageName string) (string, error) {
 	}
 
 	imageID := strings.TrimSpace(string(output))
-	if strings.HasPrefix(imageID, "sha256:") {
-		imageID = imageID[7:]
-	}
+	imageID = strings.TrimPrefix(imageID, "sha256:")
 
 	return imageID, nil
 }
