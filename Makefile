@@ -27,7 +27,7 @@ LINT_OUTPUT_FORMAT := colored-line-number
 # Define phony targets
 .PHONY: all build clean deps fmt imports format lint format-lint check-format help \
         run stake balance auth install uninstall install-lint-tools install-hooks \
-        install-tunnel test-tunnel run-tunnel
+        install-tunnel
 
 # Default target
 .DEFAULT_GOAL := help
@@ -100,12 +100,6 @@ run: ## Start the task runner
 run-tunnel: ## Start the runner with automatic tunnel setup
 	@./scripts/start_with_tunnel.sh
 
-# Tunnel-related targets
-install-tunnel: ## Install bore CLI for tunneling support
-	@./scripts/install_tunnel.sh
-
-test-tunnel: ## Test tunnel functionality
-	@./scripts/test_tunnel.sh
 
 stake: ## Stake tokens in the network
 	$(GORUN) $(MAIN_PATH) stake --amount 10

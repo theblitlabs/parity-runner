@@ -148,7 +148,7 @@ func (m *OllamaManager) StartOllama(ctx context.Context) error {
 	}
 
 	// Create models directory if it doesn't exist
-	if err := os.MkdirAll(m.modelVolume, 0755); err != nil {
+	if err := os.MkdirAll(m.modelVolume, 0o755); err != nil {
 		return fmt.Errorf("failed to create models directory: %w", err)
 	}
 
