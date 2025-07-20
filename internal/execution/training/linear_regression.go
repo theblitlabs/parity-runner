@@ -32,7 +32,7 @@ func NewLinearRegressionTrainer(config map[string]interface{}) (*LinearRegressio
 	return trainer, nil
 }
 
-// LoadData loads training data from IPFS/Filecoin
+// LoadData loads training data from IPFS
 func (t *LinearRegressionTrainer) LoadData(ctx context.Context, datasetCID string, format string) ([][]float64, []float64, error) {
 	return t.dataLoader.LoadData(ctx, datasetCID, format)
 }

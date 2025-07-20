@@ -46,9 +46,13 @@ func executeBalance() error {
 		return err
 	}
 
+	tokenSymbol := cfg.Blockchain.TokenSymbol
+	if tokenSymbol == "" {
+		tokenSymbol = "TOKEN"
+	}
 	logger.Info().
 		Str("wallet_address", client.Address().Hex()).
-		Str("balance", walletBalance.String()+" USDFC").
+		Str("balance", walletBalance.String()+" "+tokenSymbol).
 		Msg("Wallet token balance")
 
 	deviceID, err := utils.GetDeviceID()
@@ -67,12 +71,12 @@ func executeBalance() error {
 
 	if stakeInfo.Exists {
 		logger.Info().
-			Str("amount", stakeInfo.Amount.String()+" USDFC").
+			Str("amount", stakeInfo.Amount.String()+" "+tokenSymbol).
 			Str("device_id", stakeInfo.DeviceID).
 			Str("wallet_address", stakeInfo.WalletAddress.Hex()).
 			Msg("Current stake info")
 
-		stakeAddress := common.HexToAddress(cfg.FilecoinNetwork.StakeWalletAddress)
+		stakeAddress := common.HexToAddress(cfg.Blockchain.StakeWalletAddress)
 		contractBalance, err := client.GetBalance(stakeAddress)
 		if err != nil {
 			utils.HandleContextFatal(logger, ctx, err,

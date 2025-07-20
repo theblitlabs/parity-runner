@@ -30,8 +30,8 @@ Parity Runner is a compute execution node for the PLGenesis decentralized AI and
   - **Sequential**: Consecutive data splits
   - **Non-IID**: Dirichlet distribution for realistic data heterogeneity
   - **Label Skew**: Each participant gets subset of classes with optional overlap
-- **IPFS/Filecoin Integration**: Automatic data loading from decentralized storage
-  - **Mandatory IPFS Storage**: All datasets must be stored on FileCoin and accessed via CID
+- **IPFS/Blockchain Integration**: Automatic data loading from decentralized storage
+- **Mandatory IPFS Storage**: All datasets must be stored on IPFS and accessed via CID
   - **Supported Formats**: CSV and JSON data formats with automatic validation
   - **Multiple Gateways**: Uses multiple IPFS gateways for reliable data retrieval
 - **Numerical Stability**: Comprehensive NaN protection and safe weight initialization
@@ -239,11 +239,14 @@ make help           # Display all available commands
 Create a `.env` file in the root directory using the sample provided (`.env.sample`):
 
 ```env
-# Ethereum config
-ETHEREUM_CHAIN_ID=
-ETHEREUM_RPC=
-ETHEREUM_STAKE_WALLET_ADDRESS=
-ETHEREUM_TOKEN_ADDRESS=
+# Blockchain config
+BLOCKCHAIN_CHAIN_ID=
+BLOCKCHAIN_RPC=
+BLOCKCHAIN_STAKE_WALLET_ADDRESS=
+BLOCKCHAIN_TOKEN_ADDRESS=
+BLOCKCHAIN_TOKEN_SYMBOL=
+BLOCKCHAIN_TOKEN_NAME=
+BLOCKCHAIN_NETWORK_NAME=
 
 # Runner config
 RUNNER_DOCKER_CPU_LIMIT=
@@ -266,11 +269,14 @@ SERVER_WEBSOCKET_WRITE_WAIT=
 Example values for a local development setup:
 
 ```env
-# Ethereum config
-ETHEREUM_CHAIN_ID=314159  # Filecoin Calibration testnet
-ETHEREUM_RPC=https://api.calibration.node.glif.io/rpc/v1  # Filecoin Calibration RPC
-ETHEREUM_STAKE_WALLET_ADDRESS=0x7465e7a637f66cb7b294b856a25bc84abff1d247  # Deployed stake wallet contract
-ETHEREUM_TOKEN_ADDRESS=0xb3042734b608a1B16e9e86B374A3f3e389B4cDf0       # Deployed USDFC token contract
+# Blockchain config
+BLOCKCHAIN_CHAIN_ID=1  # Chain ID (1 for Ethereum, 137 for Polygon, etc.)
+BLOCKCHAIN_RPC=https://mainnet.infura.io/v3/YOUR_PROJECT_ID  # RPC endpoint URL
+BLOCKCHAIN_STAKE_WALLET_ADDRESS=0x1234567890123456789012345678901234567890  # Deployed stake wallet contract
+BLOCKCHAIN_TOKEN_ADDRESS=0xabcdefabcdefabcdefabcdefabcdefabcdefabcd       # Deployed token contract
+BLOCKCHAIN_TOKEN_SYMBOL=PRTY  # Token symbol (e.g., PRTY, USDC, ETH)
+BLOCKCHAIN_TOKEN_NAME=Parity Token  # Token name
+BLOCKCHAIN_NETWORK_NAME=Ethereum  # Network name
 
 # Runner config
 RUNNER_DOCKER_CPU_LIMIT=1.0
@@ -290,16 +296,18 @@ SERVER_WEBSOCKET_PONG_WAIT=60s
 SERVER_WEBSOCKET_WRITE_WAIT=10s
 ```
 
-### Contract Addresses (Filecoin Calibration Testnet)
+### Contract Addresses
 
-- Stake Wallet Contract: [0x7465e7a637f66cb7b294b856a25bc84abff1d247](https://filfox.info/en/address/0x7465e7a637f66cb7b294b856a25bc84abff1d247)
-- USDFC Token Contract: [0xb3042734b608a1B16e9e86B374A3f3e389B4cDf0](https://filfox.info/en/address/0xb3042734b608a1B16e9e86B374A3f3e389B4cDf0)
+- Stake Wallet Contract: `0x1234567890123456789012345678901234567890` (example)
+- Token Contract: `0xabcdefabcdefabcdefabcdefabcdefabcdefabcd` (example)
 
-You can get a free RPC endpoint for Filecoin Calibration from:
+You can get a free RPC endpoint for various blockchains from:
 
-- [Glif.io](https://api.calibration.node.glif.io/rpc/v1) (Official)
-- [ChainStack](https://chainstack.com/)
-- [Ankr](https://ankr.com/)
+- [Infura](https://infura.io/) (Ethereum, Polygon, etc.)
+- [Alchemy](https://alchemy.com/) (Ethereum, Polygon, etc.)
+- [QuickNode](https://quicknode.com/) (Multiple chains)
+- [ChainStack](https://chainstack.com/) (Multiple chains)
+- [Ankr](https://ankr.com/) (Multiple chains)
 
 You can specify a custom configuration path in three ways (in order of precedence):
 
@@ -378,7 +386,7 @@ Automatic data partitioning based on server coordination:
 When a runner receives an FL training task:
 
 1. **Task Validation**: Validates all required parameters are present
-2. **Data Loading**: Downloads and loads data from IPFS/Filecoin CID
+2. **Data Loading**: Downloads and loads data from IPFS CID
 3. **Data Partitioning**: Applies assigned partition strategy and index
 4. **Model Training**: Performs local training with specified parameters
 5. **Weight Extraction**: Extracts both weights and gradients
@@ -563,7 +571,7 @@ Runners interact with various server endpoints. Below are the main API endpoints
 
 | Method | Endpoint                    | Description                  |
 | ------ | --------------------------- | ---------------------------- |
-| POST   | /api/storage/upload         | Upload file to IPFS/Filecoin |
+| POST   | /api/storage/upload         | Upload file to IPFS |
 | GET    | /api/storage/download/{cid} | Download file by CID         |
 | GET    | /api/storage/info/{cid}     | Get file information         |
 | POST   | /api/storage/pin/{cid}      | Pin file to IPFS             |
@@ -582,7 +590,7 @@ Runners interact with various server endpoints. Below are the main API endpoints
 1. **Federated Learning Issues**
 
    - **Training parameter errors**: Ensure server provides all required parameters
-   - **Data loading failures**: Check IPFS/Filecoin connectivity and CID validity
+   - **Data loading failures**: Check IPFS connectivity and CID validity
    - **Partition errors**: Verify partition configuration matches strategy requirements
    - **NaN values in training**: Check input data quality and learning rate values
 

@@ -33,14 +33,14 @@ func NewClient(cfg *config.Config) (*walletsdk.Client, error) {
 	}
 
 	clientConfig := walletsdk.ClientConfig{
-		RPCURL:       cfg.FilecoinNetwork.RPC,
-		ChainID:      cfg.FilecoinNetwork.ChainID,
+		RPCURL:       cfg.Blockchain.RPC,
+		ChainID:      cfg.Blockchain.ChainID,
 		PrivateKey:   privateKeyHex,
-		TokenAddress: common.HexToAddress(cfg.FilecoinNetwork.TokenAddress),
+		TokenAddress: common.HexToAddress(cfg.Blockchain.TokenAddress),
 	}
 
-	if cfg.FilecoinNetwork.StakeWalletAddress != "" {
-		clientConfig.StakeAddress = common.HexToAddress(cfg.FilecoinNetwork.StakeWalletAddress)
+	if cfg.Blockchain.StakeWalletAddress != "" {
+		clientConfig.StakeAddress = common.HexToAddress(cfg.Blockchain.StakeWalletAddress)
 	}
 
 	client, err := walletsdk.NewClient(clientConfig)
@@ -68,14 +68,14 @@ func GetClientWithConfig(config walletsdk.ClientConfig) (*walletsdk.Client, erro
 
 func GetClientWithPrivateKey(cfg *config.Config, privateKeyHex string) (*walletsdk.Client, error) {
 	clientConfig := walletsdk.ClientConfig{
-		RPCURL:       cfg.FilecoinNetwork.RPC,
-		ChainID:      cfg.FilecoinNetwork.ChainID,
+		RPCURL:       cfg.Blockchain.RPC,
+		ChainID:      cfg.Blockchain.ChainID,
 		PrivateKey:   privateKeyHex,
-		TokenAddress: common.HexToAddress(cfg.FilecoinNetwork.TokenAddress),
+		TokenAddress: common.HexToAddress(cfg.Blockchain.TokenAddress),
 	}
 
-	if cfg.FilecoinNetwork.StakeWalletAddress != "" {
-		clientConfig.StakeAddress = common.HexToAddress(cfg.FilecoinNetwork.StakeWalletAddress)
+	if cfg.Blockchain.StakeWalletAddress != "" {
+		clientConfig.StakeAddress = common.HexToAddress(cfg.Blockchain.StakeWalletAddress)
 	}
 
 	return GetClientWithConfig(clientConfig)

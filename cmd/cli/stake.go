@@ -28,7 +28,7 @@ func RunStake() {
 			"amount": {
 				Type:           utils.FlagTypeFloat64,
 				Shorthand:      "a",
-				Description:    "Amount of USDFC tokens to stake",
+				Description:    "Amount of tokens to stake",
 				DefaultFloat64: 1.0,
 				Required:       true,
 			},
@@ -83,8 +83,8 @@ func executeStake(amount float64) error {
 		Str("wallet", client.Address().Hex()).
 		Msg("Device verified successfully")
 
-	tokenAddr := common.HexToAddress(cfg.FilecoinNetwork.TokenAddress)
-	stakeWalletAddr := common.HexToAddress(cfg.FilecoinNetwork.StakeWalletAddress)
+	tokenAddr := common.HexToAddress(cfg.Blockchain.TokenAddress)
+	stakeWalletAddr := common.HexToAddress(cfg.Blockchain.StakeWalletAddress)
 
 	token, err := walletsdk.NewParityToken(tokenAddr, client)
 	if err != nil {
@@ -107,17 +107,21 @@ func executeStake(amount float64) error {
 	}
 
 	amountToStake := amountWei(amount)
+	tokenSymbol := cfg.Blockchain.TokenSymbol
+	if tokenSymbol == "" {
+		tokenSymbol = "TOKEN"
+	}
 	if balance.Cmp(amountToStake) < 0 {
 		logger.Fatal().
-			Str("current_balance", utils.FormatEther(balance)+" USDFC").
-			Str("required_amount", utils.FormatEther(amountToStake)+" USDFC").
-			Msg("Insufficient token balance - please ensure you have enough USDFC tokens")
+			Str("current_balance", utils.FormatEther(balance)+" "+tokenSymbol).
+			Str("required_amount", utils.FormatEther(amountToStake)+" "+tokenSymbol).
+			Msg("Insufficient token balance - please ensure you have enough tokens")
 		return err
 	}
 
 	logger.Info().
-		Str("balance", utils.FormatEther(balance)+" USDFC").
-		Str("amount_to_stake", utils.FormatEther(amountToStake)+" USDFC").
+		Str("balance", utils.FormatEther(balance)+" "+tokenSymbol).
+		Str("amount_to_stake", utils.FormatEther(amountToStake)+" "+tokenSymbol).
 		Msg("Sufficient balance found")
 
 	allowance, err := token.Allowance(&bind.CallOpts{}, client.Address(), stakeWalletAddr)
@@ -132,7 +136,7 @@ func executeStake(amount float64) error {
 
 	if allowance.Cmp(amountToStake) < 0 {
 		logger.Info().
-			Str("amount", utils.FormatEther(amountToStake)+" USDFC").
+			Str("amount", utils.FormatEther(amountToStake)+" "+tokenSymbol).
 			Msg("Approving token spending...")
 
 		txOpts, err := client.GetTransactOpts()
@@ -147,14 +151,14 @@ func executeStake(amount float64) error {
 		if err != nil {
 			logger.Fatal().
 				Err(err).
-				Str("amount", utils.FormatEther(amountToStake)+" USDFC").
+				Str("amount", utils.FormatEther(amountToStake)+" "+tokenSymbol).
 				Msg("Failed to approve token spending - please try again")
 			return err
 		}
 
 		logger.Info().
 			Str("tx_hash", tx.Hash().Hex()).
-			Str("amount", utils.FormatEther(amountToStake)+" USDFC").
+			Str("amount", utils.FormatEther(amountToStake)+" "+tokenSymbol).
 			Msg("Token approval submitted - waiting for confirmation...")
 
 		receipt, err := bind.WaitMined(context.Background(), client, tx)
@@ -190,7 +194,7 @@ func executeStake(amount float64) error {
 	}
 
 	logger.Info().
-		Str("amount", utils.FormatEther(amountToStake)+" USDFC").
+		Str("amount", utils.FormatEther(amountToStake)+" "+tokenSymbol).
 		Str("device_id", deviceID).
 		Msg("Submitting stake transaction...")
 
@@ -198,7 +202,7 @@ func executeStake(amount float64) error {
 	if err != nil {
 		logger.Fatal().
 			Err(err).
-			Str("amount", utils.FormatEther(amountToStake)+" USDFC").
+			Str("amount", utils.FormatEther(amountToStake)+" "+tokenSymbol).
 			Str("device_id", deviceID).
 			Msg("Failed to submit stake transaction - please try again")
 		return err
@@ -206,7 +210,7 @@ func executeStake(amount float64) error {
 
 	logger.Info().
 		Str("tx_hash", tx.Hash().Hex()).
-		Str("amount", utils.FormatEther(amountToStake)+" USDFC").
+		Str("amount", utils.FormatEther(amountToStake)+" "+tokenSymbol).
 		Str("device_id", deviceID).
 		Str("wallet", client.Address().Hex()).
 		Msg("Stake transaction submitted - waiting for confirmation...")
@@ -223,7 +227,7 @@ func executeStake(amount float64) error {
 	if receipt.Status == 1 {
 		logger.Info().
 			Str("tx_hash", tx.Hash().Hex()).
-			Str("amount", utils.FormatEther(amountToStake)+" USDFC").
+			Str("amount", utils.FormatEther(amountToStake)+" "+tokenSymbol).
 			Str("device_id", deviceID).
 			Str("wallet", client.Address().Hex()).
 			Uint64("block_number", receipt.BlockNumber.Uint64()).
@@ -231,7 +235,7 @@ func executeStake(amount float64) error {
 	} else {
 		logger.Error().
 			Str("tx_hash", tx.Hash().Hex()).
-			Str("amount", utils.FormatEther(amountToStake)+" USDFC").
+			Str("amount", utils.FormatEther(amountToStake)+" "+tokenSymbol).
 			Msg("Stake transaction failed - please check the transaction status")
 	}
 

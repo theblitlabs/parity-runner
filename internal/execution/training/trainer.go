@@ -17,7 +17,7 @@ type TrainingResult struct {
 
 // Trainer defines the interface for model training
 type Trainer interface {
-	// LoadData loads training data from IPFS/Filecoin
+	// LoadData loads training data from IPFS
 	LoadData(ctx context.Context, datasetCID string, format string) ([][]float64, []float64, error)
 
 	// Train performs model training and returns weights, loss, and accuracy

@@ -13,7 +13,7 @@ import (
 	"strings"
 )
 
-// DataLoader handles loading training data from IPFS/Filecoin
+// DataLoader handles loading training data from IPFS
 type DataLoader struct {
 	ipfsGateway string
 }
@@ -38,7 +38,7 @@ func NewDataLoader(ipfsGateway string) *DataLoader {
 	}
 }
 
-// LoadData loads data from IPFS/Filecoin based on CID and format
+// LoadData loads data from IPFS based on CID and format
 func (d *DataLoader) LoadData(ctx context.Context, cid string, format string) ([][]float64, []float64, error) {
 	return d.LoadPartitionedData(ctx, cid, format, nil)
 }

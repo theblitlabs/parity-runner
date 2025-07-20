@@ -42,7 +42,7 @@ func (im *ImageManager) DownloadAndLoadImage(ctx context.Context, imageURL, imag
 	}
 
 	if strings.Contains(parsedURL.Path, "/ipfs/") {
-		log.Info().Str("url", imageURL).Msg("Downloading Docker image from IPFS/Filecoin")
+		log.Info().Str("url", imageURL).Msg("Downloading Docker image from IPFS")
 	} else {
 		log.Info().Str("url", imageURL).Msg("Downloading Docker image from HTTP")
 	}

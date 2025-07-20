@@ -10,9 +10,9 @@ import (
 )
 
 type Config struct {
-	Server          ServerConfig          `mapstructure:"SERVER"`
-	FilecoinNetwork FilecoinNetworkConfig `mapstructure:"FILECOIN_NETWORK"`
-	Runner          RunnerConfig          `mapstructure:"RUNNER"`
+	Server     ServerConfig     `mapstructure:"SERVER"`
+	Blockchain BlockchainConfig `mapstructure:"BLOCKCHAIN"`
+	Runner     RunnerConfig     `mapstructure:"RUNNER"`
 }
 
 type ServerConfig struct {
@@ -28,15 +28,14 @@ type WebsocketConfig struct {
 	MaxMessageSize int64         `mapstructure:"MAX_MESSAGE_SIZE"`
 }
 
-type FilecoinNetworkConfig struct {
+type BlockchainConfig struct {
 	RPC                string `mapstructure:"RPC"`
 	ChainID            int64  `mapstructure:"CHAIN_ID"`
 	TokenAddress       string `mapstructure:"TOKEN_ADDRESS"`
 	StakeWalletAddress string `mapstructure:"STAKE_WALLET_ADDRESS"`
-}
-
-type FilecoinConfig struct {
-	TokenAddress string `mapstructure:"TOKEN_ADDRESS"`
+	TokenSymbol        string `mapstructure:"TOKEN_SYMBOL"`
+	TokenName          string `mapstructure:"TOKEN_NAME"`
+	NetworkName        string `mapstructure:"NETWORK_NAME"`
 }
 
 type DatabaseConfig struct {
@@ -140,11 +139,14 @@ func loadConfigFile(path string) (*Config, error) {
 		},
 	})
 
-	v.SetDefault("FILECOIN_NETWORK", map[string]interface{}{
-		"RPC":                  v.GetString("FILECOIN_RPC"),
-		"CHAIN_ID":             v.GetInt64("FILECOIN_CHAIN_ID"),
-		"TOKEN_ADDRESS":        v.GetString("FILECOIN_TOKEN_ADDRESS"),
-		"STAKE_WALLET_ADDRESS": v.GetString("FILECOIN_STAKE_WALLET_ADDRESS"),
+	v.SetDefault("BLOCKCHAIN", map[string]interface{}{
+		"RPC":                  v.GetString("BLOCKCHAIN_RPC"),
+		"CHAIN_ID":             v.GetInt64("BLOCKCHAIN_CHAIN_ID"),
+		"TOKEN_ADDRESS":        v.GetString("BLOCKCHAIN_TOKEN_ADDRESS"),
+		"STAKE_WALLET_ADDRESS": v.GetString("BLOCKCHAIN_STAKE_WALLET_ADDRESS"),
+		"TOKEN_SYMBOL":         v.GetString("BLOCKCHAIN_TOKEN_SYMBOL"),
+		"TOKEN_NAME":           v.GetString("BLOCKCHAIN_TOKEN_NAME"),
+		"NETWORK_NAME":         v.GetString("BLOCKCHAIN_NETWORK_NAME"),
 	})
 
 	v.SetDefault("RUNNER", map[string]interface{}{
