@@ -17,11 +17,15 @@ import (
 
 type HTTPTaskClient struct {
 	baseURL string
+	client  *http.Client
 }
 
 func NewHTTPTaskClient(baseURL string) *HTTPTaskClient {
 	return &HTTPTaskClient{
 		baseURL: baseURL,
+		client: &http.Client{
+			Timeout: 15 * time.Second,
+		},
 	}
 }
 
@@ -64,7 +68,19 @@ func (c *HTTPTaskClient) GetAvailableTasks() ([]*models.Task, error) {
 	baseURL := strings.TrimSuffix(c.baseURL, "/api")
 	url := fmt.Sprintf("%s/api/v1/runners/tasks/available", baseURL)
 
-	resp, err := http.Get(url)
+	deviceIDManager := deviceid.NewManager(deviceid.Config{})
+	deviceID, err := deviceIDManager.VerifyDeviceID()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get device ID: %w", err)
+	}
+
+	req, err := http.NewRequest(http.MethodGet, url, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %w", err)
+	}
+	req.Header.Set("X-Device-ID", deviceID)
+
+	resp, err := c.client.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("HTTP GET failed for %s: %w", url, err)
 	}
@@ -99,11 +115,7 @@ func (c *HTTPTaskClient) StartTask(taskID string) error {
 
 	req.Header.Set("X-Device-ID", deviceID)
 
-	client := &http.Client{
-		Timeout: 10 * time.Second,
-	}
-
-	resp, err := client.Do(req)
+	resp, err := c.client.Do(req)
 	if err != nil {
 		return fmt.Errorf("HTTP POST failed for %s: %w", url, err)
 	}
@@ -129,7 +141,20 @@ func (c *HTTPTaskClient) CompleteTask(taskID string) error {
 	baseURL := strings.TrimSuffix(c.baseURL, "/api")
 	url := fmt.Sprintf("%s/api/v1/runners/tasks/%s/complete", baseURL, taskID)
 
-	resp, err := http.Post(url, "application/json", nil)
+	deviceIDManager := deviceid.NewManager(deviceid.Config{})
+	deviceID, err := deviceIDManager.VerifyDeviceID()
+	if err != nil {
+		return fmt.Errorf("failed to get device ID: %w", err)
+	}
+
+	req, err := http.NewRequest("POST", url, nil)
+	if err != nil {
+		return fmt.Errorf("failed to create request: %w", err)
+	}
+
+	req.Header.Set("X-Device-ID", deviceID)
+
+	resp, err := c.client.Do(req)
 	if err != nil {
 		return fmt.Errorf("HTTP POST failed for %s: %w", url, err)
 	}
@@ -175,7 +200,7 @@ func (c *HTTPTaskClient) SaveTaskResult(taskID string, result *models.TaskResult
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("X-Device-ID", deviceID)
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := c.client.Do(req)
 	if err != nil {
 		return fmt.Errorf("HTTP POST failed for %s: %w", url, err)
 	}
@@ -216,12 +241,14 @@ func (c *HTTPTaskClient) CompletePrompt(promptID uuid.UUID, response string, pro
 	}
 
 	req.Header.Set("Content-Type", "application/json")
-
-	client := &http.Client{
-		Timeout: 10 * time.Second,
+	deviceIDManager := deviceid.NewManager(deviceid.Config{})
+	deviceID, err := deviceIDManager.VerifyDeviceID()
+	if err != nil {
+		return fmt.Errorf("failed to get device ID: %w", err)
 	}
+	req.Header.Set("X-Device-ID", deviceID)
 
-	resp, err := client.Do(req)
+	resp, err := c.client.Do(req)
 	if err != nil {
 		return fmt.Errorf("HTTP POST failed for %s: %w", url, err)
 	}

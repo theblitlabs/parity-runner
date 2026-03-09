@@ -76,24 +76,31 @@ func (h *DefaultTaskHandler) HandleTask(task *models.Task) error {
 	if err := h.verifyNonce(task.Nonce); err != nil {
 		log.Error().Err(err).Str("id", task.ID.String()).Msg("Nonce verification failed")
 		if updateErr := h.taskClient.UpdateTaskStatus(task.ID.String(), models.TaskStatusFailed, &models.TaskResult{
-			TaskID: task.ID,
-			Error:  err.Error(),
+			TaskID:        task.ID,
+			Error:         err.Error(),
+			ExecutionTime: 1,
 		}); updateErr != nil {
 			log.Error().Err(updateErr).Str("id", task.ID.String()).Msg("Failed to update task status")
 		}
 		return err
 	}
 
+	executionStartedAt := time.Now()
 	result, err := h.executor.ExecuteTask(ctx, task)
 	if err != nil {
+		executionTime := durationMilliseconds(time.Since(executionStartedAt))
 		log.Error().Err(err).Str("id", task.ID.String()).Msg("Task execution failed")
 		if updateErr := h.taskClient.UpdateTaskStatus(task.ID.String(), models.TaskStatusFailed, &models.TaskResult{
-			TaskID: task.ID,
-			Error:  err.Error(),
+			TaskID:        task.ID,
+			Error:         err.Error(),
+			ExecutionTime: executionTime,
 		}); updateErr != nil {
 			log.Error().Err(updateErr).Str("id", task.ID.String()).Msg("Failed to update task status")
 		}
 		return err
+	}
+	if result.ExecutionTime <= 0 {
+		result.ExecutionTime = durationMilliseconds(time.Since(executionStartedAt))
 	}
 
 	deviceIDManager := deviceid.NewManager(deviceid.Config{})
@@ -135,6 +142,19 @@ func (h *DefaultTaskHandler) HandleTask(task *models.Task) error {
 	}
 
 	return nil
+}
+
+func durationMilliseconds(duration time.Duration) int64 {
+	if duration <= 0 {
+		return 0
+	}
+
+	milliseconds := duration.Milliseconds()
+	if milliseconds == 0 {
+		return 1
+	}
+
+	return milliseconds
 }
 
 func (h *DefaultTaskHandler) handleLLMTask(task *models.Task) error {
