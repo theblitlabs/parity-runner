@@ -74,6 +74,7 @@ func (e *Executor) ExecuteTask(ctx context.Context, task *models.Task) (*models.
 }
 
 func (e *Executor) executeCommand(ctx context.Context, task *models.Task) (*models.TaskResult, error) {
+	startedAt := time.Now()
 	var config struct {
 		Command     string            `json:"command"`
 		WorkingDir  string            `json:"working_dir"`
@@ -134,23 +135,26 @@ func (e *Executor) executeCommand(ctx context.Context, task *models.Task) (*mode
 			return nil, fmt.Errorf("command timed out after %d seconds", config.Timeout)
 		}
 		return &models.TaskResult{
-			TaskID:    task.ID,
-			Output:    string(output),
-			Error:     err.Error(),
-			ExitCode:  cmd.ProcessState.ExitCode(),
-			CreatedAt: time.Now(),
+			TaskID:        task.ID,
+			Output:        string(output),
+			Error:         err.Error(),
+			ExitCode:      cmd.ProcessState.ExitCode(),
+			ExecutionTime: executionDurationMilliseconds(time.Since(startedAt)),
+			CreatedAt:     time.Now(),
 		}, nil
 	}
 
 	return &models.TaskResult{
-		TaskID:    task.ID,
-		Output:    string(output),
-		ExitCode:  cmd.ProcessState.ExitCode(),
-		CreatedAt: time.Now(),
+		TaskID:        task.ID,
+		Output:        string(output),
+		ExitCode:      cmd.ProcessState.ExitCode(),
+		ExecutionTime: executionDurationMilliseconds(time.Since(startedAt)),
+		CreatedAt:     time.Now(),
 	}, nil
 }
 
 func (e *Executor) executeLLMTask(ctx context.Context, task *models.Task) (*models.TaskResult, error) {
+	startedAt := time.Now()
 	log := gologger.WithComponent("task_executor")
 	log.Info().
 		Str("task_id", task.ID.String()).
@@ -199,6 +203,7 @@ func (e *Executor) executeLLMTask(ctx context.Context, task *models.Task) (*mode
 		TaskID:         task.ID,
 		Output:         response.Response,
 		ExitCode:       0,
+		ExecutionTime:  executionDurationMilliseconds(time.Since(startedAt)),
 		PromptTokens:   response.PromptEvalCount,
 		ResponseTokens: response.EvalCount,
 		InferenceTime:  response.TotalDuration / 1000000, // Convert nanoseconds to milliseconds
@@ -207,6 +212,7 @@ func (e *Executor) executeLLMTask(ctx context.Context, task *models.Task) (*mode
 }
 
 func (e *Executor) executeFederatedLearningTask(ctx context.Context, task *models.Task) (*models.TaskResult, error) {
+	startedAt := time.Now()
 	log := gologger.WithComponent("task_executor")
 	log.Info().
 		Str("task_id", task.ID.String()).
@@ -448,10 +454,11 @@ func (e *Executor) executeFederatedLearningTask(ctx context.Context, task *model
 	}
 
 	return &models.TaskResult{
-		TaskID:    task.ID,
-		Output:    output,
-		ExitCode:  0,
-		CreatedAt: time.Now(),
+		TaskID:        task.ID,
+		Output:        output,
+		ExitCode:      0,
+		ExecutionTime: executionDurationMilliseconds(time.Since(startedAt)),
+		CreatedAt:     time.Now(),
 	}, nil
 }
 
@@ -493,4 +500,17 @@ func (e *Executor) executeDockerTask(ctx context.Context, task *models.Task) (*m
 	}
 
 	return e.dockerExecutor.ExecuteTask(ctx, task)
+}
+
+func executionDurationMilliseconds(duration time.Duration) int64 {
+	if duration <= 0 {
+		return 0
+	}
+
+	milliseconds := duration.Milliseconds()
+	if milliseconds == 0 {
+		return 1
+	}
+
+	return milliseconds
 }

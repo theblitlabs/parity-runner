@@ -42,6 +42,7 @@ type WebhookClient struct {
 	completedTasksLock sync.RWMutex
 	heartbeat          *heartbeat.HeartbeatService
 	modelCapabilities  []ModelCapabilityInfo
+	activeTaskID       string
 }
 
 type ModelCapabilityInfo struct {
@@ -173,9 +174,8 @@ func (w *WebhookClient) Stop() error {
 
 func (w *WebhookClient) UnregisterWithContext(ctx context.Context) error {
 	log := gologger.WithComponent("webhook")
-	if w.webhookID == "" {
-		log.Warn().Msg("No webhook ID to unregister")
-		return nil
+	if w.deviceID == "" {
+		return fmt.Errorf("device ID is required to unregister webhook")
 	}
 
 	reqURL := fmt.Sprintf("%s/api/v1/runners/webhooks", w.serverURL)
@@ -183,6 +183,7 @@ func (w *WebhookClient) UnregisterWithContext(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("failed to create webhook unregister request: %w", err)
 	}
+	req.Header.Set("X-Device-ID", w.deviceID)
 
 	client := &http.Client{Timeout: 10 * time.Second}
 	resp, err := client.Do(req)
@@ -195,7 +196,10 @@ func (w *WebhookClient) UnregisterWithContext(ctx context.Context) error {
 		return fmt.Errorf("webhook unregister failed with status: %d", resp.StatusCode)
 	}
 
-	log.Info().Str("webhook_id", w.webhookID).Msg("Webhook unregistered successfully")
+	log.Info().
+		Str("webhook_id", w.webhookID).
+		Str("device_id", w.deviceID).
+		Msg("Webhook unregistered successfully")
 	w.webhookID = ""
 	return nil
 }
@@ -235,19 +239,27 @@ func (w *WebhookClient) isTaskCompleted(taskID string) bool {
 func (w *WebhookClient) markTaskCompleted(taskID string) {
 	w.completedTasksLock.Lock()
 	defer w.completedTasksLock.Unlock()
+	if w.activeTaskID == taskID {
+		w.activeTaskID = ""
+	}
 	w.completedTasks[taskID] = time.Now()
 }
 
-func (w *WebhookClient) markTaskStarted(taskID string) bool {
+func (w *WebhookClient) tryStartTask(taskID string) (bool, bool, string) {
 	w.completedTasksLock.Lock()
 	defer w.completedTasksLock.Unlock()
 
 	if _, exists := w.completedTasks[taskID]; exists {
-		return false
+		return false, true, ""
 	}
 
+	if w.activeTaskID != "" && w.activeTaskID != taskID {
+		return false, false, w.activeTaskID
+	}
+
+	w.activeTaskID = taskID
 	w.completedTasks[taskID] = time.Time{}
-	return true
+	return true, false, ""
 }
 
 func (w *WebhookClient) handleWebhook(resp http.ResponseWriter, req *http.Request) {
@@ -317,11 +329,26 @@ func (w *WebhookClient) handleWebhook(resp http.ResponseWriter, req *http.Reques
 				return
 			}
 
-			if !w.markTaskStarted(taskID) {
+			started, duplicate, activeTaskID := w.tryStartTask(taskID)
+			if !started && duplicate {
 				log.Debug().
 					Str("id", taskID).
 					Str("type", string(task.Type)).
 					Msg("Task is already being processed")
+				resp.WriteHeader(http.StatusOK)
+				if _, err := resp.Write([]byte(`{"status":"skipped"}`)); err != nil {
+					log.Error().Err(err).Msg("Failed to write response")
+				}
+				return
+			}
+
+			if !started {
+				log.Warn().
+					Str("id", taskID).
+					Str("active_task_id", activeTaskID).
+					Msg("Runner is busy, rejecting task notification")
+				http.Error(resp, `{"status":"busy"}`, http.StatusConflict)
+				return
 			}
 
 			log.Debug().
@@ -333,21 +360,18 @@ func (w *WebhookClient) handleWebhook(resp http.ResponseWriter, req *http.Reques
 
 			// Process task asynchronously so webhook responds immediately
 			go func() {
+				defer w.markTaskCompleted(taskID)
 				if err := w.handler.HandleTask(task); err != nil {
 					log.Error().Err(err).
 						Str("id", taskID).
 						Str("type", string(task.Type)).
 						Float64("reward", task.Reward).
 						Msg("Task processing failed")
-
-					w.markTaskCompleted(taskID)
 				} else {
 					log.Debug().
 						Str("id", taskID).
 						Str("type", string(task.Type)).
 						Msg("Task processed successfully")
-
-					w.markTaskCompleted(taskID)
 				}
 			}()
 		} else {
@@ -432,14 +456,20 @@ func (w *WebhookClient) Register() error {
 		return fmt.Errorf("register request failed with status %d: %s", resp.StatusCode, string(body))
 	}
 
-	var response struct {
-		WebhookID string `json:"webhook_id"`
-	}
+	var response map[string]json.RawMessage
 	if err := json.NewDecoder(resp.Body).Decode(&response); err != nil {
 		return fmt.Errorf("failed to decode register response: %w", err)
 	}
 
-	w.webhookID = response.WebhookID
+	if rawWebhookID, ok := response["webhook_id"]; ok {
+		_ = json.Unmarshal(rawWebhookID, &w.webhookID)
+	}
+
+	if w.webhookID == "" {
+		if rawID, ok := response["id"]; ok {
+			_ = json.Unmarshal(rawID, &w.webhookID)
+		}
+	}
 
 	log.Debug().
 		Str("device_id", w.deviceID).

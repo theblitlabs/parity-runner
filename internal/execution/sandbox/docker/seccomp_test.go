@@ -65,6 +65,7 @@ func TestContainerSecurityCheck(t *testing.T) {
 		"alpine:latest",
 		"/",
 		[]string{"TEST=true"},
+		nil,
 	)
 	if err != nil {
 		t.Fatalf("Failed to create container: %v", err)

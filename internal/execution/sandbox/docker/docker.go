@@ -27,6 +27,23 @@ type ExecutorConfig struct {
 	ExecutionTimeout time.Duration `mapstructure:"execution_timeout"`
 }
 
+func extractStringSlice(value interface{}) []string {
+	switch items := value.(type) {
+	case []string:
+		return append([]string(nil), items...)
+	case []interface{}:
+		result := make([]string, 0, len(items))
+		for _, item := range items {
+			if str, ok := item.(string); ok && str != "" {
+				result = append(result, str)
+			}
+		}
+		return result
+	default:
+		return nil
+	}
+}
+
 func NewDockerExecutor(config *ExecutorConfig) (*DockerExecutor, error) {
 	log := gologger.WithComponent("docker")
 
@@ -122,15 +139,11 @@ func (e *DockerExecutor) ExecuteTask(ctx context.Context, task *models.Task) (*m
 
 	// Verify command hash if task has command
 	var commandHashVerified string
+	var command []string
 	if task.Environment != nil && task.Environment.Config != nil {
-		if cmd, ok := task.Environment.Config["command"].([]interface{}); ok {
-			commandSlice := make([]string, len(cmd))
-			for i, v := range cmd {
-				if str, ok := v.(string); ok {
-					commandSlice[i] = str
-				}
-			}
-			commandHashVerified = utils.ComputeCommandHash(commandSlice)
+		command = extractStringSlice(task.Environment.Config["command"])
+		if len(command) > 0 {
+			commandHashVerified = utils.ComputeCommandHash(command)
 			result.CommandHashVerified = commandHashVerified
 		}
 	}
@@ -168,12 +181,20 @@ func (e *DockerExecutor) ExecuteTask(ctx context.Context, task *models.Task) (*m
 		Strs("env_vars", envVars).
 		Msg("Container environment variables set")
 
-	log.Debug().
-		Str("task_id", task.ID.String()).
-		Str("image", image).
-		Msg("Using default command from image")
+	if len(command) > 0 {
+		log.Debug().
+			Str("task_id", task.ID.String()).
+			Str("image", image).
+			Strs("command", command).
+			Msg("Using task-provided container command")
+	} else {
+		log.Debug().
+			Str("task_id", task.ID.String()).
+			Str("image", image).
+			Msg("Using default command from image")
+	}
 
-	containerID, err := e.containerMgr.CreateContainer(setupCtx, image, workdir, envVars)
+	containerID, err := e.containerMgr.CreateContainer(setupCtx, image, workdir, envVars, command)
 	if err != nil {
 		log.Error().
 			Err(err).
@@ -370,6 +391,7 @@ func (e *DockerExecutor) ExecuteTask(ctx context.Context, task *models.Task) (*m
 			Bool("timed_out", isGracefulTimeout).
 			Msg("Task execution completed")
 	}
+	result.ExecutionTime = executionDurationMilliseconds(time.Since(startTime))
 
 	if err != nil && !isGracefulTimeout {
 		return result, fmt.Errorf("container wait failed: %w", err)
@@ -388,4 +410,17 @@ func (e *DockerExecutor) ExecuteTask(ctx context.Context, task *models.Task) (*m
 		Msg("Result hash computed")
 
 	return result, nil
+}
+
+func executionDurationMilliseconds(duration time.Duration) int64 {
+	if duration <= 0 {
+		return 0
+	}
+
+	milliseconds := duration.Milliseconds()
+	if milliseconds == 0 {
+		return 1
+	}
+
+	return milliseconds
 }

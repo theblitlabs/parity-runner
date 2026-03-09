@@ -47,8 +47,10 @@ func NewService(cfg *config.Config) (*Service, error) {
 	}
 
 	if err := checkDockerAvailability(dockerClient); err != nil {
-		log.Error().Err(err).Msg("Docker is not available")
-		return nil, fmt.Errorf("docker is not available: %w", err)
+		// Task execution relies on the docker CLI below, which can still work on
+		// Docker Desktop setups where the Go SDK probe fails against the current
+		// local socket/context.
+		log.Warn().Err(err).Msg("Docker SDK availability check failed; continuing with CLI-based execution")
 	}
 
 	svc := &Service{

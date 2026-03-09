@@ -48,6 +48,29 @@ func checkServerConnectivity(serverURL string) error {
 	return nil
 }
 
+func waitForServerConnectivity(ctx context.Context, serverURL string, retryInterval time.Duration) error {
+	var lastErr error
+	ticker := time.NewTicker(retryInterval)
+	defer ticker.Stop()
+
+	for {
+		if err := checkServerConnectivity(serverURL); err == nil {
+			return nil
+		} else {
+			lastErr = err
+		}
+
+		select {
+		case <-ctx.Done():
+			if lastErr == nil {
+				lastErr = ctx.Err()
+			}
+			return fmt.Errorf("server connectivity check failed after retries: %w", lastErr)
+		case <-ticker.C:
+		}
+	}
+}
+
 func RunRunner() {
 	logger := gologger.Get().With().Str("component", "cli").Logger()
 
@@ -71,7 +94,10 @@ func executeRunner() error {
 		return err
 	}
 
-	if err := checkServerConnectivity(cfg.Runner.ServerURL); err != nil {
+	connectivityCtx, connectivityCancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer connectivityCancel()
+
+	if err := waitForServerConnectivity(connectivityCtx, cfg.Runner.ServerURL, 2*time.Second); err != nil {
 		logger.Fatal().Err(err).Str("server_url", cfg.Runner.ServerURL).Msg("Server connectivity check failed")
 		return err
 	}
@@ -190,7 +216,10 @@ func executeRunnerWithLLM(models []string, ollamaURL string, autoInstall bool) e
 		logger.Info().Str("ollama_url", ollamaURL).Msg("Using custom Ollama URL")
 	}
 
-	if err := checkServerConnectivity(cfg.Runner.ServerURL); err != nil {
+	connectivityCtx, connectivityCancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer connectivityCancel()
+
+	if err := waitForServerConnectivity(connectivityCtx, cfg.Runner.ServerURL, 2*time.Second); err != nil {
 		logger.Fatal().Err(err).Str("server_url", cfg.Runner.ServerURL).Msg("Server connectivity check failed")
 		return err
 	}

@@ -145,7 +145,41 @@ func formatContainerOutput(output []byte) string {
 	return strings.TrimSpace(string(cleaned))
 }
 
-func (cm *ContainerManager) CreateContainer(ctx context.Context, image string, workdir string, envVars []string) (string, error) {
+type containerStateSnapshot struct {
+	Status   string
+	Running  bool
+	ExitCode int
+}
+
+func (cm *ContainerManager) inspectContainerState(ctx context.Context, containerID string) (*containerStateSnapshot, error) {
+	output, err := executils.ExecCommand(ctx, "docker", "inspect", "--format={{.State.Status}}::{{.State.Running}}::{{.State.ExitCode}}", containerID)
+	if err != nil {
+		return nil, err
+	}
+
+	parts := strings.Split(strings.TrimSpace(string(output)), "::")
+	if len(parts) != 3 {
+		return nil, fmt.Errorf("unexpected container state output: %s", strings.TrimSpace(string(output)))
+	}
+
+	running, err := strconv.ParseBool(parts[1])
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse running state: %w", err)
+	}
+
+	exitCode, err := strconv.Atoi(parts[2])
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse exit code: %w", err)
+	}
+
+	return &containerStateSnapshot{
+		Status:   parts[0],
+		Running:  running,
+		ExitCode: exitCode,
+	}, nil
+}
+
+func (cm *ContainerManager) CreateContainer(ctx context.Context, image string, workdir string, envVars []string, command []string) (string, error) {
 	log := gologger.WithComponent("docker.container")
 
 	createArgs := []string{
@@ -173,6 +207,7 @@ func (cm *ContainerManager) CreateContainer(ctx context.Context, image string, w
 	}
 
 	createArgs = append(createArgs, image)
+	createArgs = append(createArgs, command...)
 
 	output, err := executils.ExecCommand(ctx, "docker", createArgs...)
 	if err != nil {
@@ -296,19 +331,21 @@ func (cm *ContainerManager) VerifyNonceInOutput(output, nonce string) bool {
 func (cm *ContainerManager) preVerifyContainer(ctx context.Context, containerID string) bool {
 	log := gologger.WithComponent("docker.container")
 
-	inspectCmd := []string{"inspect", "--format={{.State.Status}}", containerID}
-	statusOutput, err := executils.ExecCommand(ctx, "docker", inspectCmd...)
+	state, err := cm.inspectContainerState(ctx, containerID)
 	if err != nil {
 		log.Warn().Err(err).Str("container", containerID).
 			Msg("Container not found in pre-verification")
 		return false
 	}
 
-	containerStatus := strings.TrimSpace(string(statusOutput))
-	log.Debug().Str("container", containerID).Str("status", containerStatus).
+	log.Debug().
+		Str("container", containerID).
+		Str("status", state.Status).
+		Bool("running", state.Running).
+		Int("exit_code", state.ExitCode).
 		Msg("Container status in pre-verification")
 
-	if containerStatus == "created" {
+	if state.Status == "created" {
 		log.Debug().Str("container", containerID).
 			Msg("Container in 'created' state, attempting to start")
 		_, startErr := executils.ExecCommand(ctx, "docker", "start", containerID)
@@ -324,11 +361,27 @@ func (cm *ContainerManager) preVerifyContainer(ctx context.Context, containerID 
 			return false
 		}
 
-		statusOutput, err := executils.ExecCommand(ctx, "docker", "inspect", "--format={{.State.Running}}", containerID)
-		if err == nil && strings.TrimSpace(string(statusOutput)) == "true" {
+		state, err := cm.inspectContainerState(ctx, containerID)
+		if err == nil && state.Running {
 			log.Debug().Str("container", containerID).Int("attempts", i+1).
 				Msg("Container is running in pre-verification")
 			return true
+		}
+
+		if err == nil && state.Status == "exited" {
+			if state.ExitCode == 0 {
+				log.Debug().
+					Str("container", containerID).
+					Int("exit_code", state.ExitCode).
+					Msg("Container exited successfully before security verification completed")
+				return true
+			}
+
+			log.Warn().
+				Str("container", containerID).
+				Int("exit_code", state.ExitCode).
+				Msg("Container exited before security verification with a non-zero exit code")
+			return false
 		}
 
 		// Skip logs on first few quick checks to avoid noise
@@ -342,10 +395,8 @@ func (cm *ContainerManager) preVerifyContainer(ctx context.Context, containerID 
 	}
 
 	// final check before giving up
-	statusOutput, err = executils.ExecCommand(ctx, "docker", "inspect", "--format={{.State.Running}}", containerID)
-	isRunning := err == nil && strings.TrimSpace(string(statusOutput)) == "true"
-
-	if isRunning {
+	state, err = cm.inspectContainerState(ctx, containerID)
+	if err == nil && (state.Running || (state.Status == "exited" && state.ExitCode == 0)) {
 		log.Debug().Str("container", containerID).Msg("Container is running after final pre-verification check")
 		return true
 	}
@@ -392,7 +443,7 @@ func (cm *ContainerManager) waitForContainerRunning(ctx context.Context, contain
 			return false, "Context terminated", ctx.Err()
 		}
 
-		statusOutput, statusErr := executils.ExecCommand(ctx, "docker", "inspect", "--format={{.State.Running}}", containerID)
+		state, statusErr := cm.inspectContainerState(ctx, containerID)
 		if statusErr != nil {
 
 			isLastAttempt := i == maxRetries-1
@@ -409,9 +460,27 @@ func (cm *ContainerManager) waitForContainerRunning(ctx context.Context, contain
 			continue
 		}
 
-		if strings.TrimSpace(string(statusOutput)) == "true" {
+		if state.Running {
 			log.Debug().Str("container", containerID).Int("attempt", i+1).Msg("Container is running, proceeding with security checks")
 			return true, "", nil
+		}
+
+		if state.Status == "exited" {
+			if state.ExitCode == 0 {
+				log.Debug().
+					Str("container", containerID).
+					Int("attempt", i+1).
+					Int("exit_code", state.ExitCode).
+					Msg("Container exited successfully before extended security verification")
+				return true, "Container exited successfully before extended security verification", nil
+			}
+
+			log.Error().
+				Str("container", containerID).
+				Int("attempt", i+1).
+				Int("exit_code", state.ExitCode).
+				Msg("Container exited before security verification")
+			return false, fmt.Sprintf("container exited with code %d before security verification", state.ExitCode), fmt.Errorf("container exited with code %d before security verification", state.ExitCode)
 		}
 
 		if i == maxRetries-1 {
