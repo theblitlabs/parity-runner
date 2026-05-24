@@ -10,7 +10,6 @@ import (
 	"github.com/docker/docker/client"
 	"github.com/google/uuid"
 
-	"github.com/theblitlabs/deviceid"
 	"github.com/theblitlabs/gologger"
 	"github.com/theblitlabs/keystore"
 
@@ -86,8 +85,8 @@ func NewService(cfg *config.Config) (*Service, error) {
 		ExecutionTimeout: cfg.Runner.ExecutionTimeout,
 	})
 	if err != nil {
-		log.Error().Err(err).Msg("Failed to create Docker executor")
-		return nil, fmt.Errorf("failed to create Docker executor: %w", err)
+		log.Warn().Err(err).Msg("Docker executor unavailable; continuing without Docker task support")
+		dockerExecutor = nil
 	}
 
 	// Create the enhanced task executor that supports LLM routing
@@ -96,8 +95,7 @@ func NewService(cfg *config.Config) (*Service, error) {
 	taskClient := NewHTTPTaskClient(cfg.Runner.ServerURL)
 	taskHandler := NewTaskHandler(executor, taskClient)
 
-	deviceIDManager := deviceid.NewManager(deviceid.Config{})
-	deviceID, err := deviceIDManager.VerifyDeviceID()
+	deviceID, err := utils.GetDeviceID()
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to get device ID")
 		return nil, fmt.Errorf("failed to get device ID: %w", err)

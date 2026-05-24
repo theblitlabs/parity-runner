@@ -2,6 +2,8 @@ package utils
 
 import (
 	"fmt"
+	"os"
+	"strings"
 
 	"github.com/theblitlabs/deviceid"
 )
@@ -9,6 +11,10 @@ import (
 var manager *deviceid.Manager
 
 func GetDeviceID() (string, error) {
+	if override := strings.TrimSpace(os.Getenv("RUNNER_DEVICE_ID")); override != "" {
+		return override, nil
+	}
+
 	if manager == nil {
 		manager = deviceid.NewManager(deviceid.Config{})
 	}

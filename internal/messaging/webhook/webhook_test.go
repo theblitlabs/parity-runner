@@ -3,6 +3,7 @@ package webhook
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"sync/atomic"
@@ -17,6 +18,16 @@ type blockingTaskHandler struct {
 	started    chan string
 	release    chan struct{}
 	processing atomic.Bool
+}
+
+type failingTaskHandler struct{}
+
+func (h *failingTaskHandler) HandleTask(task *models.Task) error {
+	return errors.New("boom")
+}
+
+func (h *failingTaskHandler) IsProcessing() bool {
+	return false
 }
 
 func (h *blockingTaskHandler) HandleTask(task *models.Task) error {
@@ -107,4 +118,28 @@ func TestHandleWebhookRejectsDifferentTaskWhileBusy(t *testing.T) {
 	}
 
 	t.Fatal("expected active task to be cleared after task completion")
+}
+
+func TestHandleWebhookReleasesTaskAfterFailure(t *testing.T) {
+	client := &WebhookClient{
+		handler:         &failingTaskHandler{},
+		completedTasks:  make(map[string]time.Time),
+		lastCleanupTime: time.Now(),
+	}
+
+	task := makeWebhookTask(uuid.New(), "failing")
+	resp := performWebhookRequest(t, client, task)
+	if resp.Code != http.StatusOK {
+		t.Fatalf("response code = %d, want %d", resp.Code, http.StatusOK)
+	}
+
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if client.activeTaskID == "" && !client.isTaskCompleted(task.ID.String()) {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	t.Fatal("expected failed task to be released for future retry")
 }

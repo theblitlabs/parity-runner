@@ -10,10 +10,14 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/theblitlabs/deviceid"
 
 	"github.com/theblitlabs/parity-runner/internal/core/models"
+	"github.com/theblitlabs/parity-runner/internal/utils"
 )
+
+var resolveDeviceID = func() (string, error) {
+	return utils.GetDeviceID()
+}
 
 type HTTPTaskClient struct {
 	baseURL string
@@ -52,13 +56,13 @@ func (c *HTTPTaskClient) UpdateTaskStatus(taskID string, status models.TaskStatu
 	case models.TaskStatusRunning:
 		return c.StartTask(taskID)
 	case models.TaskStatusCompleted, models.TaskStatusFailed:
-		if err := c.CompleteTask(taskID); err != nil {
-			return err
-		}
 		if result != nil {
 			return c.SaveTaskResult(taskID, result)
 		}
-		return nil
+		if status == models.TaskStatusCompleted {
+			return c.CompleteTask(taskID)
+		}
+		return fmt.Errorf("task result is required when marking a task as %s", status)
 	default:
 		return fmt.Errorf("unsupported status: %s", status)
 	}
@@ -68,8 +72,7 @@ func (c *HTTPTaskClient) GetAvailableTasks() ([]*models.Task, error) {
 	baseURL := strings.TrimSuffix(c.baseURL, "/api")
 	url := fmt.Sprintf("%s/api/v1/runners/tasks/available", baseURL)
 
-	deviceIDManager := deviceid.NewManager(deviceid.Config{})
-	deviceID, err := deviceIDManager.VerifyDeviceID()
+	deviceID, err := resolveDeviceID()
 	if err != nil {
 		return nil, fmt.Errorf("failed to get device ID: %w", err)
 	}
@@ -102,8 +105,7 @@ func (c *HTTPTaskClient) StartTask(taskID string) error {
 	baseURL := strings.TrimSuffix(c.baseURL, "/api")
 	url := fmt.Sprintf("%s/api/v1/runners/tasks/%s/start", baseURL, taskID)
 
-	deviceIDManager := deviceid.NewManager(deviceid.Config{})
-	deviceID, err := deviceIDManager.VerifyDeviceID()
+	deviceID, err := resolveDeviceID()
 	if err != nil {
 		return fmt.Errorf("failed to get device ID: %w", err)
 	}
@@ -141,8 +143,7 @@ func (c *HTTPTaskClient) CompleteTask(taskID string) error {
 	baseURL := strings.TrimSuffix(c.baseURL, "/api")
 	url := fmt.Sprintf("%s/api/v1/runners/tasks/%s/complete", baseURL, taskID)
 
-	deviceIDManager := deviceid.NewManager(deviceid.Config{})
-	deviceID, err := deviceIDManager.VerifyDeviceID()
+	deviceID, err := resolveDeviceID()
 	if err != nil {
 		return fmt.Errorf("failed to get device ID: %w", err)
 	}
@@ -171,8 +172,7 @@ func (c *HTTPTaskClient) SaveTaskResult(taskID string, result *models.TaskResult
 	baseURL := strings.TrimSuffix(c.baseURL, "/api")
 	url := fmt.Sprintf("%s/api/v1/runners/tasks/%s/result", baseURL, taskID)
 
-	deviceIDManager := deviceid.NewManager(deviceid.Config{})
-	deviceID, err := deviceIDManager.VerifyDeviceID()
+	deviceID, err := resolveDeviceID()
 	if err != nil {
 		return fmt.Errorf("failed to get device ID: %w", err)
 	}
@@ -241,8 +241,51 @@ func (c *HTTPTaskClient) CompletePrompt(promptID uuid.UUID, response string, pro
 	}
 
 	req.Header.Set("Content-Type", "application/json")
-	deviceIDManager := deviceid.NewManager(deviceid.Config{})
-	deviceID, err := deviceIDManager.VerifyDeviceID()
+	deviceID, err := resolveDeviceID()
+	if err != nil {
+		return fmt.Errorf("failed to get device ID: %w", err)
+	}
+	req.Header.Set("X-Device-ID", deviceID)
+
+	resp, err := c.client.Do(req)
+	if err != nil {
+		return fmt.Errorf("HTTP POST failed for %s: %w", url, err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		var errResp struct {
+			Error string `json:"error"`
+		}
+		if err := json.NewDecoder(resp.Body).Decode(&errResp); err == nil && errResp.Error != "" {
+			return fmt.Errorf("server error: %s", errResp.Error)
+		}
+		return fmt.Errorf("unexpected status code: %d", resp.StatusCode)
+	}
+
+	return nil
+}
+
+func (c *HTTPTaskClient) FailPrompt(promptID uuid.UUID, reason string) error {
+	baseURL := strings.TrimSuffix(c.baseURL, "/api")
+	url := fmt.Sprintf("%s/api/v1/llm/prompts/%s/fail", baseURL, promptID.String())
+
+	payload := map[string]string{
+		"reason": reason,
+	}
+
+	body, err := json.Marshal(payload)
+	if err != nil {
+		return fmt.Errorf("failed to marshal failure payload: %w", err)
+	}
+
+	req, err := http.NewRequest("POST", url, bytes.NewBuffer(body))
+	if err != nil {
+		return fmt.Errorf("failed to create request: %w", err)
+	}
+
+	req.Header.Set("Content-Type", "application/json")
+	deviceID, err := resolveDeviceID()
 	if err != nil {
 		return fmt.Errorf("failed to get device ID: %w", err)
 	}

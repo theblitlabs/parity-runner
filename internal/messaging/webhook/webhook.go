@@ -245,6 +245,15 @@ func (w *WebhookClient) markTaskCompleted(taskID string) {
 	w.completedTasks[taskID] = time.Now()
 }
 
+func (w *WebhookClient) releaseTask(taskID string) {
+	w.completedTasksLock.Lock()
+	defer w.completedTasksLock.Unlock()
+	if w.activeTaskID == taskID {
+		w.activeTaskID = ""
+	}
+	delete(w.completedTasks, taskID)
+}
+
 func (w *WebhookClient) tryStartTask(taskID string) (bool, bool, string) {
 	w.completedTasksLock.Lock()
 	defer w.completedTasksLock.Unlock()
@@ -360,14 +369,15 @@ func (w *WebhookClient) handleWebhook(resp http.ResponseWriter, req *http.Reques
 
 			// Process task asynchronously so webhook responds immediately
 			go func() {
-				defer w.markTaskCompleted(taskID)
 				if err := w.handler.HandleTask(task); err != nil {
+					w.releaseTask(taskID)
 					log.Error().Err(err).
 						Str("id", taskID).
 						Str("type", string(task.Type)).
 						Float64("reward", task.Reward).
 						Msg("Task processing failed")
 				} else {
+					w.markTaskCompleted(taskID)
 					log.Debug().
 						Str("id", taskID).
 						Str("type", string(task.Type)).

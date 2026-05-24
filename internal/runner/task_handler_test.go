@@ -3,6 +3,8 @@ package runner
 import (
 	"context"
 	"errors"
+	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -15,6 +17,10 @@ type stubTaskExecutor struct {
 	delay  time.Duration
 	result *models.TaskResult
 	err    error
+}
+
+type countingTaskExecutor struct {
+	calls atomic.Int32
 }
 
 func (e *stubTaskExecutor) ExecuteTask(ctx context.Context, task *models.Task) (*models.TaskResult, error) {
@@ -33,6 +39,15 @@ func (e *stubTaskExecutor) ExecuteTask(ctx context.Context, task *models.Task) (
 	return e.result, e.err
 }
 
+func (e *countingTaskExecutor) ExecuteTask(ctx context.Context, task *models.Task) (*models.TaskResult, error) {
+	e.calls.Add(1)
+	return &models.TaskResult{
+		TaskID:   task.ID,
+		ExitCode: 0,
+		Output:   "unexpected execution",
+	}, nil
+}
+
 type taskStatusUpdate struct {
 	taskID string
 	status models.TaskStatus
@@ -41,6 +56,12 @@ type taskStatusUpdate struct {
 
 type recordingTaskClient struct {
 	updates []taskStatusUpdate
+}
+
+type recordingLLMTaskClient struct {
+	recordingTaskClient
+	completed []uuid.UUID
+	failed    []string
 }
 
 func (c *recordingTaskClient) FetchTask() (*models.Task, error) {
@@ -60,6 +81,16 @@ func (c *recordingTaskClient) UpdateTaskStatus(taskID string, status models.Task
 		result: resultCopy,
 	})
 
+	return nil
+}
+
+func (c *recordingLLMTaskClient) CompletePrompt(promptID uuid.UUID, response string, promptTokens, responseTokens int, inferenceTime int64) error {
+	c.completed = append(c.completed, promptID)
+	return nil
+}
+
+func (c *recordingLLMTaskClient) FailPrompt(promptID uuid.UUID, reason string) error {
+	c.failed = append(c.failed, reason)
 	return nil
 }
 
@@ -120,4 +151,74 @@ func TestHandleTaskSetsExecutionTimeOnFailedResult(t *testing.T) {
 	if lastUpdate.result.ExecutionTime <= 0 {
 		t.Fatalf("ExecutionTime = %d, want > 0", lastUpdate.result.ExecutionTime)
 	}
+}
+
+func TestHandleLLMTaskMarksPromptFailedOnExecutorError(t *testing.T) {
+	task := &models.Task{
+		ID:   uuid.New(),
+		Type: models.TaskTypeLLM,
+	}
+	taskClient := &recordingLLMTaskClient{}
+	handler := NewTaskHandler(&stubTaskExecutor{
+		err: errors.New("model crashed"),
+	}, taskClient)
+
+	if err := handler.HandleTask(task); err != nil {
+		t.Fatalf("HandleTask() error = %v", err)
+	}
+
+	if len(taskClient.failed) != 1 {
+		t.Fatalf("failed prompt calls = %d, want 1", len(taskClient.failed))
+	}
+	if taskClient.failed[0] != "model crashed" {
+		t.Fatalf("failure reason = %q, want %q", taskClient.failed[0], "model crashed")
+	}
+	if len(taskClient.completed) != 0 {
+		t.Fatalf("completed prompt calls = %d, want 0", len(taskClient.completed))
+	}
+}
+
+func TestHandleTaskDoesNotExecuteWhenClaimFails(t *testing.T) {
+	task := &models.Task{
+		ID:    uuid.New(),
+		Type:  models.TaskTypeCommand,
+		Nonce: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+	}
+	executor := &countingTaskExecutor{}
+	taskClient := &recordingTaskClientWithFailure{
+		err: errors.New("task unavailable"),
+	}
+	handler := NewTaskHandler(executor, taskClient)
+
+	err := handler.HandleTask(task)
+	if err == nil {
+		t.Fatal("HandleTask() error = nil, want failure")
+	}
+	if !strings.Contains(err.Error(), "failed to claim task") {
+		t.Fatalf("error = %q, want claim failure", err.Error())
+	}
+	if executor.calls.Load() != 0 {
+		t.Fatalf("executor call count = %d, want 0", executor.calls.Load())
+	}
+	if len(taskClient.updates) != 1 {
+		t.Fatalf("status updates = %d, want 1", len(taskClient.updates))
+	}
+	if taskClient.updates[0].status != models.TaskStatusRunning {
+		t.Fatalf("first status = %s, want %s", taskClient.updates[0].status, models.TaskStatusRunning)
+	}
+}
+
+type recordingTaskClientWithFailure struct {
+	recordingTaskClient
+	err error
+}
+
+func (c *recordingTaskClientWithFailure) UpdateTaskStatus(taskID string, status models.TaskStatus, result *models.TaskResult) error {
+	if err := c.recordingTaskClient.UpdateTaskStatus(taskID, status, result); err != nil {
+		return err
+	}
+	if status == models.TaskStatusRunning {
+		return c.err
+	}
+	return nil
 }

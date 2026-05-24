@@ -4,10 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"sync/atomic"
 	"time"
 
-	"github.com/theblitlabs/deviceid"
+	"github.com/google/uuid"
 	"github.com/theblitlabs/gologger"
 
 	"github.com/theblitlabs/parity-runner/internal/core/models"
@@ -22,7 +23,8 @@ type DefaultTaskHandler struct {
 }
 
 type LLMTaskClient interface {
-	CompletePrompt(promptID string, response string, promptTokens, responseTokens int, inferenceTime int64) error
+	CompletePrompt(promptID uuid.UUID, response string, promptTokens, responseTokens int, inferenceTime int64) error
+	FailPrompt(promptID uuid.UUID, reason string) error
 }
 
 func NewTaskHandler(executor ports.TaskExecutor, taskClient ports.TaskClient) *DefaultTaskHandler {
@@ -68,6 +70,7 @@ func (h *DefaultTaskHandler) HandleTask(task *models.Task) error {
 
 	if err := h.taskClient.UpdateTaskStatus(task.ID.String(), models.TaskStatusRunning, nil); err != nil {
 		log.Error().Err(err).Str("id", task.ID.String()).Msg("Failed to update task status to running")
+		return fmt.Errorf("failed to claim task for execution: %w", err)
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Minute)
@@ -103,8 +106,7 @@ func (h *DefaultTaskHandler) HandleTask(task *models.Task) error {
 		result.ExecutionTime = durationMilliseconds(time.Since(executionStartedAt))
 	}
 
-	deviceIDManager := deviceid.NewManager(deviceid.Config{})
-	deviceID, err := deviceIDManager.VerifyDeviceID()
+	deviceID, err := utils.GetDeviceID()
 	if err == nil {
 		result.DeviceID = deviceID
 	}
@@ -159,6 +161,11 @@ func durationMilliseconds(duration time.Duration) int64 {
 
 func (h *DefaultTaskHandler) handleLLMTask(task *models.Task) error {
 	log := gologger.WithComponent("task_handler")
+	llmClient, ok := h.taskClient.(LLMTaskClient)
+	if !ok {
+		log.Error().Str("id", task.ID.String()).Msg("Task client does not support LLM completion")
+		return fmt.Errorf("task client does not support LLM completion")
+	}
 
 	// Add a small delay before first status update to ensure task is created
 	time.Sleep(500 * time.Millisecond)
@@ -207,43 +214,48 @@ func (h *DefaultTaskHandler) handleLLMTask(task *models.Task) error {
 	result, err := h.executor.ExecuteTask(ctx, task)
 	if err != nil {
 		log.Error().Err(err).Str("id", task.ID.String()).Msg("LLM task execution failed")
-		return err
-	}
-
-	if result.ExitCode != 0 {
-		log.Error().
-			Str("id", task.ID.String()).
-			Str("error", result.Error).
-			Msg("LLM task failed")
-		return fmt.Errorf("LLM task failed: %s", result.Error)
-	}
-
-	// For LLM tasks, we call CompletePrompt instead of the regular task completion
-	if llmClient, ok := h.taskClient.(*HTTPTaskClient); ok {
-		err = llmClient.CompletePrompt(
-			task.ID,
-			result.Output,
-			result.PromptTokens,
-			result.ResponseTokens,
-			result.InferenceTime,
-		)
-		if err != nil {
-			log.Error().Err(err).Str("id", task.ID.String()).Msg("Failed to complete LLM prompt")
-			return fmt.Errorf("failed to complete LLM prompt: %w", err)
+		if failErr := llmClient.FailPrompt(task.ID, err.Error()); failErr != nil {
+			return fmt.Errorf("failed to mark LLM prompt as failed: %w", failErr)
 		}
-
-		log.Debug().
-			Str("id", task.ID.String()).
-			Int("prompt_tokens", result.PromptTokens).
-			Int("response_tokens", result.ResponseTokens).
-			Int64("inference_time_ms", result.InferenceTime).
-			Msg("LLM task completed successfully")
-
 		return nil
 	}
 
-	log.Error().Str("id", task.ID.String()).Msg("Task client does not support LLM completion")
-	return fmt.Errorf("task client does not support LLM completion")
+	if result.ExitCode != 0 {
+		failureReason := strings.TrimSpace(result.Error)
+		if failureReason == "" {
+			failureReason = fmt.Sprintf("LLM task failed with exit code %d", result.ExitCode)
+		}
+
+		log.Error().
+			Str("id", task.ID.String()).
+			Str("error", failureReason).
+			Msg("LLM task failed")
+		if failErr := llmClient.FailPrompt(task.ID, failureReason); failErr != nil {
+			return fmt.Errorf("failed to mark LLM prompt as failed: %w", failErr)
+		}
+		return nil
+	}
+
+	err = llmClient.CompletePrompt(
+		task.ID,
+		result.Output,
+		result.PromptTokens,
+		result.ResponseTokens,
+		result.InferenceTime,
+	)
+	if err != nil {
+		log.Error().Err(err).Str("id", task.ID.String()).Msg("Failed to complete LLM prompt")
+		return fmt.Errorf("failed to complete LLM prompt: %w", err)
+	}
+
+	log.Debug().
+		Str("id", task.ID.String()).
+		Int("prompt_tokens", result.PromptTokens).
+		Int("response_tokens", result.ResponseTokens).
+		Int64("inference_time_ms", result.InferenceTime).
+		Msg("LLM task completed successfully")
+
+	return nil
 }
 
 func (h *DefaultTaskHandler) handleFederatedLearningCompletion(task *models.Task, result *models.TaskResult) error {
@@ -327,8 +339,7 @@ func (h *DefaultTaskHandler) handleFederatedLearningCompletion(task *models.Task
 	}
 
 	// Get the runner's device ID
-	deviceIDManager := deviceid.NewManager(deviceid.Config{})
-	runnerID, err := deviceIDManager.VerifyDeviceID()
+	runnerID, err := utils.GetDeviceID()
 	if err != nil {
 		log.Warn().Err(err).Msg("Failed to get device ID, using task runner ID")
 		runnerID = task.RunnerID
